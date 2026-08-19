@@ -33,6 +33,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Validate Google Drive credentials
+        env:
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+        run: |
+          test -n "$GOOGLE_OAUTH_CLIENT_ID" || { echo "::error::GOOGLE_OAUTH_CLIENT_ID is missing or blank"; exit 1; }
+          test -n "$GOOGLE_OAUTH_CLIENT_SECRET" || { echo "::error::GOOGLE_OAUTH_CLIENT_SECRET is missing or blank"; exit 1; }
+          test -n "$GOOGLE_OAUTH_REFRESH_TOKEN" || { echo "::error::GOOGLE_OAUTH_REFRESH_TOKEN is missing or blank"; exit 1; }
+          echo "FPL VORTEX Google Drive credentials are configured."
+
       - name: Run FPL VORTEX updater
         env:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
