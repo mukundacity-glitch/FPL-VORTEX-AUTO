@@ -23,6 +23,8 @@ SOURCE_FEEDS = {
 WORK_ROOT = Path(".vortex_work")
 RAW_ROOT = WORK_ROOT / "raw"
 MASTER_ROOT = WORK_ROOT / "master"
+MODEL_ROOT = WORK_ROOT / "model_history"
+SNAPSHOT_ROOT = WORK_ROOT / "snapshots"
 LOG_ROOT = WORK_ROOT / "logs"
 
 # Google Drive destination. The updater will address this through Drive API,
@@ -37,5 +39,12 @@ HTTP_RETRIES = 3
 
 
 def ensure_local_dirs() -> None:
-    for path in (WORK_ROOT, RAW_ROOT, MASTER_ROOT, LOG_ROOT):
+    for path in (
+        WORK_ROOT,
+        RAW_ROOT,
+        MASTER_ROOT,
+        MODEL_ROOT,
+        SNAPSHOT_ROOT,
+        LOG_ROOT,
+    ):
         path.mkdir(parents=True, exist_ok=True)
