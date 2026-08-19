@@ -14,7 +14,11 @@ from .config import LOG_ROOT, RAW_ROOT
 DRIVE_ROOT_ID = "1L1nZL0g2FsQ4r4CDyetlK68BT6--ChJ4"
 DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+
+# Full Drive scope is intentional here: this private updater must be able to
+# access the user's existing FPL_VORTEX_DATA folder, not only files originally
+# created by this OAuth client.
+SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
 def _credentials() -> Credentials:
