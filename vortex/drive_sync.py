@@ -8,7 +8,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-from .config import LOG_ROOT, RAW_ROOT
+from .config import LOG_ROOT, MASTER_ROOT, MODEL_ROOT, RAW_ROOT, SNAPSHOT_ROOT
 
 # Existing Google Drive folder already created by the VORTEX Data Builder.
 DRIVE_ROOT_ID = "1L1nZL0g2FsQ4r4CDyetlK68BT6--ChJ4"
@@ -159,14 +159,39 @@ def sync_vortex_to_drive() -> dict[str, int]:
         ["01_RAW", "AUTO_UPDATER"],
     )
 
+    master_count = _sync_tree(
+        service,
+        MASTER_ROOT,
+        ["04_MASTER", "AUTO_UPDATER"],
+    )
+
+    model_count = _sync_tree(
+        service,
+        MODEL_ROOT,
+        ["05_MODEL_HISTORY", "AUTO_UPDATER"],
+    )
+
+    snapshot_count = _sync_tree(
+        service,
+        SNAPSHOT_ROOT,
+        ["06_SNAPSHOTS", "AUTO_UPDATER"],
+    )
+
     log_count = _sync_tree(
         service,
         LOG_ROOT,
         ["07_LOGS", "AUTO_UPDATER"],
     )
 
-    print(f"[VORTEX] Google Drive sync complete | raw={raw_count} logs={log_count}")
+    print(
+        "[VORTEX] Google Drive sync complete | "
+        f"raw={raw_count} master={master_count} model={model_count} "
+        f"snapshots={snapshot_count} logs={log_count}"
+    )
     return {
         "raw_files_uploaded_or_updated": raw_count,
+        "master_files_uploaded_or_updated": master_count,
+        "model_files_uploaded_or_updated": model_count,
+        "snapshot_files_uploaded_or_updated": snapshot_count,
         "log_files_uploaded_or_updated": log_count,
     }
