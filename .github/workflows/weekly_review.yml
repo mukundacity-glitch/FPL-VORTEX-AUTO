@@ -1,5 +1,6 @@
 name: FPL VORTEX Weekly Review Cloud
 
+# Bootstrap note: a push to this workflow path starts the cloud review once.
 on:
   workflow_dispatch:
   push:
