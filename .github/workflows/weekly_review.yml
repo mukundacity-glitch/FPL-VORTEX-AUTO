@@ -78,6 +78,6 @@ jobs:
           name: fpl-vortex-weekly-review-${{ inputs.render_mode }}-${{ github.run_id }}
           path: |
             .cloud_run/weekly_cloud_run_report.json
-            /content/drive/MyDrive/FPL_VORTEX/First Day Video/DATA/*.json
+            ${{ runner.temp }}/fpl_vortex_content/drive/MyDrive/FPL_VORTEX/First Day Video/DATA/*.json
           if-no-files-found: warn
           retention-days: 7
