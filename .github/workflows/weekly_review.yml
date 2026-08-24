@@ -1,14 +1,16 @@
 name: FPL VORTEX Weekly Review Cloud
 
-# Bootstrap note: a push to this workflow path starts the cloud review once.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "run_weekly_review_cloud.py"
-      - ".github/workflows/weekly_review.yml"
+    inputs:
+      render_mode:
+        description: "Render mode"
+        required: true
+        default: "DRAFT"
+        type: choice
+        options:
+          - DRAFT
+          - FINAL
 
 permissions:
   contents: read
@@ -62,17 +64,18 @@ jobs:
       - name: Run latest Drive weekly notebook
         env:
           PYTHONUNBUFFERED: "1"
+          VORTEX_RENDER_MODE: ${{ inputs.render_mode }}
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python run_weekly_review_cloud.py
+        run: python run_weekly_review_mode.py
 
       - name: Keep cloud-run diagnostic report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fpl-vortex-weekly-review-${{ github.run_id }}
+          name: fpl-vortex-weekly-review-${{ inputs.render_mode }}-${{ github.run_id }}
           path: |
             .cloud_run/weekly_cloud_run_report.json
             /content/drive/MyDrive/FPL_VORTEX/First Day Video/DATA/*.json
