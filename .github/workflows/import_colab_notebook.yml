@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --quiet gdown
-          gdown --fuzzy 'https://drive.google.com/file/d/160mQ45CbfX6chQYCATo5jyj948Un3aiR/view?usp=drive_link' -O FPL_VORTEX_WEEKLY.ipynb
+          gdown '160mQ45CbfX6chQYCATo5jyj948Un3aiR' -O FPL_VORTEX_WEEKLY.ipynb
 
       - name: Verify notebook bytes and JSON
         shell: bash
