@@ -1,0 +1,117 @@
+name: Cell 20 Exact QA Fix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/_cell20_exact_fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-cell-20:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Patch only Cell 20 mux-duration QA
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          import json
+
+          notebook_path = Path("FPL_VORTEX_WEEKLY.ipynb")
+          workflow_path = Path(".github/workflows/_cell20_exact_fix.yml")
+
+          original = notebook_path.read_text(encoding="utf-8")
+          marker = "# CELL 20 — SHARED MASTER-CONTROLLED MP4 RENDERER"
+          old = "grid_delta = abs(vd - frame_grid_duration)"
+          new = "grid_delta = abs(vd - min(frame_grid_duration, duration))"
+
+          if original.count(marker) != 1:
+              raise SystemExit(f"Expected exactly one Cell 20 marker, found {original.count(marker)}")
+
+          marker_pos = original.index(marker)
+          old_pos = original.find(old, marker_pos)
+          if old_pos < 0:
+              raise SystemExit("Cell 20 expected QA expression was not found")
+
+          next_cell_pos = original.find('},{"cell_type":', marker_pos)
+          if next_cell_pos >= 0 and old_pos >= next_cell_pos:
+              raise SystemExit("Expected QA expression was not inside Cell 20")
+
+          if original.find(new, marker_pos, next_cell_pos if next_cell_pos >= 0 else len(original)) >= 0:
+              raise SystemExit("Cell 20 already contains the replacement expression")
+
+          patched = original[:old_pos] + new + original[old_pos + len(old):]
+          expected_delta = len(new) - len(old)
+          if len(patched) - len(original) != expected_delta:
+              raise SystemExit("Unexpected notebook byte-length change")
+
+          before_nb = json.loads(original)
+          after_nb = json.loads(patched)
+
+          def top_level_defs(nb):
+              found = []
+              for index, cell in enumerate(nb.get("cells", [])):
+                  if cell.get("cell_type") != "code":
+                      continue
+                  source = "".join(cell.get("source", []))
+                  tree = ast.parse(source, filename=f"cell_{index}")
+                  for node in tree.body:
+                      if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                          found.append((index, node.name))
+              return found
+
+          before_defs = top_level_defs(before_nb)
+          after_defs = top_level_defs(after_nb)
+          if before_defs != after_defs:
+              raise SystemExit("Top-level function definitions changed unexpectedly")
+
+          target_cells = [
+              cell for cell in after_nb.get("cells", [])
+              if cell.get("cell_type") == "code"
+              and marker in "".join(cell.get("source", []))
+          ]
+          if len(target_cells) != 1:
+              raise SystemExit(f"Expected exactly one Cell 20 code cell, found {len(target_cells)}")
+
+          target_source = "".join(target_cells[0].get("source", []))
+          if target_source.count(old) != 0 or target_source.count(new) != 1:
+              raise SystemExit("Cell 20 replacement verification failed")
+
+          # Compile every code cell exactly as stored after the one-expression patch.
+          for index, cell in enumerate(after_nb.get("cells", [])):
+              if cell.get("cell_type") == "code":
+                  compile("".join(cell.get("source", [])), f"cell_{index}", "exec")
+
+          notebook_path.write_text(patched, encoding="utf-8")
+          workflow_path.unlink()
+          print("Patched exactly one Cell 20 QA expression; all code cells compile.")
+          PY
+
+          git diff --check
+          changed="$(git status --short)"
+          printf '%s\n' "$changed"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add FPL_VORTEX_WEEKLY.ipynb .github/workflows/_cell20_exact_fix.yml
+
+          staged="$(git diff --cached --name-only)"
+          expected="$(printf '%s\n%s\n' '.github/workflows/_cell20_exact_fix.yml' 'FPL_VORTEX_WEEKLY.ipynb')"
+          if [ "$staged" != "$expected" ]; then
+            echo "Unexpected staged files:"
+            printf '%s\n' "$staged"
+            exit 1
+          fi
+
+          git commit -m "Fix Cell 20 mux duration QA"
+          git push origin HEAD:main
