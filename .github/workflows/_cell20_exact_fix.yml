@@ -87,10 +87,16 @@ jobs:
           if target_source.count(old) != 0 or target_source.count(new) != 1:
               raise SystemExit("Cell 20 replacement verification failed")
 
-          # Compile every code cell exactly as stored after the one-expression patch.
+          # Compile every code cell with the same top-level-await allowance Jupyter uses.
           for index, cell in enumerate(after_nb.get("cells", [])):
               if cell.get("cell_type") == "code":
-                  compile("".join(cell.get("source", [])), f"cell_{index}", "exec")
+                  compile(
+                      "".join(cell.get("source", [])),
+                      f"cell_{index}",
+                      "exec",
+                      flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                      dont_inherit=True,
+                  )
 
           notebook_path.write_text(patched, encoding="utf-8")
           workflow_path.unlink()
