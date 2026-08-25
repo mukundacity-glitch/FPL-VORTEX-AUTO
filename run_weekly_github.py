@@ -27,16 +27,23 @@ def _preflight_notebook() -> None:
     if not nb.cells:
         raise RuntimeError("Notebook contains no cells")
 
-    forbidden = ("/content/drive/", "/content/drive/MyDrive/")
+    forbidden_paths = (
+        "/content/drive/MyDrive/FPL_VORTEX",
+        "/content/drive/MyDrive/FPL_VORTEX_DATA",
+    )
     duplicate_functions: collections.defaultdict[str, list[int]] = collections.defaultdict(list)
     syntax_errors: list[str] = []
     for index, cell in enumerate(nb.cells):
         if cell.cell_type != "code":
             continue
         source = cell.source
-        for token in forbidden:
+        for token in forbidden_paths:
             if token in source:
                 raise RuntimeError(f"Cell {index} still contains GitHub-incompatible path {token}")
+        if "drive.mount(" in source and index != 0:
+            raise RuntimeError(f"Cell {index} contains an unexpected interactive Drive mount")
+        if "from google.colab import drive" in source and index != 0:
+            raise RuntimeError(f"Cell {index} contains an unexpected Colab Drive import")
         try:
             compile(source, f"<cell {index}>", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
         except SyntaxError as exc:
