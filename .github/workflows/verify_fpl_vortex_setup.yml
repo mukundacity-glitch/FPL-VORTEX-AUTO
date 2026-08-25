@@ -1,0 +1,45 @@
+name: Verify FPL VORTEX Setup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/verify_fpl_vortex_setup.py
+
+permissions:
+  contents: read
+
+env:
+  FPL_VORTEX_LOCAL_ROOT: ${{ github.workspace }}/output
+  GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+  GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+  ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify ffmpeg
+        run: ffmpeg -version | head -n 1
+
+      - name: Verify Chromium dependency path
+        run: python -m playwright install --with-deps chromium
+
+      - name: Verify notebook compatibility
+        run: python run_weekly_github.py preflight
+
+      - name: Verify Google Drive authentication and required inputs
+        run: python tools/verify_fpl_vortex_setup.py
