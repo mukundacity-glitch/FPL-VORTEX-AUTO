@@ -1,0 +1,62 @@
+name: FPL VORTEX
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fpl-vortex-weekly
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FPL_VORTEX_LOCAL_ROOT: ${{ github.workspace }}/output
+  GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+  GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+  ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+
+jobs:
+  run-fpl-vortex:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Install system rendering dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Chromium runtime
+        run: python -m playwright install --with-deps chromium
+
+      - name: Verify notebook compatibility
+        run: python run_weekly_github.py preflight
+
+      - name: Restore persistent Google Drive state
+        run: python run_weekly_github.py restore
+
+      - name: Execute FPL VORTEX
+        run: python run_weekly_github.py execute
+
+      - name: Verify generated outputs
+        run: python run_weekly_github.py validate
+
+      - name: Upload outputs and persistent state to Google Drive
+        run: python run_weekly_github.py publish
