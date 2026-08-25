@@ -1,0 +1,49 @@
+name: Import Colab Notebook
+
+on:
+  push:
+    paths:
+      - '.github/workflows/import_colab_notebook.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import-notebook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Download exact Colab notebook
+        shell: bash
+        run: |
+          python -m pip install --quiet gdown
+          gdown --fuzzy 'https://drive.google.com/file/d/160mQ45CbfX6chQYCATo5jyj948Un3aiR/view?usp=drive_link' -O FPL_VORTEX_WEEKLY.ipynb
+
+      - name: Verify notebook bytes and JSON
+        shell: bash
+        run: |
+          echo '3859bc2c147d12ff22b8d654750e390d14507f68120bc394542b148f6b3eea40  FPL_VORTEX_WEEKLY.ipynb' | sha256sum --check --strict
+          python - <<'PY'
+          import json
+          with open('FPL_VORTEX_WEEKLY.ipynb', 'r', encoding='utf-8') as f:
+              nb = json.load(f)
+          assert nb.get('nbformat') == 4
+          print(f"Validated {len(nb.get('cells', []))} cells")
+          PY
+
+      - name: Commit notebook to main
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FPL_VORTEX_WEEKLY.ipynb
+          if git diff --cached --quiet; then
+            echo 'Notebook already matches; nothing to commit.'
+          else
+            git commit -m 'Add FPL VORTEX weekly Colab notebook'
+            git push origin HEAD:main
+          fi
