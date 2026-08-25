@@ -22,6 +22,8 @@ QUALITY_ASSIGNMENT = re.compile(
     r'^MP4_QUALITY\s*=\s*"(?:DRAFT|FINAL)"\s*#\s*@param\s*\["DRAFT",\s*"FINAL"\]\s*$',
     flags=re.M,
 )
+PHASE0_REVIEW_NAME_BAD = 'if "gw_review" in path.name.lower() or "review" in path.name.lower():'
+PHASE0_REVIEW_NAME_FIXED = 'if "review" in re.split(r"[^a-z0-9]+", path.stem.lower()):'
 
 
 def _preflight_notebook() -> None:
@@ -68,6 +70,43 @@ def _preflight_notebook() -> None:
         )
 
 
+def _apply_phase0_cleanroom_filename_fix(nb) -> None:
+    bad_matches: list[int] = []
+    fixed_matches: list[int] = []
+    for index, cell in enumerate(nb.cells):
+        if cell.cell_type != "code":
+            continue
+        if PHASE0_REVIEW_NAME_BAD in cell.source:
+            bad_matches.append(index)
+        if PHASE0_REVIEW_NAME_FIXED in cell.source:
+            fixed_matches.append(index)
+
+    if bad_matches:
+        if len(bad_matches) != 1:
+            raise RuntimeError(
+                "Expected exactly one Phase 0 review filename guard to patch, "
+                f"found {len(bad_matches)} in cells {bad_matches}"
+            )
+        cell_index = bad_matches[0]
+        source = nb.cells[cell_index].source
+        nb.cells[cell_index].source = source.replace(
+            PHASE0_REVIEW_NAME_BAD,
+            PHASE0_REVIEW_NAME_FIXED,
+            1,
+        )
+        print(
+            "[VORTEX] Phase 0 clean-room filename guard fixed: "
+            "review is now matched as a filename token, not inside preview"
+        )
+        return
+
+    if len(fixed_matches) != 1:
+        raise RuntimeError(
+            "Expected exactly one fixed Phase 0 review filename guard, "
+            f"found {len(fixed_matches)} in cells {fixed_matches}"
+        )
+
+
 def _apply_github_render_quality(nb) -> str:
     quality = os.environ.get("FPL_VORTEX_MP4_QUALITY", "FINAL").strip().upper()
     if quality not in {"DRAFT", "FINAL"}:
@@ -102,6 +141,7 @@ def execute_notebook() -> None:
         raise RuntimeError("This runner is only for GitHub Actions execution")
     _preflight_notebook()
     nb = nbformat.read(NOTEBOOK, as_version=4)
+    _apply_phase0_cleanroom_filename_fix(nb)
     _apply_github_render_quality(nb)
     client = NotebookClient(
         nb,
