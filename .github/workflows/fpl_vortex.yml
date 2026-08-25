@@ -2,6 +2,15 @@ name: FPL VORTEX
 
 on:
   workflow_dispatch:
+    inputs:
+      render_quality:
+        description: Video render quality
+        required: true
+        default: FINAL
+        type: choice
+        options:
+          - DRAFT
+          - FINAL
 
 permissions:
   contents: read
@@ -13,6 +22,7 @@ concurrency:
 env:
   PYTHONUNBUFFERED: "1"
   FPL_VORTEX_LOCAL_ROOT: ${{ github.workspace }}/output
+  FPL_VORTEX_MP4_QUALITY: ${{ inputs.render_quality }}
   GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
   GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
   GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
@@ -32,6 +42,39 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+
+      - name: Normalize Google OAuth secrets
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+
+          names = (
+              "GOOGLE_OAUTH_CLIENT_ID",
+              "GOOGLE_OAUTH_CLIENT_SECRET",
+              "GOOGLE_OAUTH_REFRESH_TOKEN",
+          )
+
+          cleaned = {}
+          for name in names:
+              value = (os.environ.get(name) or "").strip()
+              if not value:
+                  raise SystemExit(f"Missing or empty GitHub secret: {name}")
+              cleaned[name] = value
+
+          if not cleaned["GOOGLE_OAUTH_CLIENT_ID"].endswith(".apps.googleusercontent.com"):
+              raise SystemExit(
+                  "GOOGLE_OAUTH_CLIENT_ID does not look like a Google OAuth client ID. "
+                  "Use the active OAuth client ID that issued the refresh token."
+              )
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              for name, value in cleaned.items():
+                  marker = f"FPL_VORTEX_{name}_EOF"
+                  handle.write(f"{name}<<{marker}\n{value}\n{marker}\n")
+
+          print("Google OAuth secrets normalized without exposing their values.")
+          PY
 
       - name: Install Python dependencies
         run: |
