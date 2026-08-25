@@ -18,6 +18,10 @@ from vortex.drive_sync import (
 
 NOTEBOOK = Path(__file__).resolve().parent / "FPL_VORTEX_WEEKLY.ipynb"
 LOCAL_ROOT = Path(os.environ.get("FPL_VORTEX_LOCAL_ROOT", "output")).resolve()
+QUALITY_ASSIGNMENT = re.compile(
+    r'^MP4_QUALITY\s*=\s*"(?:DRAFT|FINAL)"\s*#\s*@param\s*\["DRAFT",\s*"FINAL"\]\s*$',
+    flags=re.M,
+)
 
 
 def _preflight_notebook() -> None:
@@ -33,10 +37,12 @@ def _preflight_notebook() -> None:
     )
     duplicate_functions: collections.defaultdict[str, list[int]] = collections.defaultdict(list)
     syntax_errors: list[str] = []
+    quality_assignments = 0
     for index, cell in enumerate(nb.cells):
         if cell.cell_type != "code":
             continue
         source = cell.source
+        quality_assignments += len(QUALITY_ASSIGNMENT.findall(source))
         for token in forbidden_paths:
             if token in source:
                 raise RuntimeError(f"Cell {index} still contains GitHub-incompatible path {token}")
@@ -56,6 +62,39 @@ def _preflight_notebook() -> None:
     duplicates = {name: cells for name, cells in duplicate_functions.items() if len(cells) > 1}
     if duplicates:
         raise RuntimeError(f"Duplicate notebook function definitions detected: {duplicates}")
+    if quality_assignments != 1:
+        raise RuntimeError(
+            f"Expected exactly one notebook MP4_QUALITY owner, found {quality_assignments}"
+        )
+
+
+def _apply_github_render_quality(nb) -> str:
+    quality = os.environ.get("FPL_VORTEX_MP4_QUALITY", "FINAL").strip().upper()
+    if quality not in {"DRAFT", "FINAL"}:
+        raise RuntimeError(
+            "FPL_VORTEX_MP4_QUALITY must be DRAFT or FINAL, "
+            f"got {quality!r}"
+        )
+
+    matches: list[tuple[int, re.Match[str]]] = []
+    for index, cell in enumerate(nb.cells):
+        if cell.cell_type != "code":
+            continue
+        match = QUALITY_ASSIGNMENT.search(cell.source)
+        if match:
+            matches.append((index, match))
+
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"Expected exactly one notebook MP4_QUALITY owner, found {len(matches)}"
+        )
+
+    cell_index, match = matches[0]
+    source = nb.cells[cell_index].source
+    replacement = f'MP4_QUALITY = "{quality}"  # @param ["DRAFT", "FINAL"]'
+    nb.cells[cell_index].source = source[: match.start()] + replacement + source[match.end() :]
+    print(f"[VORTEX] GitHub render quality selected: {quality}")
+    return quality
 
 
 def execute_notebook() -> None:
@@ -63,6 +102,7 @@ def execute_notebook() -> None:
         raise RuntimeError("This runner is only for GitHub Actions execution")
     _preflight_notebook()
     nb = nbformat.read(NOTEBOOK, as_version=4)
+    _apply_github_render_quality(nb)
     client = NotebookClient(
         nb,
         timeout=None,
