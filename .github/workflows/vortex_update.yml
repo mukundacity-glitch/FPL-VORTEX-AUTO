@@ -1,0 +1,55 @@
+name: FPL VORTEX Auto Update
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * *"
+    - cron: "17 18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fpl-vortex-auto-update
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+  GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-auto.txt
+
+      - name: Install updater dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-auto.txt
+
+      - name: Run FPL VORTEX updater
+        run: python run_vortex_auto.py
+
+      - name: Upload diagnostic output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fpl-vortex-update-${{ github.run_id }}
+          path: |
+            .vortex_work/logs/
+            .vortex_work/raw/official_fpl/
+          if-no-files-found: warn
+          retention-days: 7
