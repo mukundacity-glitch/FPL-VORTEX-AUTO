@@ -22,8 +22,8 @@ QUALITY_ASSIGNMENT = re.compile(
     r'^MP4_QUALITY\s*=\s*"(?:DRAFT|FINAL)"\s*#\s*@param\s*\["DRAFT",\s*"FINAL"\]\s*$',
     flags=re.M,
 )
-PHASE0_REVIEW_NAME_BAD = 'if "gw_review" in path.name.lower() or "review" in path.name.lower():'
-PHASE0_REVIEW_NAME_FIXED = 'if "review" in re.split(r"[^a-z0-9]+", path.stem.lower()):'
+PHASE0_REVIEW_NAME_GUARD = 'if "review" in re.split(r"[^a-z0-9]+", path.stem.lower()):'
+PHASE0_REVIEW_CLEANUP_MARKER = "# Remove transient GW-review renderer HTML before the Phase 0 publish gate."
 
 
 def _preflight_notebook() -> None:
@@ -40,11 +40,15 @@ def _preflight_notebook() -> None:
     duplicate_functions: collections.defaultdict[str, list[int]] = collections.defaultdict(list)
     syntax_errors: list[str] = []
     quality_assignments = 0
+    review_name_guards = 0
+    review_cleanup_markers = 0
     for index, cell in enumerate(nb.cells):
         if cell.cell_type != "code":
             continue
         source = cell.source
         quality_assignments += len(QUALITY_ASSIGNMENT.findall(source))
+        review_name_guards += source.count(PHASE0_REVIEW_NAME_GUARD)
+        review_cleanup_markers += source.count(PHASE0_REVIEW_CLEANUP_MARKER)
         for token in forbidden_paths:
             if token in source:
                 raise RuntimeError(f"Cell {index} still contains GitHub-incompatible path {token}")
@@ -68,42 +72,15 @@ def _preflight_notebook() -> None:
         raise RuntimeError(
             f"Expected exactly one notebook MP4_QUALITY owner, found {quality_assignments}"
         )
-
-
-def _apply_phase0_cleanroom_filename_fix(nb) -> None:
-    bad_matches: list[int] = []
-    fixed_matches: list[int] = []
-    for index, cell in enumerate(nb.cells):
-        if cell.cell_type != "code":
-            continue
-        if PHASE0_REVIEW_NAME_BAD in cell.source:
-            bad_matches.append(index)
-        if PHASE0_REVIEW_NAME_FIXED in cell.source:
-            fixed_matches.append(index)
-
-    if bad_matches:
-        if len(bad_matches) != 1:
-            raise RuntimeError(
-                "Expected exactly one Phase 0 review filename guard to patch, "
-                f"found {len(bad_matches)} in cells {bad_matches}"
-            )
-        cell_index = bad_matches[0]
-        source = nb.cells[cell_index].source
-        nb.cells[cell_index].source = source.replace(
-            PHASE0_REVIEW_NAME_BAD,
-            PHASE0_REVIEW_NAME_FIXED,
-            1,
-        )
-        print(
-            "[VORTEX] Phase 0 clean-room filename guard fixed: "
-            "review is now matched as a filename token, not inside preview"
-        )
-        return
-
-    if len(fixed_matches) != 1:
+    if review_name_guards != 1:
         raise RuntimeError(
-            "Expected exactly one fixed Phase 0 review filename guard, "
-            f"found {len(fixed_matches)} in cells {fixed_matches}"
+            "Expected exactly one Phase 0 review filename guard, "
+            f"found {review_name_guards}"
+        )
+    if review_cleanup_markers != 1:
+        raise RuntimeError(
+            "Expected exactly one Phase 0 transient review cleanup, "
+            f"found {review_cleanup_markers}"
         )
 
 
@@ -141,7 +118,6 @@ def execute_notebook() -> None:
         raise RuntimeError("This runner is only for GitHub Actions execution")
     _preflight_notebook()
     nb = nbformat.read(NOTEBOOK, as_version=4)
-    _apply_phase0_cleanroom_filename_fix(nb)
     _apply_github_render_quality(nb)
     client = NotebookClient(
         nb,
