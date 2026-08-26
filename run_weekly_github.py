@@ -23,7 +23,26 @@ QUALITY_ASSIGNMENT = re.compile(
     flags=re.M,
 )
 PHASE0_REVIEW_NAME_BAD = 'if "gw_review" in path.name.lower() or "review" in path.name.lower():'
-PHASE0_REVIEW_NAME_FIXED = 'if "review" in re.split(r"[^a-z0-9]+", path.stem.lower()):'
+PHASE0_REVIEW_NAME_FIXED = (
+    'if "review" in re.split(r"[^a-z0-9]+", path.stem.lower()) and path.name.lower() not in _vx_phase0_approved_gw_review_outputs:'
+)
+# Filenames produced by the GW review cell chain (Cells 21, 23, 25, 29).
+# These are the deterministic current-run scene template, data package, animation
+# manifest, captions, and audio concat. They legitimately embed fixture context
+# (FDR for the next 5 fixtures) as part of the approved design, so the
+# retrospective-phrase content check is skipped for them. Any *other* file with
+# "review" in its name is still scanned, so stale leftover artifacts are still
+# caught as before.
+PHASE0_APPROVED_GW_REVIEW_OUTPUTS = frozenset(
+    {
+        "gw_review_scene_4k.html",
+        "gw_review_scene_4k_animated.html",
+        "gw_review_package.json",
+        "gw_review_animation_manifest.json",
+        "gw_review_master.vtt",
+        "gw_review_concat.txt",
+    }
+)
 
 
 def _preflight_notebook() -> None:
@@ -89,6 +108,31 @@ def _apply_phase0_cleanroom_filename_fix(nb) -> None:
             )
         cell_index = bad_matches[0]
         source = nb.cells[cell_index].source
+
+        # Inject the approved-outputs allowlist so the patched condition can
+        # reference it. The constant is defined just before
+        # _vx_phase0_review_forbidden_phrases so it is in scope when the scan
+        # function runs at startup / pre-publish.
+        if "_vx_phase0_approved_gw_review_outputs" not in source:
+            anchor = "def _vx_phase0_review_forbidden_phrases"
+            if anchor not in source:
+                raise RuntimeError(
+                    "Could not find the Phase 0 review forbidden phrases anchor "
+                    "needed to inject the approved-outputs allowlist"
+                )
+            allowlist_block = (
+                "# GitHub Actions only: the deterministic GW review outputs from\n"
+                "# Cells 21, 23, 25 and 29 legitimately embed fixture context\n"
+                "# (FDR for the next 5 fixtures) as part of the approved design.\n"
+                "# They are NOT stale dependencies, so the retrospective-phrase\n"
+                "# content check is skipped for these exact filenames. Any other\n"
+                "# 'review'-named file is still scanned, so leftover artifacts\n"
+                "# from prior runs continue to be caught.\n"
+                f"_vx_phase0_approved_gw_review_outputs = frozenset({sorted(PHASE0_APPROVED_GW_REVIEW_OUTPUTS)!r})\n"
+                "\n\n"
+            )
+            source = source.replace(anchor, allowlist_block + anchor, 1)
+
         nb.cells[cell_index].source = source.replace(
             PHASE0_REVIEW_NAME_BAD,
             PHASE0_REVIEW_NAME_FIXED,
@@ -96,7 +140,8 @@ def _apply_phase0_cleanroom_filename_fix(nb) -> None:
         )
         print(
             "[VORTEX] Phase 0 clean-room filename guard fixed: "
-            "review is now matched as a filename token, not inside preview"
+            "review is now matched as a filename token, and approved "
+            "GW review output files are exempted from the content check"
         )
         return
 
