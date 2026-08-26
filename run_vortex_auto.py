@@ -22,6 +22,18 @@ def _drive_secrets_present() -> bool:
     )
 
 
+def _validate_rich_feed(rich_feed: dict, rich_export: object) -> None:
+    status = str(rich_feed.get("status") or "UNKNOWN")
+    if status == "ERROR":
+        detail = rich_feed.get("error") or "unknown upstream error"
+        raise RuntimeError(f"Rich match feed refresh failed: {detail}")
+    if rich_export is None:
+        raise RuntimeError(
+            "Rich match feed refresh produced no current-season export. "
+            "Check the upstream season folder and source availability."
+        )
+
+
 def run() -> dict:
     ensure_local_dirs()
     started = datetime.now(timezone.utc)
@@ -33,6 +45,7 @@ def run() -> dict:
 
     rich_feed = refresh_rich_match_feed()
     rich_export = export_current_rich_data()
+    _validate_rich_feed(rich_feed, rich_export)
     official_snapshot = collect_official_fpl(include_player_summaries=False)
 
     drive_report = None
@@ -41,6 +54,11 @@ def run() -> dict:
     if _drive_secrets_present():
         drive_report = sync_vortex_to_drive()
         drive_status = "PASS"
+    elif os.environ.get("GITHUB_ACTIONS"):
+        raise RuntimeError(
+            "Google Drive OAuth secrets are required in GitHub Actions; "
+            "the update was not published."
+        )
     else:
         print("[VORTEX] Google Drive sync skipped: OAuth secrets not configured yet")
 
