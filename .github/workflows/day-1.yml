@@ -393,6 +393,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          first_video_path="FPL_VORTEX/FIRST VIDEO"
+          first_video_local="/content/drive/MyDrive/${first_video_path}"
+          if [[ -d "${first_video_local}" ]]; then
+            rclone sync "${first_video_local}" "vortex-drive:${first_video_path}" \
+              --create-empty-src-dirs --transfers 4 --checkers 8
+            echo "Replaced My Drive/${first_video_path} with the current output set"
+          fi
+
           publish_if_present() {
             local drive_path="$1"
             local local_path="/content/drive/MyDrive/$1"
@@ -403,7 +411,6 @@ jobs:
             fi
           }
 
-          publish_if_present "FPL_VORTEX/FIRST VIDEO"
           publish_if_present "FPL_VORTEX/MODEL_INPUTS"
           publish_if_present "FPL_VORTEX/DECISION_ENGINE"
           publish_if_present "FPL_VORTEX/RAW_DATA"

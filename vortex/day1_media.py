@@ -114,6 +114,43 @@ def _single_file(folder: Path, pattern: str, label: str) -> Path:
     return matches[0]
 
 
+def _qa_output_file(
+    qa: dict[str, Any],
+    key: str,
+    folder: Path,
+    pattern: str,
+    label: str,
+) -> Path:
+    configured = str(qa.get(key) or "").strip()
+    if not configured:
+        return _single_file(folder, pattern, label)
+
+    candidate = Path(configured)
+    if not candidate.is_absolute():
+        candidate = folder / candidate.name
+    candidate = candidate.resolve()
+    if candidate.parent != folder.resolve():
+        raise RuntimeError(
+            f"Final QA points outside the expected {label} folder: {candidate}"
+        )
+    if not candidate.match(pattern):
+        raise RuntimeError(
+            f"Final QA {key!r} does not match {pattern!r}: {candidate.name}"
+        )
+    return _required_file(candidate)
+
+
+def _remove_stale_combined_files(folder: Path, pattern: str, keep: Path) -> None:
+    stale = sorted(
+        path
+        for path in folder.glob(pattern)
+        if path.is_file() and path.resolve() != keep.resolve()
+    )
+    for path in stale:
+        path.unlink()
+        print(f"[DAY 1 MEDIA] Removed stale combined output: {path.name}")
+
+
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_text(
@@ -207,18 +244,39 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
         if not folder.is_dir():
             raise FileNotFoundError(f"Required output directory is missing: {folder}")
 
-    final_mp4 = _single_file(mp4_dir, "*COMBINED*.mp4", "combined MP4")
-    combined_mp3 = _single_file(mp3_dir, "*COMBINED*.mp3", "combined MP3")
     qa_path = data_dir / "final_video_qa.json"
     if not qa_path.is_file():
         raise FileNotFoundError(f"Final video QA is missing: {qa_path}")
 
     existing_qa = json.loads(qa_path.read_text(encoding="utf-8"))
+    final_mp4 = _qa_output_file(
+        existing_qa,
+        "final_file",
+        mp4_dir,
+        "*COMBINED*.mp4",
+        "combined MP4",
+    )
+    combined_mp3 = _qa_output_file(
+        existing_qa,
+        "combined_mp3",
+        mp3_dir,
+        "*COMBINED*.mp3",
+        "combined MP3",
+    )
     existing_integration = existing_qa.get("external_media_integration", {})
     if existing_integration.get("applied") is True:
         expected_hash = str(existing_integration.get("final_sha256") or "")
         if expected_hash and _sha256(final_mp4) == expected_hash:
-            print("[DAY 1 MEDIA] Opening and music are already integrated; reusing output.")
+            _remove_stale_combined_files(
+                mp4_dir, "*COMBINED*.mp4", final_mp4
+            )
+            _remove_stale_combined_files(
+                mp3_dir, "*COMBINED*.mp3", combined_mp3
+            )
+            print(
+                "[DAY 1 MEDIA] Opening and music are already integrated; "
+                "reusing output."
+            )
             return existing_integration
         raise RuntimeError(
             "Day 1 QA says media was integrated, but the final MP4 hash changed"
@@ -452,6 +510,8 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
 
     _write_json_atomic(data_dir / "day1_media_qa.json", report)
     _write_json_atomic(qa_path, existing_qa)
+    _remove_stale_combined_files(mp4_dir, "*COMBINED*.mp4", final_mp4)
+    _remove_stale_combined_files(mp3_dir, "*COMBINED*.mp3", combined_mp3)
 
     print("[DAY 1 MEDIA] PASS")
     print(f"[DAY 1 MEDIA] Opening: {opening.name} ({opening_duration:.3f}s)")
