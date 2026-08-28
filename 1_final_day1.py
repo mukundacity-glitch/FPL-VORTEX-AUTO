@@ -23092,759 +23092,357 @@ output.serve_kernel_port_as_iframe(
 )
 
 # ============================================================
-# CELL 17 — GW REVIEW • MASTER-CONTROLLED MP4 RENDER
-# Cell 0 controls Draft 480p5 / Final 1080p24
+# CELL 17 — GW REVIEW • PNG-LOCKED FRESH MP4 RENDER
+# CURRENT GENERATED PNG GRAPHICS • ALWAYS REPLACE SAME DRIVE FILE
+# ============================================================
 
 if not globals().get("SLIDE_SELECTION", {}).get("gw_review", True):
     print("⏭️ GW REVIEW skipped by Cell 0.")
 else:
-    # ============================================================
-
     from pathlib import Path
-    import json, subprocess, sys, math
+    import hashlib
+    import json
+    import math
+    import os
+    import shutil
+    import subprocess
+
     from IPython.display import Video, display
+    from PIL import Image
 
-    ROOT   = Path(globals().get("PROJECT_ROOT", "/content/drive/MyDrive/FPL_VORTEX"))
-    HTML   = Path(globals().get("HTML_WORK_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/html"))
-    VIDEO  = Path(globals().get("MP4_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/mp4"))
-    PREV   = Path(globals().get("PREVIEW_WORK_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/preview"))
-    TIMING = Path(globals().get("DATA_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/data"))
-    SILENT_DIR = Path(globals().get("VIDEO_WORK_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/video"))
+    VIDEO = Path(
+        globals().get(
+            "MP4_DIR",
+            "/content/FPL_VORTEX_FIRST_DAY_WORK/mp4",
+        )
+    )
+    SLIDES = Path(
+        globals().get(
+            "SLIDE_DIR",
+            "/content/FPL_VORTEX_FIRST_DAY_WORK/slide",
+        )
+    )
+    TIMING = Path(
+        globals().get(
+            "DATA_DIR",
+            "/content/FPL_VORTEX_FIRST_DAY_WORK/data",
+        )
+    )
+    WORK = Path(
+        globals().get(
+            "VIDEO_WORK_DIR",
+            "/content/FPL_VORTEX_FIRST_DAY_WORK/video",
+        )
+    )
 
-    VIDEO.mkdir(parents=True, exist_ok=True)
-    PREV.mkdir(parents=True, exist_ok=True)
-    SILENT_DIR.mkdir(parents=True, exist_ok=True)
+    for _vx17_folder in (VIDEO, SLIDES, TIMING, WORK):
+        _vx17_folder.mkdir(parents=True, exist_ok=True)
 
-    ANIM_HTML = HTML/"gw_review_scene_4k_animated.html"
-    MANIFEST  = TIMING/"gw_review_animation_manifest.json"
+    SOURCE_PNG = SLIDES / "gw_review_scene_4k.png"
+    MANIFEST = TIMING / "gw_review_animation_manifest.json"
+    FINAL_MP4 = VIDEO / "gw_review.mp4"
+    LOCAL_MP4 = WORK / "gw_review_png_master.mp4"
+    UPLOAD_MP4 = VIDEO / ".gw_review.uploading.mp4"
+    RENDER_QA = TIMING / "gw_review_render.json"
+    RENDERER_VERSION = "VX17-PNG-LOCKED-ALWAYS-REPLACE-V1"
 
-    SILENT_MP4 = SILENT_DIR/"gw_review_silent.mp4"
-    FINAL_MP4  = VIDEO/"gw_review.mp4"
+    if not SOURCE_PNG.is_file() or SOURCE_PNG.stat().st_size < 100_000:
+        raise FileNotFoundError(
+            "Current generated GW Review PNG is missing or incomplete: "
+            f"{SOURCE_PNG}. Run the GW Review slide cell first."
+        )
+    if not MANIFEST.is_file():
+        raise FileNotFoundError(
+            "GW Review narration manifest is missing. Run Cell 16 first."
+        )
 
-    # ------------------------------------------------------------
-    # OUTPUT
-    # ------------------------------------------------------------
+    with Image.open(SOURCE_PNG) as _vx17_image:
+        _vx17_image.verify()
+    with Image.open(SOURCE_PNG) as _vx17_image:
+        _vx17_png_size = tuple(map(int, _vx17_image.size))
+        _vx17_png_format = str(_vx17_image.format or "").upper()
 
-    DESIGN_W, DESIGN_H = 3840, 2160
+    if _vx17_png_format != "PNG" or _vx17_png_size != (3840, 2160):
+        raise RuntimeError(
+            "GW Review graphics must be the current 3840×2160 PNG slide; "
+            f"found format={_vx17_png_format!r}, size={_vx17_png_size}"
+        )
+
+    _vx17_manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    AUDIO = Path(str(_vx17_manifest.get("audio") or ""))
+    if not AUDIO.is_file() or AUDIO.stat().st_size < 10_000:
+        raise FileNotFoundError(
+            f"Current GW Review narration audio is missing or incomplete: {AUDIO}"
+        )
+
+    if "REVIEW_GW" in globals() and _vx17_manifest.get("gw") is not None:
+        if int(_vx17_manifest["gw"]) != int(REVIEW_GW):
+            raise RuntimeError(
+                f"Stale GW Review manifest: GW{_vx17_manifest['gw']} "
+                f"does not match current REVIEW_GW{REVIEW_GW}"
+            )
+
     W = int(globals().get("VIDEO_WIDTH", 3840))
     H = int(globals().get("VIDEO_HEIGHT", 2160))
     FPS = int(globals().get("VIDEO_FPS", 30))
-    SCALE_X = W / DESIGN_W
-    SCALE_Y = H / DESIGN_H
-    SCALE = (SCALE_X, SCALE_Y)
+    if W <= 0 or H <= 0 or FPS <= 0:
+        raise ValueError(f"Invalid GW Review output: {W}×{H} at {FPS} FPS")
+    if W * 9 != H * 16:
+        raise ValueError(
+            f"GW Review output must stay 16:9; received {W}×{H}"
+        )
 
-    if not ANIM_HTML.exists():
-        raise FileNotFoundError("Run Cell 16 first.")
+    for _vx17_helper in ("vx_media_duration", "vx_frame_plan"):
+        if _vx17_helper not in globals():
+            raise RuntimeError(
+                f"Run Cell 9 first — shared helper {_vx17_helper} is missing."
+            )
 
-    if not MANIFEST.exists():
-        raise FileNotFoundError("GW review animation manifest missing.")
-
-    M = json.loads(
-        MANIFEST.read_text(encoding="utf-8")
-    )
-
-    AUDIO = Path(M["audio"])
-
-    if not AUDIO.exists():
-        raise FileNotFoundError(AUDIO)
-
-
-    # ------------------------------------------------------------
-    # HELPERS
-    # ------------------------------------------------------------
-
-
-
-
-
-    AUDIO_DURATION = vx_media_duration(AUDIO)
-    if "vx_frame_plan" not in globals():
-        raise RuntimeError("Run Cell 9 first — shared vx_frame_plan is missing.")
+    AUDIO_DURATION = float(vx_media_duration(AUDIO))
     FRAME_PLAN = vx_frame_plan(AUDIO_DURATION, FPS)
     N_FRAMES = int(FRAME_PLAN["frames"])
     VIDEO_GRID_DURATION = float(FRAME_PLAN["grid_duration"])
+    if (
+        not math.isfinite(AUDIO_DURATION)
+        or AUDIO_DURATION <= 0
+        or N_FRAMES <= 0
+        or VIDEO_GRID_DURATION <= 0
+    ):
+        raise RuntimeError("GW Review narration duration/frame plan is invalid")
 
-    print(f"🎨 Design canvas : {DESIGN_W}×{DESIGN_H}")
-    print(f"📺 Video output  : {W}×{H}")
-    print(f"🔎 Scale         : {SCALE}")
-    print(f"🎞 FPS           : {FPS}")
-    print(f"🎙 Duration      : {AUDIO_DURATION:.2f}s")
-    print(f"🎬 Frames        : {N_FRAMES:,}")
-    print(f"⏱ Frame grid    : {VIDEO_GRID_DURATION:.3f}s")
+    def _vx17_sha256(path):
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as handle:
+            for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
-    # ------------------------------------------------------------
-    # RESUME GATE — KEEP A COMPLETED, MATCHING GW REVIEW MP4
-    # ------------------------------------------------------------
-    def _vx17_parse_fps(value):
+    def _vx17_rate(value):
         try:
-            num, den = str(value).split("/", 1)
-            den = float(den)
-            return float(num) / den if den else 0.0
+            numerator, denominator = str(value).split("/", 1)
+            denominator = float(denominator)
+            return float(numerator) / denominator if denominator else 0.0
         except Exception:
             return 0.0
 
-    def _vx17_completed_output_is_valid(path):
-        if not path.exists() or path.stat().st_size < 100_000:
-            return False
-        try:
-            info = vx_video_info(path)
-            duration = vx_media_duration(path)
-            actual_fps = _vx17_parse_fps(info.get("avg_frame_rate", "0/1"))
-            return (
-                int(info.get("width", 0)) == W
-                and int(info.get("height", 0)) == H
-                and abs(actual_fps - FPS) <= 0.05
-                and abs(duration - VIDEO_GRID_DURATION) <= max(0.12, 2.0 / max(FPS, 1))
+    def _vx17_probe(path):
+        completed = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_format",
+                "-show_streams",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(completed.stdout)
+        streams = payload.get("streams", [])
+        video_stream = next(
+            (
+                stream
+                for stream in streams
+                if stream.get("codec_type") == "video"
+            ),
+            None,
+        )
+        audio_stream = next(
+            (
+                stream
+                for stream in streams
+                if stream.get("codec_type") == "audio"
+            ),
+            None,
+        )
+        if video_stream is None or audio_stream is None:
+            raise RuntimeError(f"GW Review MP4 is missing a stream: {path}")
+        duration = float(payload.get("format", {}).get("duration") or 0.0)
+        return {
+            "duration": duration,
+            "width": int(video_stream.get("width") or 0),
+            "height": int(video_stream.get("height") or 0),
+            "fps": _vx17_rate(
+                video_stream.get("avg_frame_rate")
+                or video_stream.get("r_frame_rate")
+                or "0/1"
+            ),
+            "video_codec": str(video_stream.get("codec_name") or ""),
+            "audio_codec": str(audio_stream.get("codec_name") or ""),
+        }
+
+    def _vx17_validate(path):
+        path = Path(path)
+        if not path.is_file() or path.stat().st_size < 100_000:
+            raise RuntimeError(f"GW Review MP4 is missing or too small: {path}")
+
+        media = _vx17_probe(path)
+        grid_delta = abs(media["duration"] - VIDEO_GRID_DURATION)
+        mux_tolerance = max(0.08, 2.0 / max(FPS, 1))
+        audio_delta = abs(media["duration"] - AUDIO_DURATION)
+        audio_tolerance = (
+            float(FRAME_PLAN["max_quantization_error"])
+            + mux_tolerance
+        )
+        failures = []
+        if media["width"] != W or media["height"] != H:
+            failures.append(
+                f"resolution={media['width']}×{media['height']}"
             )
-        except Exception:
-            return False
-
-    RESUME_REVIEW = bool(globals().get("RESUME_EXISTING_MP4", True))
-    FORCE_REVIEW  = bool(globals().get("FORCE_RERENDER", False))
-    REUSE_FINAL = (
-        RESUME_REVIEW
-        and not FORCE_REVIEW
-        and _vx17_completed_output_is_valid(FINAL_MP4)
-    )
-
-    if REUSE_FINAL:
-        print(f"♻️ GW REVIEW already complete and valid — SKIP RENDER: {FINAL_MP4}")
-    elif FINAL_MP4.exists():
-        print("🔄 Existing GW REVIEW does not match current quality/duration — rerendering.")
-    # ------------------------------------------------------------
-    # SHARED PLAYWRIGHT RUNTIME FROM CELL 14
-    # ------------------------------------------------------------
-    if not REUSE_FINAL:
-        if "_vx_ensure_playwright_chromium" not in globals() or "async_playwright" not in globals():
-            raise RuntimeError("Run Cell 14 first — shared Playwright renderer is missing.")
-        _vx_ensure_playwright_chromium()
-
-    # ------------------------------------------------------------
-    # EXACT HALF-SCALE
-    # ------------------------------------------------------------
-
-
-
-    # ------------------------------------------------------------
-    # RENDER
-    # ------------------------------------------------------------
-
-    async def render_review():
-
-        async with async_playwright() as pw:
-
-            try:
-
-                browser = await pw.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu"
-                    ]
-                )
-
-            except Exception:
-
-                subprocess.run(
-                    [
-                        sys.executable,
-                        "-m","playwright",
-                        "install","chromium"
-                    ],
-                    check=True
-                )
-
-                browser = await pw.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--no-sandbox",
-                        "--disable-dev-shm-usage",
-                        "--disable-gpu"
-                    ]
-                )
-
-            context = await browser.new_context(
-                viewport={
-                    "width":W,
-                    "height":H
-                },
-                device_scale_factor=1
+        if abs(media["fps"] - FPS) > 0.05:
+            failures.append(f"fps={media['fps']:.6f}")
+        if media["video_codec"] != "h264":
+            failures.append(f"video_codec={media['video_codec']!r}")
+        if media["audio_codec"] != "aac":
+            failures.append(f"audio_codec={media['audio_codec']!r}")
+        if grid_delta > mux_tolerance:
+            failures.append(
+                f"grid_delta={grid_delta:.6f}>{mux_tolerance:.6f}"
             )
-
-            page = await context.new_page()
-
-            await page.goto(
-                ANIM_HTML.resolve().as_uri(),
-                wait_until="load",
-                timeout=120000
+        if audio_delta > audio_tolerance:
+            failures.append(
+                f"audio_delta={audio_delta:.6f}>{audio_tolerance:.6f}"
             )
-
-            await page.wait_for_function(
-                "window.__ready === true",
-                timeout=60000
+        if failures:
+            raise RuntimeError(
+                f"GW Review MP4 QA failed for {path}: "
+                + ", ".join(failures)
             )
-
-            # ----------------------------------------------------
-            # PLAYER CARD DATA / COMPONENT GUARD
-            # ----------------------------------------------------
-            # No fallback card calculations are allowed here. Cell 16 must
-            # supply the authoritative card payload and Cell 15A the design.
-            guard = await page.evaluate(r"""
-            () => {
-                const VX = window.VX || {};
-                const starters = Array.isArray(VX.starters) ? VX.starters : [];
-                const bench = Array.isArray(VX.bench) ? VX.bench : [];
-                const missing = [...starters, ...bench]
-                    .filter(p => !p || !p.card || !Array.isArray(p.card.fixtures))
-                    .map(p => p?.id ?? "?");
-
-                return {
-                    starters: starters.length,
-                    bench: bench.length,
-                    segments: Array.isArray(VX.segments) ? VX.segments.length : 0,
-                    missing,
-                    component: !!(window.VXPlayerCard && typeof window.VXPlayerCard.mount === "function")
-                };
-            }
-            """)
-
-            if not guard.get("component"):
-                raise RuntimeError(
-                    "PLAYER CARD DESIGN runtime missing. Run Cell 15A then Cell 16."
-                )
-
-            if guard.get("missing"):
-                raise RuntimeError(
-                    "Missing authoritative player-card payload for player IDs: "
-                    + ", ".join(map(str, guard["missing"]))
-                )
-
-            # Explicit responsive hero-card smoke test before the expensive render.
-            hero_qa = await page.evaluate(r"""
-            () => {
-                const VX = window.VX || {};
-                const segs = Array.isArray(VX.segments) ? VX.segments : [];
-                const hero = segs.find(s =>
-                    s && s.player_id &&
-                    Number.isFinite(Number(s.hero_on)) &&
-                    Number.isFinite(Number(s.hero_off))
-                );
-
-                if (hero && typeof window.__seek === "function") {
-                    const t = (Number(hero.hero_on) + Number(hero.hero_off)) / 2;
-                    window.__seek(t);
-                }
-
-                const slot = document.querySelector("#vxHeroWrap");
-                const card = slot?.querySelector(":scope > .vx-player-card");
-                if (!slot || !card) return {ok:false, reason:"hero card did not mount"};
-
-                if (window.VXPlayerCard) { window.VXPlayerCard.fitSlot(slot); window.VXPlayerCard.fitText(card); }
-                const s = slot.getBoundingClientRect();
-                const c = card.getBoundingClientRect();
-                const ratio = c.height ? c.width / c.height : 0;
-                const overflow = c.width > s.width + 2 || c.height > s.height + 2;
-                const fillsSlot =
-                    Math.abs(c.width - s.width) <= 2 &&
-                    Math.abs(c.height - s.height) <= 2;
-                const textOverflow = [...card.querySelectorAll("[data-pc-fit]")]
-                    .some(el => el.scrollWidth > el.clientWidth + 2);
-                const cardOverflow =
-                    card.scrollWidth > card.clientWidth + 2 ||
-                    card.scrollHeight > card.clientHeight + 2;
-                const portraitBox = card.querySelector(".pc-portrait-box");
-                const portrait = card.querySelector(".pc-portrait");
-                let portraitOverflow = false;
-                if (portraitBox && portrait) {
-                    const pb = portraitBox.getBoundingClientRect();
-                    const pr = portrait.getBoundingClientRect();
-                    portraitOverflow =
-                        pr.left < pb.left - 2 || pr.right > pb.right + 2 ||
-                        pr.top < pb.top - 2 || pr.bottom > pb.bottom + 2;
-                }
-                const fixtureCount = card.querySelectorAll(".pc-fixture-card").length;
-
-                return {
-                    ok: fillsSlot && !overflow && !cardOverflow && !textOverflow && !portraitOverflow && fixtureCount === 6,
-                    ratio,
-                    fillsSlot,
-                    overflow,
-                    cardOverflow,
-                    textOverflow,
-                    portraitOverflow,
-                    fixtureCount,
-                    card:[Math.round(c.width),Math.round(c.height)],
-                    slot:[Math.round(s.width),Math.round(s.height)]
-                };
-            }
-            """)
-
-            if not hero_qa.get("ok"):
-                raise RuntimeError(f"Responsive hero-card QA failed: {hero_qa}")
-
-            print(
-                "✅ Hero card responsive QA: "
-                f"{hero_qa['card'][0]}×{hero_qa['card'][1]} "
-                f"ratio={hero_qa['ratio']:.3f}"
-            )
-
-            # ----------------------------------------------------
-            # PLAYER-BY-PLAYER REVEAL / PERSISTENCE QA
-            # ----------------------------------------------------
-            sync_qa = await page.evaluate(r"""
-            () => {
-                const VX = window.VX || {};
-                const segs = (VX.segments || []).filter(s => s && s.player_id);
-                const failures = [];
-                let expectedStarters = 0;
-                let expectedBench = 0;
-
-                const opacityOf = el => {
-                    if (!el) return 0;
-                    const raw = Number(el.style.opacity);
-                    return Number.isFinite(raw) ? raw : Number(getComputedStyle(el).opacity || 0);
-                };
-
-                for (const s of segs) {
-                    const isStarter = s.kind === "starter";
-                    if (isStarter) expectedStarters += 1;
-                    else expectedBench += 1;
-
-                    const probe = Math.min(
-                        Number(s.t1) - 0.06,
-                        Number(s.reveal_at) + 0.50
-                    );
-                    window.__seek(Math.max(Number(s.reveal_at) + 0.08, probe));
-
-                    const playerEl = document.querySelector(
-                        isStarter ? `#vxp_${s.player_id}` : `#vxb_${s.player_id}`
-                    );
-                    const hero = document.querySelector("#vxHeroWrap");
-                    const heroPid = hero?.dataset?.pid || "";
-
-                    if (opacityOf(playerEl) <= 0.45) {
-                        failures.push(`${s.id}: player not revealed with spoken name`);
-                    }
-                    if (heroPid !== String(s.player_id) || opacityOf(hero) <= 0.05) {
-                        failures.push(`${s.id}: hero not synced to spoken name`);
-                    }
-
-                    const visibleStarters = [...document.querySelectorAll(".playerCard")]
-                        .filter(el => opacityOf(el) > 0.45).length;
-                    const visibleBench = [...document.querySelectorAll(".vxb")]
-                        .filter(el => opacityOf(el) > 0.45).length;
-
-                    if (visibleStarters < expectedStarters) {
-                        failures.push(`${s.id}: earlier starter disappeared`);
-                    }
-                    if (visibleBench < expectedBench) {
-                        failures.push(`${s.id}: earlier bench player disappeared`);
-                    }
-
-                    const after = Math.min(
-                        Number(VX.total) - 0.01,
-                        Number(s.t1) + 0.03
-                    );
-                    window.__seek(after);
-                    if (opacityOf(playerEl) <= 0.45) {
-                        failures.push(`${s.id}: player did not persist after hero`);
-                    }
-                }
-
-                const metricsProbe = Math.min(
-                    Number(VX.total) - 0.01,
-                    Number(VX.metrics_t) + 0.70
-                );
-                window.__seek(metricsProbe);
-                const metrics = document.querySelector("#vxMetrics");
-                const finalStarters = [...document.querySelectorAll(".playerCard")]
-                    .filter(el => opacityOf(el) > 0.45).length;
-                const finalBench = [...document.querySelectorAll(".vxb")]
-                    .filter(el => opacityOf(el) > 0.45).length;
-
-                if (opacityOf(metrics) <= 0.80) failures.push("full data board did not reveal together");
-                if (finalStarters !== (VX.starters || []).length) failures.push("final starting XI incomplete");
-                if (finalBench !== (VX.bench || []).length) failures.push("final bench incomplete");
-
-                return {
-                    ok: failures.length === 0,
-                    failures,
-                    starters: finalStarters,
-                    bench: finalBench,
-                    segments: segs.length
-                };
-            }
-            """)
-
-            if not sync_qa.get("ok"):
-                raise RuntimeError(f"GW Review animation sync QA failed: {sync_qa}")
-
-            print(
-                "✅ GW Review animation sync QA: "
-                f"{sync_qa['starters']} starters + {sync_qa['bench']} bench persistent, "
-                "hero synced to Ryan name, full board last"
-            )
-
-            await vx_apply_render_scale(page, W, H, DESIGN_W, DESIGN_H)
-
-            try:
-                await page.evaluate(
-                    "() => document.fonts.ready"
-                )
-            except:
-                pass
-
-            await page.wait_for_timeout(1000)
-
-            # ----------------------------------------------------
-            # FULL-SCREEN CHECK
-            # ----------------------------------------------------
-
-            size = await page.evaluate("""
-            () => ({
-                w: innerWidth,
-                h: innerHeight,
-                body: document.body.getBoundingClientRect().toJSON()
-            })
-            """)
-
-            if size["w"] != W or size["h"] != H:
-                raise RuntimeError(
-                    f"Viewport failed: {size}"
-                )
-
-            body = size["body"]
-
-            # transformed body must visually cover entire 1920×1080
-            if (
-                abs(body["width"] - W) > 2
-                or abs(body["height"] - H) > 2
-            ):
-                raise RuntimeError(
-                    "Full-screen scaling failed: "
-                    f"{body['width']}×{body['height']}"
-                )
-
-            print("✅ Full-bleed 16:9")
-            print("✅ No left/right bars")
-            print("✅ No top/bottom bars")
-            print("✅ No cropping")
-
-            # ----------------------------------------------------
-            # PREVIEW
-            # ----------------------------------------------------
-
-            preview_t = min(
-                AUDIO_DURATION - .05,
-                max(.05, AUDIO_DURATION * .70)
-            )
-
-            await page.evaluate(
-                "(t)=>window.__seek(t)",
-                preview_t
-            )
-
-            await page.screenshot(
-                path=str(PREV/f"gw_review_{H}p_preview.png"),
-                type="png"
-            )
-
-            print(f"✅ {H}p preview saved")
-
-            # ----------------------------------------------------
-            # SPARSE DETERMINISTIC FRAME CAPTURE
-            # ----------------------------------------------------
-            # The old renderer captured one Chromium PNG for every output frame
-            # (18k+ screenshots for a long review).  The HTML is deterministic:
-            # it only changes during short reveal/fade/typewriter windows.  Capture
-            # those state changes sparsely, then let FFmpeg hold/duplicate frames
-            # to the requested final FPS.  Final MP4 remains CFR at Cell-0 FPS.
-            timeline = await page.evaluate(r"""
-            () => {
-                const VX = window.VX || {};
-                return {
-                    total: Number(VX.total || 0),
-                    headline: String(VX.headline || ""),
-                    headline_t0: Number(VX.headline_t0 || 0),
-                    headline_t1: Number(VX.headline_t1 || 0),
-                    bench_t: Number(VX.bench_t || 0),
-                    metrics_t: Number(VX.metrics_t || 0),
-                    metric_times: VX.metric_times || {},
-                    segments: (VX.segments || []).map(s => ({
-                        kind: s.kind || "",
-                        reveal_at: Number(s.reveal_at || 0),
-                        hero_on: Number(s.hero_on || 0),
-                        hero_off: Number(s.hero_off || 0),
-                        t0: Number(s.t0 || 0),
-                        t1: Number(s.t1 || 0)
-                    }))
-                };
-            }
-            """)
-
-            # 8 browser captures/sec is plenty for the sub-second card fades;
-            # FFmpeg still outputs the requested 24 FPS FINAL file.
-            capture_fps = min(FPS, 8 if FPS >= 8 else FPS)
-            capture_fps = max(1, int(capture_fps))
-            step = 1.0 / capture_fps
-
-            key_times = {0.0}
-
-            def _vx17_add_time(value):
-                try:
-                    value = float(value)
-                except Exception:
-                    return
-                if math.isfinite(value):
-                    key_times.add(max(0.0, min(value, VIDEO_GRID_DURATION)))
-
-            def _vx17_add_window(start, duration):
-                try:
-                    start = float(start)
-                    duration = max(0.0, float(duration))
-                except Exception:
-                    return
-                end = start + duration
-                n = max(1, int(math.ceil(duration * capture_fps)))
-                for j in range(n + 1):
-                    _vx17_add_time(start + duration * (j / n))
-                _vx17_add_time(end)
-
-            # Typewriter: capture every 5th character threshold (still reads as
-            # smooth typing at this speed) instead of every single character,
-            # plus the exact final character so the full headline is captured.
-            h0 = float(timeline.get("headline_t0", 0.0) or 0.0)
-            h1 = float(timeline.get("headline_t1", h0) or h0)
-            type_end = h0 + max(0.0, h1 - h0) * 0.72
-            headline_len = len(str(timeline.get("headline", "")))
-            if headline_len:
-                TYPE_CHAR_STEP = 5
-                for j in range(0, headline_len + 1, TYPE_CHAR_STEP):
-                    _vx17_add_time(h0 + (type_end - h0) * (j / headline_len))
-                _vx17_add_time(h0 + (type_end - h0))
-            _vx17_add_time(type_end)
-
-            # Player/bench reveal and hero-card fades are the only continuous
-            # changes during the long player-by-player narration.
-            for seg in timeline.get("segments", []):
-                reveal_at = float(seg.get("reveal_at", 0.0) or 0.0)
-                if seg.get("kind") == "starter":
-                    _vx17_add_window(reveal_at, 0.42)
-                else:
-                    _vx17_add_window(reveal_at, 0.38)
-
-                hero_on = float(seg.get("hero_on", 0.0) or 0.0)
-                hero_off = float(seg.get("hero_off", 0.0) or 0.0)
-                if hero_off > hero_on:
-                    _vx17_add_window(hero_on, min(0.28, hero_off - hero_on))
-                    _vx17_add_window(max(hero_on, hero_off - 0.28), min(0.28, hero_off - hero_on))
-                    _vx17_add_time(hero_off)
-
-                _vx17_add_time(seg.get("t0", 0.0))
-                _vx17_add_time(seg.get("t1", 0.0))
-
-            _vx17_add_time(timeline.get("bench_t", 0.0))
-            metrics_t = float(timeline.get("metrics_t", 0.0) or 0.0)
-            _vx17_add_window(metrics_t, 0.55)
-
-            for rng in (timeline.get("metric_times", {}) or {}).values():
-                if isinstance(rng, (list, tuple)) and len(rng) >= 2:
-                    _vx17_add_time(rng[0])
-                    _vx17_add_time(rng[1])
-
-            # Keep only actual capture instants.  The final captured state is held
-            # by the concat duration through the exact integer-frame endpoint.
-            capture_times = sorted(
-                t for t in key_times
-                if t < VIDEO_GRID_DURATION - 1e-7
-            )
-            if not capture_times or capture_times[0] > 1e-7:
-                capture_times.insert(0, 0.0)
-
-            FRAME_DIR = SILENT_DIR / "gw_review_sparse_frames"
-            if FRAME_DIR.exists():
-                import shutil
-                shutil.rmtree(FRAME_DIR)
-            FRAME_DIR.mkdir(parents=True, exist_ok=False)
-
-            seek_ceiling = max(0.0, AUDIO_DURATION - (1.0 / max(FPS, 1)))
-            frame_paths = []
-            report_every = max(1, len(capture_times) // 20)
-
-            print(
-                f"⚡ Sparse capture: {len(capture_times):,} Chromium screenshots "
-                f"instead of {N_FRAMES:,} full video frames "
-                f"(transition sampling {capture_fps} fps)"
-            )
-
-            for idx, t in enumerate(capture_times):
-                await page.evaluate(
-                    "(t)=>window.__seek(t)",
-                    float(min(t, seek_ceiling))
-                )
-
-                frame_path = FRAME_DIR / f"frame_{idx:05d}.jpg"
-                await page.screenshot(
-                    path=str(frame_path),
-                    type="jpeg",
-                    quality=94
-                )
-                frame_paths.append(frame_path)
-
-                if idx % report_every == 0 or idx == len(capture_times) - 1:
-                    pct = (idx + 1) / len(capture_times) * 100
-                    print(
-                        f"\r📸 Capturing states {pct:5.1f}% • "
-                        f"{idx+1:,}/{len(capture_times):,}",
-                        end=""
-                    )
-
-            print()
-
-            # Concat still states with exact durations.  FFmpeg converts the
-            # variable state timeline to the Cell-0 constant output FPS.
-            concat_file = FRAME_DIR / "frames.ffconcat"
-            lines = ["ffconcat version 1.0"]
-            for idx, frame_path in enumerate(frame_paths):
-                start_t = capture_times[idx]
-                end_t = (
-                    capture_times[idx + 1]
-                    if idx + 1 < len(capture_times)
-                    else VIDEO_GRID_DURATION
-                )
-                duration = max(1e-6, end_t - start_t)
-                escaped = str(frame_path).replace("'", r"'\''")
-                lines.append(f"file '{escaped}'")
-                lines.append(f"duration {duration:.9f}")
-
-            # ffconcat needs the final file repeated so its duration is honored.
-            escaped_last = str(frame_paths[-1]).replace("'", r"'\''")
-            lines.append(f"file '{escaped_last}'")
-            concat_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-            if SILENT_MP4.exists():
-                SILENT_MP4.unlink()
-
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-v", "error",
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(concat_file),
-                    "-vf", f"fps={FPS},format=yuv420p",
-                    "-frames:v", str(N_FRAMES),
-                    "-an",
-                    "-c:v", "libx264",
-                    "-preset", "veryfast",
-                    "-crf", "18",
-                    "-movflags", "+faststart",
-                    str(SILENT_MP4),
-                ],
-                check=True
-            )
-
-            print(
-                f"✅ {W}×{H} silent video rendered at {FPS} FPS "
-                f"from {len(capture_times):,} deterministic states"
-            )
-
-            await context.close()
-            await browser.close()
-
-
-    if not REUSE_FINAL:
-        await render_review()
-
-        # ------------------------------------------------------------
-        # ADD RYAN AUDIO
-        # ------------------------------------------------------------
+        return media
+
+    def _vx17_write_json_atomic(path, payload):
+        path = Path(path)
+        temporary = path.with_name(f".{path.name}.tmp")
+        temporary.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+
+    _vx17_replaced_existing = FINAL_MP4.exists()
+    _vx17_source_sha256 = _vx17_sha256(SOURCE_PNG)
+    _vx17_audio_sha256 = _vx17_sha256(AUDIO)
+
+    # The PNG generated by the current GW Review slide cell is the sole visual
+    # source. The legacy animated HTML is intentionally not used here.
+    LOCAL_MP4.unlink(missing_ok=True)
+    UPLOAD_MP4.unlink(missing_ok=True)
+
+    try:
         subprocess.run(
             [
                 "ffmpeg",
                 "-y",
-                "-v","error",
-
-                "-i",str(SILENT_MP4),
-                "-i",str(AUDIO),
-
-                "-map","0:v:0",
-                "-map","1:a:0",
-
-                "-c:v","copy",
-
-                "-c:a","aac",
-                "-b:a","192k",
-
-                "-shortest",
-
-                "-movflags","+faststart",
-
-                str(FINAL_MP4)
+                "-v",
+                "error",
+                "-loop",
+                "1",
+                "-framerate",
+                str(FPS),
+                "-i",
+                str(SOURCE_PNG),
+                "-i",
+                str(AUDIO),
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-vf",
+                (
+                    f"scale={W}:{H}:flags=lanczos,"
+                    f"fps={FPS},setsar=1,format=yuv420p"
+                ),
+                "-frames:v",
+                str(N_FRAMES),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "18",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-af",
+                f"apad=pad_dur={VIDEO_GRID_DURATION:.6f}",
+                "-t",
+                f"{VIDEO_GRID_DURATION:.6f}",
+                "-movflags",
+                "+faststart",
+                str(LOCAL_MP4),
             ],
-            check=True
+            check=True,
         )
 
+        _vx17_local_media = _vx17_validate(LOCAL_MP4)
+        _vx17_local_sha256 = _vx17_sha256(LOCAL_MP4)
 
-    # ------------------------------------------------------------
-    # FINAL QA
-    # ------------------------------------------------------------
+        # Publish through a hidden sibling file. The existing completed MP4 is
+        # never removed until the new file has passed a Drive-side read-back.
+        shutil.copy2(LOCAL_MP4, UPLOAD_MP4)
+        _vx17_upload_media = _vx17_validate(UPLOAD_MP4)
+        if _vx17_sha256(UPLOAD_MP4) != _vx17_local_sha256:
+            raise RuntimeError(
+                "GW Review staged Drive copy failed byte-for-byte validation"
+            )
 
-    info = vx_video_info(FINAL_MP4)
-    final_dur = vx_media_duration(FINAL_MP4)
+        os.replace(UPLOAD_MP4, FINAL_MP4)
+        _vx17_final_media = _vx17_validate(FINAL_MP4)
+        _vx17_final_sha256 = _vx17_sha256(FINAL_MP4)
+        if _vx17_final_sha256 != _vx17_local_sha256:
+            raise RuntimeError(
+                "GW Review final Drive replacement failed read-back validation"
+            )
+    finally:
+        LOCAL_MP4.unlink(missing_ok=True)
+        UPLOAD_MP4.unlink(missing_ok=True)
 
-    if (
-        int(info["width"]) != W
-        or int(info["height"]) != H
-    ):
-        raise RuntimeError(
-            f"Resolution failed: "
-            f"{info['width']}×{info['height']}"
-        )
+    _vx17_report = {
+        "passed": True,
+        "renderer_version": RENDERER_VERSION,
+        "visual_source": "CURRENT_GENERATED_GW_REVIEW_PNG",
+        "legacy_animated_html_used": False,
+        "always_render_fresh": True,
+        "existing_output_replaced": bool(_vx17_replaced_existing),
+        "source_png": str(SOURCE_PNG),
+        "source_png_size": list(_vx17_png_size),
+        "source_png_sha256": _vx17_source_sha256,
+        "audio": str(AUDIO),
+        "audio_sha256": _vx17_audio_sha256,
+        "audio_duration": AUDIO_DURATION,
+        "frame_grid_duration": VIDEO_GRID_DURATION,
+        "frames": N_FRAMES,
+        "final_file": str(FINAL_MP4),
+        "final_sha256": _vx17_final_sha256,
+        "output": _vx17_final_media,
+    }
+    _vx17_write_json_atomic(RENDER_QA, _vx17_report)
 
-    # Strong frame-grid QA: the encoded video must match the exact integer-frame
-    # duration, while the audio-to-grid delta may be no more than half a frame.
-    grid_delta = abs(final_dur - VIDEO_GRID_DURATION)
-    mux_tolerance = max(0.03, 0.10 / max(FPS, 1))
-    audio_delta = abs(final_dur - AUDIO_DURATION)
-    audio_tolerance = float(FRAME_PLAN["max_quantization_error"]) + mux_tolerance
-
-    if grid_delta > mux_tolerance:
-        raise RuntimeError(
-            f"Encoded frame-grid mismatch: {final_dur:.3f}s vs "
-            f"{VIDEO_GRID_DURATION:.3f}s (delta={grid_delta:.3f}s)"
-        )
-    if audio_delta > audio_tolerance:
-        raise RuntimeError(
-            f"Duration mismatch: {final_dur:.3f}s vs {AUDIO_DURATION:.3f}s "
-            f"(delta={audio_delta:.3f}s, allowed={audio_tolerance:.3f}s at {FPS}fps)"
-        )
-
-    print(
-        f"✅ Duration QA: audio {AUDIO_DURATION:.3f}s → "
-        f"frame grid {VIDEO_GRID_DURATION:.3f}s → encoded {final_dur:.3f}s"
-    )
-
-    print("\n" + "="*65)
-    print("✅ GW REVIEW — FINAL RENDER PASSED")
-    print("="*65)
-    print("✅ Design   : 3840×2160")
-    print(f"✅ Output   : {W}×{H}")
-    print("✅ Aspect   : 16:9 FULL SCREEN")
-    print(f"✅ FPS      : {FPS}")
-    print("✅ H.264    : CRF 18")
-    print("✅ Audio    : Ryan AAC")
-    print("✅ No crop")
-    print("✅ No black borders")
-    print("✅ FILE:",FINAL_MP4)
+    print("\n" + "=" * 70)
+    print("✅ GW REVIEW — CURRENT PNG RENDER PASSED")
+    print("=" * 70)
+    print(f"✅ Graphics  : {SOURCE_PNG}")
+    print("✅ Source    : current generated 3840×2160 PNG slide")
+    print("✅ Old HTML  : not used")
+    print(f"✅ Output    : {W}×{H} at {FPS} FPS")
+    print(f"✅ Duration  : {_vx17_final_media['duration']:.3f}s")
+    print("✅ Video     : H.264 CRF 18")
+    print("✅ Audio     : current Ryan narration AAC")
+    print("✅ Publish   : fresh render atomically replaced gw_review.mp4")
+    print(f"✅ FILE      : {FINAL_MP4}")
 
     display(
         Video(
             str(FINAL_MP4),
             embed=False,
-            width=1200
+            width=1200,
         )
     )
 
