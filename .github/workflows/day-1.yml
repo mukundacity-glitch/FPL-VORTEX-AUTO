@@ -14,6 +14,8 @@ env:
   PYTHONUNBUFFERED: "1"
   SOURCE_FILE: 1_final_day1.py
   SOURCE_SHA256: 903e234d8d19ee873140978a123d1de852f87ab807468bc210f4f4062246676e
+  DAY1_ASSET_FOLDER_ID: 1h3Loznr5RnsMyh-kUd-zMxEgOf98uFSt
+  DAY1_ASSET_DIR: /content/drive/MyDrive/FPL_VORTEX/Assets
   GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
   GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
   GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
@@ -150,6 +152,7 @@ jobs:
           config_dir = Path(os.environ["RUNNER_TEMP"]) / "rclone"
           config_dir.mkdir(parents=True, exist_ok=True)
           config_path = config_dir / "rclone.conf"
+          token_json = json.dumps(token, separators=(",", ":"))
           config_path.write_text(
               "\n".join(
                   (
@@ -158,7 +161,15 @@ jobs:
                       f"client_id = {secrets['GOOGLE_OAUTH_CLIENT_ID']}",
                       f"client_secret = {secrets['GOOGLE_OAUTH_CLIENT_SECRET']}",
                       "scope = drive",
-                      "token = " + json.dumps(token, separators=(",", ":")),
+                      "token = " + token_json,
+                      "",
+                      "[day1-assets]",
+                      "type = drive",
+                      f"client_id = {secrets['GOOGLE_OAUTH_CLIENT_ID']}",
+                      f"client_secret = {secrets['GOOGLE_OAUTH_CLIENT_SECRET']}",
+                      "scope = drive",
+                      "token = " + token_json,
+                      f"root_folder_id = {os.environ['DAY1_ASSET_FOLDER_ID']}",
                       "",
                   )
               ),
@@ -209,6 +220,21 @@ jobs:
           restore_optional "FPL_VORTEX_DATA/05_MODEL_HISTORY"
           restore_optional "FPL_VORTEX_DATA/06_SNAPSHOTS"
           restore_optional "FPL_VORTEX_DATA/07_LOGS"
+
+          mkdir -p "${DAY1_ASSET_DIR}"
+          rclone copy "day1-assets:" "${DAY1_ASSET_DIR}" \
+            --include "/opening.mp4" \
+            --include "/Background_music.mp3" \
+            --include "/outro.mp3" \
+            --exclude "*" \
+            --transfers 3 --checkers 6
+          for asset_name in opening.mp4 Background_music.mp3 outro.mp3; do
+            if [[ ! -s "${DAY1_ASSET_DIR}/${asset_name}" ]]; then
+              echo "Required Day 1 asset is missing: ${asset_name}" >&2
+              exit 1
+            fi
+          done
+          echo "Restored opening and audio assets by confirmed Drive folder ID"
 
       - name: Prepare Colab compatibility layer
         shell: bash
@@ -309,6 +335,10 @@ jobs:
 
           print("Day 1 execution: PASS")
           PY
+
+      - name: Add opening and confirmed music mix
+        shell: bash
+        run: python -m vortex.day1_media
 
       - name: Validate Day 1 output
         shell: bash
