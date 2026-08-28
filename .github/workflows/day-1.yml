@@ -236,6 +236,35 @@ jobs:
           done
           echo "Restored opening and audio assets by confirmed Drive folder ID"
 
+      - name: Reset previous Day 1 outputs locally
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          output_root = Path(
+              os.environ.get(
+                  "DAY1_OUTPUT_ROOT",
+                  "/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO",
+              )
+          )
+          if str(output_root.resolve()) != "/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO":
+              raise SystemExit(f"Unsafe output reset target: {output_root}")
+
+          for name in ("MP4", "MP3", "SLIDE", "DATA"):
+              folder = output_root / name
+              folder.mkdir(parents=True, exist_ok=True)
+              for child in folder.iterdir():
+                  if child.is_dir():
+                      shutil.rmtree(child)
+                  else:
+                      child.unlink()
+
+          print("Previous Day 1 outputs cleared; folder structure preserved")
+          PY
+
       - name: Prepare Colab compatibility layer
         shell: bash
         run: |
