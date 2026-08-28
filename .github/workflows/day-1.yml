@@ -1,0 +1,402 @@
+name: Day 1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fpl-vortex-day-1
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  SOURCE_FILE: 1_final_day1.py
+  SOURCE_SHA256: 903e234d8d19ee873140978a123d1de852f87ab807468bc210f4f4062246676e
+  GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+  GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+  ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+
+jobs:
+  run-day-1:
+    name: Run Day 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Verify untouched Day 1 source
+        shell: bash
+        run: |
+          echo "${SOURCE_SHA256}  ${SOURCE_FILE}" | sha256sum --check --strict
+          python - <<'PY'
+          import ast
+          import os
+          import re
+          from pathlib import Path
+
+          source_path = Path(os.environ["SOURCE_FILE"])
+          source = source_path.read_text(encoding="utf-8")
+          marker = re.compile(
+              r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
+          )
+          cells = [part for part in marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f"Expected 33 Day 1 cell blocks, found {len(cells)}")
+          for index, cell in enumerate(cells, 1):
+              compile(
+                  cell,
+                  f"{source_path.name}::cell-{index}",
+                  "exec",
+                  flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                  dont_inherit=True,
+              )
+          print("Day 1 integrity and 33-cell syntax check: PASS")
+          PY
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg rclone
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "requests>=2.32,<3" \
+            "pandas>=2.2,<3" \
+            "numpy>=2.0,<3" \
+            "pyarrow>=17,<20" \
+            "Pillow>=10.4,<12" \
+            "scipy>=1.14,<2" \
+            "matplotlib>=3.9,<4" \
+            "ipython>=8.27,<10" \
+            "playwright>=1.46,<2" \
+            "edge-tts>=6.1,<8"
+
+      - name: Install Chromium runtime
+        shell: bash
+        run: python -m playwright install --with-deps chromium
+
+      - name: Configure private Google Drive connection
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          secret_names = (
+              "GOOGLE_OAUTH_CLIENT_ID",
+              "GOOGLE_OAUTH_CLIENT_SECRET",
+              "GOOGLE_OAUTH_REFRESH_TOKEN",
+          )
+          secrets = {
+              name: (os.environ.get(name) or "").strip()
+              for name in secret_names
+          }
+          missing = [name for name, value in secrets.items() if not value]
+          if missing:
+              raise SystemExit(
+                  "Missing required GitHub secret(s): " + ", ".join(missing)
+              )
+          if not secrets["GOOGLE_OAUTH_CLIENT_ID"].endswith(
+              ".apps.googleusercontent.com"
+          ):
+              raise SystemExit("GOOGLE_OAUTH_CLIENT_ID has an invalid format")
+
+          request_data = urllib.parse.urlencode(
+              {
+                  "client_id": secrets["GOOGLE_OAUTH_CLIENT_ID"],
+                  "client_secret": secrets["GOOGLE_OAUTH_CLIENT_SECRET"],
+                  "refresh_token": secrets["GOOGLE_OAUTH_REFRESH_TOKEN"],
+                  "grant_type": "refresh_token",
+              }
+          ).encode("utf-8")
+          request = urllib.request.Request(
+              "https://oauth2.googleapis.com/token",
+              data=request_data,
+              headers={"Content-Type": "application/x-www-form-urlencoded"},
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              refreshed = json.loads(response.read().decode("utf-8"))
+
+          expires_in = int(refreshed.get("expires_in", 3600))
+          token = {
+              "access_token": refreshed["access_token"],
+              "token_type": refreshed.get("token_type", "Bearer"),
+              "refresh_token": secrets["GOOGLE_OAUTH_REFRESH_TOKEN"],
+              "expiry": (
+                  datetime.now(timezone.utc)
+                  + timedelta(seconds=max(60, expires_in - 60))
+              ).isoformat().replace("+00:00", "Z"),
+          }
+
+          config_dir = Path(os.environ["RUNNER_TEMP"]) / "rclone"
+          config_dir.mkdir(parents=True, exist_ok=True)
+          config_path = config_dir / "rclone.conf"
+          config_path.write_text(
+              "\n".join(
+                  (
+                      "[vortex-drive]",
+                      "type = drive",
+                      f"client_id = {secrets['GOOGLE_OAUTH_CLIENT_ID']}",
+                      f"client_secret = {secrets['GOOGLE_OAUTH_CLIENT_SECRET']}",
+                      "scope = drive",
+                      "token = " + json.dumps(token, separators=(",", ":")),
+                      "",
+                  )
+              ),
+              encoding="utf-8",
+          )
+          config_path.chmod(0o600)
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"RCLONE_CONFIG={config_path}\n")
+          print("Google Drive OAuth connection: PASS")
+          PY
+
+      - name: Restore required Google Drive state
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /content/drive/MyDrive
+          sudo chown -R "$(id -u):$(id -g)" /content
+
+          restore_optional() {
+            local remote_path="$1"
+            local local_path="/content/drive/MyDrive/$1"
+            if rclone lsf "vortex-drive:${remote_path}" --max-depth 1 >/dev/null 2>&1; then
+              mkdir -p "${local_path}"
+              rclone copy "vortex-drive:${remote_path}" "${local_path}" \
+                --create-empty-src-dirs --transfers 4 --checkers 8
+              echo "Restored My Drive/${remote_path}"
+            else
+              echo "Optional Drive path not present: My Drive/${remote_path}"
+            fi
+          }
+
+          required_path="FPL_VORTEX_DATA/00_SOURCE_ARCHIVE/FPL_CORE/data"
+          if ! rclone lsf "vortex-drive:${required_path}" --max-depth 1 >/dev/null; then
+            echo "Required Drive path is missing: My Drive/${required_path}" >&2
+            exit 1
+          fi
+
+          restore_optional "FPL_VORTEX/FIRST VIDEO"
+          restore_optional "FPL_VORTEX/MODEL_INPUTS"
+          restore_optional "FPL_VORTEX/DECISION_ENGINE"
+          restore_optional "FPL_VORTEX/RAW_DATA"
+          restore_optional "FPL_VORTEX/MODEL_HISTORY"
+          restore_optional "FPL_VORTEX/elements"
+          restore_optional "elements"
+          restore_optional "${required_path}"
+          restore_optional "FPL_VORTEX_DATA/03_ELITE_MANAGERS"
+          restore_optional "FPL_VORTEX_DATA/04_MASTER"
+          restore_optional "FPL_VORTEX_DATA/05_MODEL_HISTORY"
+          restore_optional "FPL_VORTEX_DATA/06_SNAPSHOTS"
+          restore_optional "FPL_VORTEX_DATA/07_LOGS"
+
+      - name: Prepare Colab compatibility layer
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          compat_root = Path(os.environ["RUNNER_TEMP"]) / "colab-compat"
+          package = compat_root / "google" / "colab"
+          package.mkdir(parents=True, exist_ok=True)
+          (compat_root / "google" / "__init__.py").write_text(
+              "from pkgutil import extend_path\n"
+              "__path__ = extend_path(__path__, __name__)\n",
+              encoding="utf-8",
+          )
+          (package / "__init__.py").write_text(
+              "from . import drive, output, userdata\n",
+              encoding="utf-8",
+          )
+          (package / "drive.py").write_text(
+              "from pathlib import Path\n\n"
+              "def mount(mountpoint, **kwargs):\n"
+              "    root = Path(mountpoint)\n"
+              "    (root / 'MyDrive').mkdir(parents=True, exist_ok=True)\n"
+              "    return None\n\n"
+              "def flush_and_unmount():\n"
+              "    return None\n",
+              encoding="utf-8",
+          )
+          (package / "userdata.py").write_text(
+              "import os\n\n"
+              "def get(name):\n"
+              "    return os.environ.get(str(name))\n",
+              encoding="utf-8",
+          )
+          (package / "output.py").write_text(
+              "def serve_kernel_port_as_iframe(*args, **kwargs):\n"
+              "    print('Colab iframe preview skipped in GitHub Actions')\n\n"
+              "def serve_kernel_port_as_window(*args, **kwargs):\n"
+              "    print('Colab window preview skipped in GitHub Actions')\n",
+              encoding="utf-8",
+          )
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"PYTHONPATH={compat_root}\n")
+          print("Colab compatibility layer: PASS")
+          PY
+
+      - name: Execute Day 1 cells once in order
+        shell: bash
+        run: |
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee "${RUNNER_TEMP}/day-1.log"
+          import hashlib
+          import os
+          import re
+          from pathlib import Path
+
+          from IPython.core.interactiveshell import InteractiveShell
+
+          source_path = Path(os.environ["SOURCE_FILE"]).resolve()
+          source_bytes = source_path.read_bytes()
+          actual_hash = hashlib.sha256(source_bytes).hexdigest()
+          expected_hash = os.environ["SOURCE_SHA256"]
+          if actual_hash != expected_hash:
+              raise SystemExit(
+                  f"Source changed before execution: {actual_hash} != {expected_hash}"
+              )
+
+          source = source_bytes.decode("utf-8")
+          marker = re.compile(
+              r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
+          )
+          cells = [part for part in marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f"Expected 33 Day 1 cell blocks, found {len(cells)}")
+
+          shell = InteractiveShell.instance()
+          shell.autoawait = True
+          shell.user_ns["__name__"] = "__main__"
+
+          for index, cell in enumerate(cells, 1):
+              label = next(
+                  (
+                      line.removeprefix("# ").strip()
+                      for line in cell.splitlines()
+                      if re.search(r"\bCELL\s+\d+[A-Za-z]?\b", line)
+                  ),
+                  "Notebook metadata",
+              )
+              print(f"::group::Day 1 block {index:02d}/33 — {label}", flush=True)
+              try:
+                  result = shell.run_cell(cell, store_history=False, silent=False)
+                  if not result.success:
+                      raise RuntimeError(f"Day 1 block {index} failed: {label}")
+              finally:
+                  print("::endgroup::", flush=True)
+
+          print("Day 1 execution: PASS")
+          PY
+
+      - name: Validate Day 1 output
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO")
+          expected_dirs = {"MP4", "MP3", "SLIDE", "DATA"}
+          if not root.is_dir():
+              raise SystemExit(f"Output root is missing: {root}")
+          actual_dirs = {path.name for path in root.iterdir() if path.is_dir()}
+          root_files = [path.name for path in root.iterdir() if path.is_file()]
+          if actual_dirs != expected_dirs or root_files:
+              raise SystemExit(
+                  f"Output structure invalid: dirs={sorted(actual_dirs)}, "
+                  f"root_files={root_files}"
+              )
+          for name in sorted(expected_dirs):
+              folder = root / name
+              if not any(path.is_file() for path in folder.rglob("*")):
+                  raise SystemExit(f"Expected output directory is empty: {folder}")
+
+          qa_path = root / "DATA" / "final_video_qa.json"
+          if not qa_path.is_file():
+              raise SystemExit(f"Final QA file is missing: {qa_path}")
+          qa = json.loads(qa_path.read_text(encoding="utf-8"))
+          if (
+              qa.get("passed") is not True
+              or qa.get("output_contract", {}).get("passed") is not True
+          ):
+              raise SystemExit("Final video QA did not pass")
+
+          final_mp4s = [
+              path for path in (root / "MP4").glob("*COMBINED*.mp4")
+              if path.is_file()
+          ]
+          final_mp3s = [
+              path for path in (root / "MP3").glob("*COMBINED*.mp3")
+              if path.is_file()
+          ]
+          if len(final_mp4s) != 1 or len(final_mp3s) != 1:
+              raise SystemExit(
+                  "Expected exactly one combined final MP4 and MP3; "
+                  f"found MP4={len(final_mp4s)}, MP3={len(final_mp3s)}"
+              )
+          print("Day 1 output structure and final QA: PASS")
+          PY
+
+      - name: Publish outputs and persistent state to Google Drive
+        shell: bash
+        run: |
+          set -euo pipefail
+          publish_if_present() {
+            local drive_path="$1"
+            local local_path="/content/drive/MyDrive/$1"
+            if [[ -d "${local_path}" ]]; then
+              rclone copy "${local_path}" "vortex-drive:${drive_path}" \
+                --create-empty-src-dirs --transfers 4 --checkers 8
+              echo "Published My Drive/${drive_path}"
+            fi
+          }
+
+          publish_if_present "FPL_VORTEX/FIRST VIDEO"
+          publish_if_present "FPL_VORTEX/MODEL_INPUTS"
+          publish_if_present "FPL_VORTEX/DECISION_ENGINE"
+          publish_if_present "FPL_VORTEX/RAW_DATA"
+          publish_if_present "FPL_VORTEX/MODEL_HISTORY"
+          publish_if_present "FPL_VORTEX_DATA/05_MODEL_HISTORY"
+          publish_if_present "FPL_VORTEX_DATA/06_SNAPSHOTS"
+          publish_if_present "FPL_VORTEX_DATA/07_LOGS"
+
+      - name: Upload Day 1 output artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: day-1-output-${{ github.run_number }}
+          path: /content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload Day 1 execution log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: day-1-log-${{ github.run_number }}
+          path: ${{ runner.temp }}/day-1.log
+          if-no-files-found: warn
+          retention-days: 14
