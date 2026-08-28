@@ -18598,7 +18598,7 @@ linear-gradient(145deg,#020713 0%,#07182b 52%,#020711 100%)}
 .fxGridBadge{width:128px;height:128px;object-fit:contain;filter:drop-shadow(0 8px 13px rgba(0,0,0,.34))}
 .fxGridFallback{width:116px;height:116px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(150deg,#153552,#081522);border:3px solid rgba(53,230,255,.46);font-size:28px;font-weight:1000;color:#fff}
 .fxGridVs{font-size:35px;line-height:1;font-weight:1000;letter-spacing:1px;color:#ffd447;text-align:center;text-shadow:0 0 24px rgba(255,212,71,.25)}
-.fxGridDate{display:flex;align-items:center;justify-content:center;padding:0 8px;border-top:2px solid rgba(255,255,255,.10);background:rgba(0,0,0,.22);font-size:22px;line-height:1;font-weight:1000;letter-spacing:.5px;color:#bceeff;white-space:nowrap}
+.fxGridDate{display:flex;align-items:center;justify-content:center;padding:0 8px;border-top:2px solid rgba(255,255,255,.10);background:rgba(0,0,0,.22);font-size:44px;line-height:1;font-weight:1000;letter-spacing:.5px;color:#bceeff;white-space:nowrap}
 .verdictGrid{position:absolute;left:260px;right:260px;top:535px;height:860px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:34px 38px}
 .verdict-card{border-radius:28px;padding:30px 38px;background:linear-gradient(145deg,rgba(11,34,57,.985),rgba(3,15,28,.995));border:2px solid rgba(255,255,255,.12);box-shadow:0 22px 55px rgba(0,0,0,.34);overflow:hidden}
 .verdictTitle{font-size:38px;font-weight:1000;letter-spacing:3px;color:#35e6ff;margin-bottom:14px}.verdictTitle.green{color:#52f28c}.verdictTitle.gold{color:#ffd447}.verdictTitle.red{color:#ff6475}
@@ -24140,18 +24140,25 @@ def events_for(key, info):
     if key=="00_intro":
 
         welcome_at,_=_sync("Welcome",0.35)
-        fixture_at,_=_sync("Some teams are heading into excellent fixtures",0.45)
-        agenda_1_at,agenda_1_dur=_sync("Gameweek review",0.45)
-        agenda_2_at,agenda_2_dur=_sync("fixture difficulty",0.45)
-        agenda_3_at,agenda_3_dur=_sync("projected goals",0.45)
-        agenda_4_at,agenda_4_dur=_sync("clean sheet odds",0.45)
+        _,agenda_1_dur=_sync("Gameweek review",0.45)
+        _,agenda_2_dur=_sync("fixture difficulty",0.45)
+        _,agenda_3_dur=_sync("projected goals",0.45)
+        _,agenda_4_dur=_sync("clean sheet odds",0.45)
+
+        # Intro visual order is clock-locked: fixtures fill seconds 00–09,
+        # disappear at 10.000s, then the agenda cards pop in from 10.000s.
+        fixture_at=0.0
+        agenda_1_at=10.0
+        agenda_2_at=10.12
+        agenda_3_at=10.24
+        agenda_4_at=10.36
 
         agenda_times=[agenda_1_at,agenda_2_at,agenda_3_at,agenda_4_at]
         if agenda_times != sorted(agenda_times) or len(set(agenda_times)) != 4:
             raise RuntimeError(f"00_intro agenda timing is not sequential: {agenda_times}")
-        if fixture_at >= agenda_1_at:
+        if fixture_at != 0.0 or agenda_1_at != 10.0:
             raise RuntimeError(
-                f"00_intro fixture board must finish before agenda 01: "
+                f"00_intro visual order drifted: "
                 f"fixture={fixture_at:.3f}, agenda01={agenda_1_at:.3f}"
             )
 
