@@ -18376,87 +18376,9 @@ badge_map = dict(zip(p["team_short"],p["badge"]))
 
 
 # ------------------------------------------------------------
-# AUTO PREVIOUS-GW RESULTS STRIP — INTRO + OUTRO
-# Uses completed official FPL fixtures only. Presentation only.
+# AUTO GAMEWEEK REVIEW STATUS STRIP — INTRO + OUTRO
+# Completed matches show scores; all others show official date and time.
 # ------------------------------------------------------------
-def _vx_previous_results_strip():
-    review_gw = globals().get("REVIEW_GW", globals().get("LATEST_COMPLETED_GW"))
-    results_source = globals().get("match_results_raw")
-    team_meta = globals().get("team_meta_by_id", {})
-
-    try:
-        review_gw = int(review_gw)
-    except Exception:
-        return "", None, 0
-
-    if results_source is None or not hasattr(results_source, "copy"):
-        return "", review_gw, 0
-
-    rows = results_source.copy()
-    if "event" not in rows.columns:
-        return "", review_gw, 0
-
-    rows = rows.loc[
-        pd.to_numeric(rows["event"], errors="coerce").eq(review_gw)
-    ].copy()
-
-    if "vx_completed" not in rows.columns:
-        raise RuntimeError("Intro previous-results strip requires canonical results.vx_completed from Cell 3.")
-    rows = rows.loc[rows["vx_completed"].fillna(False).astype(bool)].copy()
-
-    if "kickoff_time" in rows.columns:
-        rows["_vx_kickoff"] = pd.to_datetime(rows["kickoff_time"], errors="coerce", utc=True)
-        sort_cols = ["_vx_kickoff"] + (["id"] if "id" in rows.columns else [])
-        rows = rows.sort_values(sort_cols)
-    elif "id" in rows.columns:
-        rows = rows.sort_values("id")
-
-    chips = []
-    for _, row in rows.iterrows():
-        try:
-            home_id = int(row.get("team_h"))
-            away_id = int(row.get("team_a"))
-        except Exception:
-            continue
-
-        home_meta = dict(team_meta.get(home_id, {}))
-        away_meta = dict(team_meta.get(away_id, {}))
-        home_badge = str(home_meta.get("badge", "") or "")
-        away_badge = str(away_meta.get("badge", "") or "")
-        home_short = escape(str(home_meta.get("short", home_meta.get("short_name", "HOME"))).upper())
-        away_short = escape(str(away_meta.get("short", away_meta.get("short_name", "AWAY"))).upper())
-
-        try:
-            hs = int(float(row.get("team_h_score")))
-            a_s = int(float(row.get("team_a_score")))
-        except Exception:
-            continue
-
-        home_logo = (
-            f'<img class="prevResultLogo" src="{home_badge}" alt="{home_short}">'
-            if home_badge else f'<span class="prevResultFallback">{home_short[:3]}</span>'
-        )
-        away_logo = (
-            f'<img class="prevResultLogo" src="{away_badge}" alt="{away_short}">'
-            if away_badge else f'<span class="prevResultFallback">{away_short[:3]}</span>'
-        )
-
-        chips.append(
-            '<div class="prevResultChip">'
-            f'{home_logo}<span class="prevResultScore">{hs}-{a_s}</span>{away_logo}'
-            '</div>'
-        )
-
-    if not chips:
-        return "", review_gw, 0
-
-    strip = (
-        f'<div class="prevResultsStrip" style="--vx-result-count:{len(chips)}">'
-        f'<div class="prevResultsLabel">GW{review_gw} RESULTS</div>'
-        + "".join(chips)
-        + '</div>'
-    )
-    return strip, review_gw, len(chips)
 def _vx_eastern_stamp(value):
     stamp = pd.to_datetime(value, errors="coerce", utc=True)
     if pd.isna(stamp):
@@ -18466,13 +18388,13 @@ def _vx_eastern_stamp(value):
     return escape(local.strftime("%a %b %-d • %-I:%M %p %Z").upper())
 
 
-def _vx_intro_review_strip():
-    """Latest pre-NEXT_GW fixture status for Slide 1 only.
+def _vx_latest_gameweek_review_strip():
+    """Latest pre-NEXT_GW fixture status for the intro and outro.
 
     The full GW Review slide keeps its stricter all-fixtures-complete contract.
-    Slide 1 instead shows the latest officially scheduled Gameweek before
-    NEXT_GW, rendering completed matches as results and every other match with
-    its official kickoff date and time.
+    These presentation strips show the latest officially scheduled Gameweek
+    before NEXT_GW, rendering completed matches as results and every other
+    match with its official kickoff date and time.
     """
     if "fixtures_raw" not in globals() or "NEXT_GW" not in globals():
         return "", None, 0, 0
@@ -18482,7 +18404,7 @@ def _vx_intro_review_strip():
     missing = sorted(required - set(rows.columns))
     if missing:
         raise RuntimeError(
-            f"Intro Gameweek review strip is missing canonical fixture fields: {missing}"
+            f"Intro/outro Gameweek review strip is missing canonical fixture fields: {missing}"
         )
 
     rows["_vx_event"] = pd.to_numeric(rows["event"], errors="coerce")
@@ -18660,13 +18582,12 @@ def _vx_next_fixture_grid():
 
 NEXT_FIXTURE_GRID_HTML = _vx_next_fixture_grid()
 
-PREVIOUS_RESULTS_STRIP, PREVIOUS_RESULTS_GW, PREVIOUS_RESULTS_COUNT = _vx_previous_results_strip()
 (
-    INTRO_REVIEW_STRIP,
-    INTRO_REVIEW_GW,
-    INTRO_REVIEW_RESULT_COUNT,
-    INTRO_REVIEW_FIXTURE_COUNT,
-) = _vx_intro_review_strip()
+    LATEST_GW_REVIEW_STRIP,
+    LATEST_GW_REVIEW_GW,
+    LATEST_GW_REVIEW_RESULT_COUNT,
+    LATEST_GW_REVIEW_FIXTURE_COUNT,
+) = _vx_latest_gameweek_review_strip()
 def _vx_team_pair(df, column="team_short", n=2):
     vals = [str(v).upper() for v in df[column].dropna().astype(str).head(n).tolist()]
     return " • ".join(vals) if vals else "TBD • TBD"
@@ -18896,7 +18817,7 @@ INTRO = Template(r'''<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$st
 <div class="agenda-card agenda-2"><div class="agendaNum">02</div><div><div class="agenda-title" data-vx-type="FIXTURE DIFFICULTY">FIXTURE DIFFICULTY</div><div class="agenda-sub">ALL 20 TEAMS • NEXT 6 GAMEWEEKS</div></div></div>
 <div class="agenda-card agenda-3"><div class="agendaNum">03</div><div><div class="agenda-title" data-vx-type="PROJECTED GOALS">PROJECTED GOALS</div><div class="agenda-sub">ATTACKING OUTLOOK • NEXT 6 GAMEWEEKS</div></div></div>
 <div class="agenda-card agenda-4"><div class="agendaNum">04</div><div><div class="agenda-title" data-vx-type="CLEAN SHEET ODDS">CLEAN SHEET ODDS</div><div class="agenda-sub">DEFENSIVE OUTLOOK • NEXT 6 GAMEWEEKS</div></div></div>
-</main>$fixture_grid$results_strip<footer class="footer"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div></body></html>''').substitute(style=STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),results_strip=INTRO_REVIEW_STRIP,fixture_grid=NEXT_FIXTURE_GRID_HTML)
+</main>$fixture_grid$results_strip<footer class="footer"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div></body></html>''').substitute(style=STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),results_strip=LATEST_GW_REVIEW_STRIP,fixture_grid=NEXT_FIXTURE_GRID_HTML)
 
 OUTRO = Template(r'''<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene outroScene">
 <div class="bgFade" id="bgFade"></div>
@@ -18910,27 +18831,20 @@ $results_strip<footer class="footer outroFooter"><div class="footerLeft"><strong
 </div>
 <section class="ctaStage" id="ctaStage"><div class="ctaCopy cta-copy-1"><span data-vx-type="SUBSCRIBE FOR DAY 2">SUBSCRIBE FOR DAY 2</span></div><div class="ctaButtons"><div class="ctaBtn subscribe cta-btn-sub">SUBSCRIBE</div><div class="ctaBtn follow cta-btn-follow">FOLLOW</div></div><div class="ctaCopy cta-copy-2"><span data-vx-type="PLAYER DATA AND RANK IMPACT">PLAYER DATA & RANK IMPACT</span></div><div class="outroHandle cta-handle">$handle</div></section>
 <section class="logoStage" id="logoStage"><div class="logoHolder">$logo</div><div class="outroHandle logo-handle">$handle</div></section>
-</div></body></html>''').substitute(style=STYLE+"\n"+OUTRO_STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),handle=str(globals().get("CHANNEL_HANDLE", "@FPLVORTEX")).strip(),today_attack_teams=TODAY_ATTACK_TEAMS,today_def_teams=TODAY_DEF_TEAMS,today_warn_teams=TODAY_WARN_TEAMS,results_strip=PREVIOUS_RESULTS_STRIP)
+</div></body></html>''').substitute(style=STYLE+"\n"+OUTRO_STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),handle=str(globals().get("CHANNEL_HANDLE", "@FPLVORTEX")).strip(),today_attack_teams=TODAY_ATTACK_TEAMS,today_def_teams=TODAY_DEF_TEAMS,today_warn_teams=TODAY_WARN_TEAMS,results_strip=LATEST_GW_REVIEW_STRIP)
 
 INTRO = vx_apply_pl_lockup(INTRO)
 OUTRO = vx_apply_pl_lockup(OUTRO)
 INTRO = vx_polish_branding(INTRO)
 OUTRO = vx_polish_branding(OUTRO)
-if PREVIOUS_RESULTS_COUNT:
+if LATEST_GW_REVIEW_GW is not None:
     print(
-        f"✅ Previous-GW results strip: GW{PREVIOUS_RESULTS_GW} • "
-        f"{PREVIOUS_RESULTS_COUNT} completed fixtures • INTRO + OUTRO"
+        f"✅ Intro + outro GW{LATEST_GW_REVIEW_GW} review strip: "
+        f"{LATEST_GW_REVIEW_RESULT_COUNT} results • "
+        f"{LATEST_GW_REVIEW_FIXTURE_COUNT} scheduled fixtures"
     )
 else:
-    print("ℹ️ Previous-GW results strip: no completed fixture results available yet")
-if INTRO_REVIEW_GW is not None:
-    print(
-        f"✅ Intro GW{INTRO_REVIEW_GW} review strip: "
-        f"{INTRO_REVIEW_RESULT_COUNT} results • "
-        f"{INTRO_REVIEW_FIXTURE_COUNT} scheduled fixtures"
-    )
-else:
-    print("ℹ️ Intro review strip: no official pre-NEXT_GW fixtures available")
+    print("ℹ️ Intro/outro review strip: no official pre-NEXT_GW fixtures available")
 INTRO_HTML.write_text(INTRO,encoding="utf-8")
 OUTRO_HTML.write_text(OUTRO,encoding="utf-8")
 print("✅ INTRO HTML:",INTRO_HTML)
@@ -25150,7 +25064,7 @@ for _helper in ("vx_media_duration", "vx_frame_plan", "vx_video_info", "vx_apply
 RENDERER_VERSION = "VX20-EVENT-KEYFRAMES-V1"
 SCENE_RENDER_REVISIONS = {
     "00_intro": "VX20-INTRO-CENTERED-FIXTURES-V4-18S-MIXED-REVIEW",
-    "05_outro": "VX20-OUTRO-VISIBLE-TAIL-V3-CACHE-FIX",
+    "05_outro": "VX20-OUTRO-VISIBLE-TAIL-V4-MIXED-REVIEW",
 }
 RESUME = bool(globals().get("RESUME_EXISTING_MP4", True))
 FORCE = bool(globals().get("FORCE_RERENDER", False))
