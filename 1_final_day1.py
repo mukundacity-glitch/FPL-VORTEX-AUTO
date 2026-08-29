@@ -8370,7 +8370,9 @@ phase7_market_blend_experiment.to_json(PHASE7_MARKET_BLEND_PATH, orient="records
 phase7_dixon_coles_validation_refresh.to_json(PHASE7_DC_REFRESH_PATH, orient="records", date_format="iso", indent=2)
 
 # Reliability chart is generated only when realised frozen forecasts exist.
-PHASE7_CS_RELIABILITY_CHART_PATH = PHASE7_OUTPUT_DIR / "phase7_clean_sheet_reliability.png"
+# Visual QA artifacts belong in SLIDE; DATA is intentionally restricted to
+# machine-readable JSON/VTT files by Cell 21's publish contract.
+PHASE7_CS_RELIABILITY_CHART_PATH = Path(SLIDE_DIR) / "phase7_clean_sheet_reliability.png"
 if not phase7_cs_reliability.empty:
     try:
         import matplotlib.pyplot as plt
