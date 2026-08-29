@@ -18085,17 +18085,61 @@ window.__seek=function(t){
         el.style.boxShadow="";
     });
 
-    Object.entries(VX.metric_times||{}).forEach(([key,span])=>{
-        const start=Number(span?.[0]||0);
-        const emphasisDuration=Number(timing.metric_highlight_duration||1.15);
-        const p=Math.sin(clamp((t-start)/Math.max(.01,emphasisDuration))*Math.PI);
-        if(p<=0) return;
-        const el=document.querySelector(`.reviewPanel .metric[data-vx-metric-key="${key}"]`);
-        if(!el) return;
-        el.style.transform=`translateY(${-8*p}px) scale(${1+.025*p})`;
-        el.style.filter=`brightness(${1+.14*p}) saturate(${1+.12*p})`;
-        el.style.boxShadow=`0 0 ${18+30*p}px rgba(255,190,25,${.18+.32*p})`;
-    });
+    const metricEntries=Object.entries(VX.metric_times||{})
+      .map(([key,span])=>({
+        key,
+        start:Number(span?.[0]||0),
+        end:Number(span?.[1]||0)
+      }))
+      .filter(item=>Number.isFinite(item.start))
+      .sort((a,b)=>a.start-b.start);
+
+    const emphasisDuration=Math.max(
+      .01,
+      Number(timing.metric_highlight_duration||1.15)
+    );
+
+    let activeMetric=null;
+    for(let index=0;index<metricEntries.length;index++){
+        const item=metricEntries[index];
+        const nextStart=index+1<metricEntries.length
+          ? metricEntries[index+1].start
+          : Infinity;
+        const narratedEnd=(
+          Number.isFinite(item.end) && item.end>item.start
+        )
+          ? item.end
+          : item.start+emphasisDuration;
+        const pulseEnd=Math.min(
+          item.start+emphasisDuration,
+          narratedEnd,
+          nextStart
+        );
+        if(t>=item.start && t<pulseEnd){
+            activeMetric={...item,pulseEnd};
+            break;
+        }
+    }
+
+    if(activeMetric){
+        const span=Math.max(
+          .01,
+          activeMetric.pulseEnd-activeMetric.start
+        );
+        const p=Math.sin(
+          clamp((t-activeMetric.start)/span)*Math.PI
+        );
+        if(p>0){
+            const el=document.querySelector(
+              `.reviewPanel .metric[data-vx-metric-key="${activeMetric.key}"]`
+            );
+            if(el){
+                el.style.transform=`translateY(${-8*p}px) scale(${1+.025*p})`;
+                el.style.filter=`brightness(${1+.14*p}) saturate(${1+.12*p})`;
+                el.style.boxShadow=`0 0 ${18+30*p}px rgba(255,190,25,${.18+.32*p})`;
+            }
+        }
+    }
 
     document.documentElement.dataset.vortexTime=t.toFixed(3);
 
@@ -18249,14 +18293,23 @@ _review_motion_windows.append({
           + GW_REVIEW_ANIMATION_TIMING["table_reveal_duration"],
 })
 
-for _metric_key, _metric_span in metric_map.items():
+_metric_items = list(metric_map.items())
+for _metric_index, (_metric_key, _metric_span) in enumerate(_metric_items):
+    _metric_start = float(_metric_span[0])
+    _metric_end = float(_metric_span[1])
+    _next_metric_start = (
+        float(_metric_items[_metric_index + 1][1][0])
+        if _metric_index + 1 < len(_metric_items)
+        else float("inf")
+    )
     _review_motion_windows.append({
         "id":f"metric_{_metric_key}_highlight",
-        "start":float(_metric_span[0]),
+        "start":_metric_start,
         "end":min(
-            float(_metric_span[1]),
-            float(_metric_span[0])
+            _metric_end,
+            _metric_start
             + GW_REVIEW_ANIMATION_TIMING["metric_highlight_duration"],
+            _next_metric_start,
         ),
     })
 
