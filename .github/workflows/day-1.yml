@@ -223,10 +223,10 @@ jobs:
 
           mkdir -p "${DAY1_ASSET_DIR}"
           rclone copy "day1-assets:" "${DAY1_ASSET_DIR}" \
-            --include "/opening.mp4" \
-            --include "/Background_music.mp3" \
-            --include "/outro.mp3" \
-            --exclude "*" \
+            --filter "+ /opening.mp4" \
+            --filter "+ /Background_music.mp3" \
+            --filter "+ /outro.mp3" \
+            --filter "- **" \
             --transfers 3 --checkers 6
           for asset_name in opening.mp4 Background_music.mp3 outro.mp3; do
             if [[ ! -s "${DAY1_ASSET_DIR}/${asset_name}" ]]; then
