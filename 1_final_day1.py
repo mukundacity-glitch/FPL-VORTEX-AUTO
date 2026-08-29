@@ -15818,31 +15818,9 @@ captain_player=next(
 captain_return=int(captain_player["points"])*int(captain_player.get("multiplier",1) or 1)
 highest_player=max(review_players,key=lambda p:(int(p["points"]),int(p["minutes"])))
 
-_disappointment_pool=[
-    p for p in review_starters
-    if int(p.get("minutes",0) or 0)>=60
-]
-if not _disappointment_pool:
-    _disappointment_pool=list(review_starters)
-disappointment=min(
-    _disappointment_pool,
-    key=lambda p:(int(p["points"]),-float(p.get("gw_xgi",0) or 0),-int(p.get("minutes",0) or 0))
-)
-
-_attackers=[p for p in review_starters if p["pos"] in ("MID","FWD")]
-attack_xg=sum(float(p.get("gw_xg",0) or 0) for p in _attackers)
-attack_xa=sum(float(p.get("gw_xa",0) or 0) for p in _attackers)
-
 _defenders=[p for p in review_starters if p["pos"] in ("GK","DEF")]
 def_clean_returns=sum(int(p.get("clean_sheets",0) or 0) for p in _defenders)
-gk_saves=sum(int(p.get("saves",0) or 0) for p in _defenders if p["pos"]=="GK")
 bench_points=sum(int(p["points"]) for p in review_bench)
-
-_dis_reason=(
-    f"{disappointment['gw_xgi']:.2f} expected goal involvement"
-    if disappointment["pos"] in ("MID","FWD") and float(disappointment.get("gw_xgi",0) or 0)>0
-    else f"{disappointment['minutes']} minutes without enough Fantasy Premier League return"
-)
 
 _transfer_rows=[
     row for row in list(_review_decisions.get("transfer_shortlist") or [])
@@ -15887,59 +15865,12 @@ else:
 segments += [
     {
         "id":"metrics_intro",
-        "text":"With all fifteen players reviewed, here is the short analytical read."
+        "text":"With all fifteen players reviewed, here is the complete Gameweek Review table."
     },
     {
         "id":"metric_points",
-        "text":(
-            f"The team scored {gw_points} points. {highest_player['name']} led the squad "
-            f"with {vx_review_points_phrase(highest_player['points'])}."
-        )
+        "text":f"The team scored {gw_points} points in Gameweek {REVIEW_GW}."
     },
-    {
-        "id":"metric_captain",
-        "text":(
-            f"Captain {captain_player['name']} contributed {captain_return} points after the multiplier. "
-            "I will still judge that call by role, minutes, and opportunity."
-        )
-    },
-    {
-        "id":"metric_disappointment",
-        "text":(
-            f"The main underperformance was {disappointment['name']} on "
-            f"{vx_review_points_phrase(disappointment['points'])}; the context was {_dis_reason}."
-        )
-    },
-    {
-        "id":"metric_attack",
-        "text":(
-            f"My starting midfielders and forwards produced {attack_xg:.2f} expected goals "
-            f"and {attack_xa:.2f} expected assists. That is the attacking process behind the score."
-        )
-    },
-    {
-        "id":"metric_defence",
-        "text":(
-            f"The starting goalkeeper and defenders delivered {def_clean_returns} clean-sheet returns"
-            +(f", with {gk_saves} goalkeeper saves." if gk_saves else ".")
-        )
-    },
-    {
-        "id":"metric_bench",
-        "text":f"The bench held {bench_points} points, which measures both squad depth and selection efficiency."
-    },
-    {
-        "id":"metric_bank",
-        "text":f"I have {bank:.1f} million in the bank, with a squad value of {value:.1f} million."
-    },
-    {
-        "id":"metric_gwrank",
-        "text":(
-            f"My Gameweek rank was {gw_rank:,}; useful context, but not a transfer signal on its own."
-            if gw_rank else
-            "The Gameweek rank is still updating, so I will not use an incomplete number."
-        )
-    }
 ]
 
 if cur_rank:
@@ -15949,16 +15880,40 @@ if cur_rank:
         rank_text=f"Overall rank moved to {cur_rank:,}, producing a red arrow without changing the process."
     else:
         rank_text=f"Overall rank stayed at {cur_rank:,}, so there was no meaningful movement."
-    segments.append({"id":"metric_orank","text":rank_text})
+else:
+    rank_text="The overall rank is still updating, so I will wait for the final number."
 
-segments.append({
-    "id":"metric_hit",
-    "text":(
-        "The score came without a transfer hit."
-        if transfer_cost==0 else
-        f"The final score also included a {transfer_cost}-point transfer cost."
-    )
-})
+segments += [
+    {"id":"metric_orank","text":rank_text},
+    {
+        "id":"metric_gwrank",
+        "text":(
+            f"My Gameweek rank was {gw_rank:,}; useful context, but not a transfer signal on its own."
+            if gw_rank else
+            "The Gameweek rank is still updating, so I will not use an incomplete number."
+        )
+    },
+    {
+        "id":"metric_captain",
+        "text":(
+            f"Captain {captain_player['name']} contributed {captain_return} points after the multiplier."
+        )
+    },
+    {
+        "id":"metric_bench",
+        "text":f"The bench held {bench_points} points, which measures both squad depth and selection efficiency."
+    },
+    {
+        "id":"metric_hit",
+        "text":(
+            f"The score came without a transfer hit, with {bank:.1f} million in the bank "
+            f"and a squad value of {value:.1f} million."
+            if transfer_cost==0 else
+            f"The final score included a {transfer_cost}-point transfer cost, with {bank:.1f} million "
+            f"in the bank and a squad value of {value:.1f} million."
+        )
+    }
+]
 
 segments.append({
     "id":"review_close",
@@ -16042,7 +15997,10 @@ def review_tts_mood(seg):
     if sid == "headline":
         return "intro"
 
-    if sid in {"metric_points", "metric_bank", "metric_gwrank", "metric_orank"}:
+    if sid in {
+        "metric_points", "metric_orank", "metric_gwrank",
+        "metric_captain", "metric_bench",
+    }:
         return "key_stat"
 
     if sid == "metric_hit" and transfer_cost > 0:
@@ -16170,18 +16128,7 @@ review_package={
         "overall_rank":cur_rank,
         "previous_rank":prev_rank,
         "rank_dir":rank_dir,
-        "transfer_cost":transfer_cost,
-        "captain_name":captain_player["name"],
-        "captain_return":captain_return,
-        "top_return_name":highest_player["name"],
-        "top_return_points":int(highest_player["points"]),
-        "disappointment_name":disappointment["name"],
-        "disappointment_points":int(disappointment["points"]),
-        "attack_xg":attack_xg,
-        "attack_xa":attack_xa,
-        "def_clean_returns":def_clean_returns,
-        "goalkeeper_saves":gk_saves,
-        "bench_points":bench_points
+        "transfer_cost":transfer_cost
     },
     "segments":segments
 }
@@ -17699,14 +17646,10 @@ metric_map = {}
 
 for sid,key in [
     ("metric_points","points"),
-    ("metric_captain","captain"),
-    ("metric_disappointment","disappointment"),
-    ("metric_attack","attack"),
-    ("metric_defence","defence"),
-    ("metric_bench","bench"),
-    ("metric_bank","bank"),
-    ("metric_gwrank","gwrank"),
     ("metric_orank","orank"),
+    ("metric_gwrank","gwrank"),
+    ("metric_captain","captain"),
+    ("metric_bench","bench"),
     ("metric_hit","hit"),
 ]:
     s = seg(sid)
@@ -17716,15 +17659,6 @@ for sid,key in [
 # ------------------------------------------------------------
 # 6. REVIEW DATA FOR JAVASCRIPT
 # ------------------------------------------------------------
-
-metrics = pkg["metrics"]
-
-captain = next(
-    (p for p in pkg["starters"] if p["captain"]),
-    pkg["starters"][0]
-)
-
-bench_pts = sum(p["points"] for p in pkg["bench"])
 
 JS_DATA = {
     "gw":pkg["gw"],
@@ -17739,30 +17673,6 @@ JS_DATA = {
     "metrics_t":metrics_intro["t0"] if metrics_intro else TOTAL,
 
     "metric_times":metric_map,
-
-    "metrics":{
-        "points":metrics["gw_points"],
-        "bank":f'£{metrics["bank"]:.1f}m',
-        "value":f'£{metrics["value"]:.1f}m',
-        "gwrank":metrics["gw_rank"],
-        "orank":metrics["overall_rank"],
-        "prev_rank":metrics["previous_rank"],
-        "rank_dir":metrics["rank_dir"],
-        "hit":metrics["transfer_cost"],
-        "captain":metrics.get("captain_name", captain["name"]),
-        "captain_return":metrics.get(
-            "captain_return", captain["points"]*captain["multiplier"]
-        ),
-        "top_return_name":metrics.get("top_return_name", "—"),
-        "top_return_points":metrics.get("top_return_points", 0),
-        "disappointment_name":metrics.get("disappointment_name", "—"),
-        "disappointment_points":metrics.get("disappointment_points", 0),
-        "attack_xg":metrics.get("attack_xg", 0.0),
-        "attack_xa":metrics.get("attack_xa", 0.0),
-        "def_clean_returns":metrics.get("def_clean_returns", 0),
-        "goalkeeper_saves":metrics.get("goalkeeper_saves", 0),
-        "bench_points":metrics.get("bench_points", bench_pts),
-    }
 }
 
 # ------------------------------------------------------------
@@ -17773,10 +17683,25 @@ CSS = r"""
 <!-- VX_REVIEW_START -->
 <style id="vx-review-css">
 
-/* Original left information panels stay blank initially */
+/* The original approved HTML panels remain the sole left-column design. */
 .left > .panel{
     opacity:0 !important;
     pointer-events:none !important;
+    transform:translateY(34px) scale(.985);
+    transform-origin:center center;
+    will-change:opacity,transform,filter,box-shadow;
+}
+
+.benchPanel .mini{
+    opacity:0;
+    transform:translateY(28px) scale(.88);
+    transform-origin:center bottom;
+    will-change:opacity,transform;
+}
+
+.reviewPanel .metric{
+    transform-origin:center center;
+    will-change:transform,filter,box-shadow;
 }
 
 .analysisRibbon{
@@ -17818,18 +17743,6 @@ CSS = r"""
 }
 
 /* -------------------------------------------------------
-   LEFT REVIEW STAGE
-   ------------------------------------------------------- */
-
-#vxReviewStage{
-    position:absolute;
-    inset:0;
-    z-index:80;
-    overflow:hidden;
-    border-radius:23px;
-}
-
-/* -------------------------------------------------------
    HERO CARD SLOT ONLY
    Internal card design is owned by CELL 15A — PLAYER CARD DESIGN.
    This slide controls only placement / available space.
@@ -17861,187 +17774,6 @@ CSS = r"""
     height:100%;
 }
 
-/* -------------------------------------------------------
-   BENCH DOCK
-   ------------------------------------------------------- */
-
-#vxBenchDock{
-    position:absolute;
-    left:0;
-    right:0;
-    bottom:0;
-
-    height:310px;
-
-    padding:18px;
-
-    opacity:0;
-
-    border-radius:20px;
-    border:2px solid rgba(255,241,164,.92);
-
-    background:
-      linear-gradient(180deg,#fff2a6 0%,#ffe37a 48%,#f4c94f 100%);
-
-    box-shadow:
-      0 24px 55px rgba(0,0,0,.36),
-      inset 0 1px 0 rgba(255,255,255,.74);
-
-    display:grid;
-    grid-template-columns:repeat(4,1fr);
-    gap:13px;
-}
-
-.vxb{
-    position:relative;
-    opacity:0;
-
-    border-radius:14px;
-    overflow:hidden;
-
-    background:
-      linear-gradient(180deg,#fff7c7 0%,#ffe58a 100%);
-
-    border:2px solid rgba(92,55,0,.28);
-
-    text-align:center;
-}
-
-.vxb img{
-    height:180px;
-    max-width:100%;
-    object-fit:contain;
-}
-
-.vxb-name{
-    height:44px;
-
-    display:flex;
-    align-items:center;
-    justify-content:center;
-
-    color:#fff;
-    background:#07131f;
-
-    font-size:20px;
-    font-weight:1000;
-}
-
-.vxb-pts{
-    position:absolute;
-    right:8px;
-    top:8px;
-
-    width:48px;
-    height:40px;
-
-    display:flex;
-    align-items:center;
-    justify-content:center;
-
-    border-radius:8px;
-
-    background:#ffe04b;
-    color:#07111a;
-
-    font-size:22px;
-    font-weight:1000;
-}
-
-/* -------------------------------------------------------
-   FINAL METRIC BOARD
-   ------------------------------------------------------- */
-
-#vxMetrics{
-    position:absolute;
-    left:0;
-    right:0;
-    top:0;
-
-    height:1305px;
-
-    padding:22px;
-
-    display:grid;
-    grid-template-columns:repeat(3,minmax(0,1fr));
-    grid-template-rows:repeat(4,1fr);
-    gap:14px;
-
-    opacity:0;
-
-    background:
-      linear-gradient(180deg,#fff2a6 0%,#ffe37a 48%,#f4c94f 100%);
-
-    border:2px solid rgba(255,241,164,.94);
-    border-radius:22px;
-
-    box-shadow:
-      0 26px 70px rgba(0,0,0,.42),
-      inset 0 1px 0 rgba(255,255,255,.78);
-
-    transform:translateY(38px) scale(.985);
-    transform-origin:center bottom;
-    will-change:opacity,transform;
-}
-
-.vxm{
-    position:relative;
-
-    padding:22px;
-
-    display:flex;
-    flex-direction:column;
-    justify-content:center;
-
-    border-radius:17px;
-
-    background:
-      linear-gradient(180deg,rgba(255,255,255,.58),rgba(255,231,115,.20));
-
-    border:2px solid rgba(83,52,0,.20);
-
-    color:#09111a;
-    transform-origin:center center;
-    will-change:transform,filter,box-shadow;
-}
-
-.vxm-label{
-    color:#3a2a08;
-    font-size:21px;
-    font-weight:900;
-    letter-spacing:2px;
-}
-
-.vxm-value{
-    margin-top:8px;
-
-    color:#07111a;
-    font-size:42px;
-    line-height:1;
-    font-weight:1000;
-}
-
-.vxm-sub{
-    margin-top:9px;
-
-    color:#6f4600;
-    font-size:18px;
-    font-weight:900;
-}
-
-.rank-up{
-    color:#36ef78 !important;
-}
-
-.rank-down{
-    color:#ff5b55 !important;
-}
-
-.rank-arrow{
-    margin-left:12px;
-    font-size:46px;
-}
-
 </style>
 """
 
@@ -18071,11 +17803,6 @@ function clamp(x,a=0,b=1){
 function ease(x){
     x=clamp(x);
     return 1-Math.pow(1-x,3);
-}
-
-function fmtN(x){
-    if(x===null || x===undefined) return "—";
-    return Number(x).toLocaleString("en-GB");
 }
 
 /* -------------------------------------------------------
@@ -18123,105 +17850,6 @@ function pitchCard(p){
 }
 
 /* -------------------------------------------------------
-   LEFT SUMMARY METRICS
-   ------------------------------------------------------- */
-
-function metricsHTML(){
-
-    const m=VX.metrics;
-
-    let arrow="";
-    let rankClass="";
-
-    if(m.rank_dir==="up"){
-        arrow=`<span class="rank-arrow">▲</span>`;
-        rankClass="rank-up";
-    }
-    else if(m.rank_dir==="down"){
-        arrow=`<span class="rank-arrow">▼</span>`;
-        rankClass="rank-down";
-    }
-
-    const hit = Number(m.hit||0);
-
-    return `
-      <div class="vxm" data-key="points">
-        <div class="vxm-label">GW POINTS</div>
-        <div class="vxm-value">${fmtN(m.points)}</div>
-        <div class="vxm-sub">GAMEWEEK ${VX.gw}</div>
-      </div>
-
-      <div class="vxm" data-key="top_return">
-        <div class="vxm-label">TOP RETURN</div>
-        <div class="vxm-value">${escv(m.top_return_name)}</div>
-        <div class="vxm-sub">${fmtN(m.top_return_points)} POINTS</div>
-      </div>
-
-      <div class="vxm" data-key="captain">
-        <div class="vxm-label">CAPTAIN</div>
-        <div class="vxm-value">${escv(m.captain)}</div>
-        <div class="vxm-sub">${fmtN(m.captain_return)} RETURNED POINTS</div>
-      </div>
-
-      <div class="vxm" data-key="disappointment">
-        <div class="vxm-label">UNDERPERFORMANCE</div>
-        <div class="vxm-value">${escv(m.disappointment_name)}</div>
-        <div class="vxm-sub">${fmtN(m.disappointment_points)} POINTS</div>
-      </div>
-
-      <div class="vxm" data-key="attack">
-        <div class="vxm-label">ATTACKING PROCESS</div>
-        <div class="vxm-value">${Number(m.attack_xg||0).toFixed(2)} xG</div>
-        <div class="vxm-sub">${Number(m.attack_xa||0).toFixed(2)} EXPECTED ASSISTS</div>
-      </div>
-
-      <div class="vxm" data-key="defence">
-        <div class="vxm-label">DEFENSIVE RETURNS</div>
-        <div class="vxm-value">${fmtN(m.def_clean_returns)}</div>
-        <div class="vxm-sub">${fmtN(m.goalkeeper_saves)} GOALKEEPER SAVES</div>
-      </div>
-
-      <div class="vxm" data-key="bench">
-        <div class="vxm-label">BENCH POINTS</div>
-        <div class="vxm-value">${m.bench_points}</div>
-        <div class="vxm-sub">UNUSED OUTPUT</div>
-      </div>
-
-      <div class="vxm" data-key="bank">
-        <div class="vxm-label">BANK</div>
-        <div class="vxm-value">${m.bank}</div>
-        <div class="vxm-sub">SQUAD ${m.value}</div>
-      </div>
-
-      <div class="vxm" data-key="gwrank">
-        <div class="vxm-label">GW RANK</div>
-        <div class="vxm-value">${fmtN(m.gwrank)}</div>
-        <div class="vxm-sub">GLOBAL GAMEWEEK RANK</div>
-      </div>
-
-      <div class="vxm" data-key="orank">
-        <div class="vxm-label">OVERALL RANK</div>
-        <div class="vxm-value ${rankClass}">
-          ${fmtN(m.orank)} ${arrow}
-        </div>
-        <div class="vxm-sub">PREVIOUS ${fmtN(m.prev_rank)}</div>
-      </div>
-
-      <div class="vxm" data-key="hit">
-        <div class="vxm-label">TRANSFER COST</div>
-        <div class="vxm-value">${hit ? "-"+hit : "0"}</div>
-        <div class="vxm-sub">${hit ? "POINT HIT" : "NO HIT"}</div>
-      </div>
-
-      <div class="vxm" data-key="complete">
-        <div class="vxm-label">REVIEW STATUS</div>
-        <div class="vxm-value">COMPLETE</div>
-        <div class="vxm-sub">STARTING XI + BENCH</div>
-      </div>
-    `;
-}
-
-/* -------------------------------------------------------
    INITIAL BUILD
    ------------------------------------------------------- */
 
@@ -18234,25 +17862,32 @@ function buildReview(){
 
     left.insertAdjacentHTML(
       "beforeend",
-      `
-      <div id="vxReviewStage">
-        <div id="vxMetrics">
-          ${metricsHTML()}
-        </div>
-
-        <div id="vxBenchDock">
-          ${VX.bench.map(p=>`
-            <div class="vxb" id="vxb_${p.id}">
-              <div class="vxb-pts">${p.points}</div>
-              <img src="${p.photo}">
-              <div class="vxb-name">${escv(p.name)}</div>
-            </div>
-          `).join("")}
-        </div>
-
-      </div>
-      <div id="vxHeroWrap"></div>`
+      `<div id="vxHeroWrap"></div>`
     );
+
+    const benchCards=[...document.querySelectorAll(".benchPanel .mini")];
+    if(benchCards.length!==VX.bench.length){
+        throw new Error(
+          `Approved HTML bench-card count ${benchCards.length} does not match review data ${VX.bench.length}`
+        );
+    }
+    benchCards.forEach((el,index)=>{
+        el.id=`vxb_${VX.bench[index].id}`;
+    });
+
+    const metricSelectors={
+      points:"#gwPoints",
+      orank:"#overallRank",
+      gwrank:"#gwRank",
+      captain:"#captainReturn",
+      bench:"#benchPoints",
+      hit:"#hitPoints"
+    };
+    Object.entries(metricSelectors).forEach(([key,selector])=>{
+        const metric=$v(selector)?.closest(".metric");
+        if(!metric) throw new Error(`Approved HTML metric block missing: ${key}`);
+        metric.dataset.vxMetricKey=key;
+    });
 
     $v("#pitchGW").textContent=`GAMEWEEK ${VX.gw} REVIEW`;
     $v("#entryName").textContent="— FPL VORTEX";
@@ -18328,12 +17963,11 @@ window.__seek=function(t){
 
     /* ---------- BENCH ---------- */
 
-    const benchDock=$v("#vxBenchDock");
-
-    const benchDockP=ease((t-VX.bench_t)/.46);
-    benchDock.style.opacity=benchDockP;
-    benchDock.style.transform=
-      `translateY(${(1-benchDockP)*28}px) scale(${.985+.015*benchDockP})`;
+    const benchPanel=$v(".benchPanel");
+    const benchPanelP=ease((t-VX.bench_t)/.46);
+    benchPanel.style.setProperty("opacity",benchPanelP,"important");
+    benchPanel.style.transform=
+      `translateY(${(1-benchPanelP)*28}px) scale(${.985+.015*benchPanelP})`;
 
     VX.segments
       .filter(s=>s.player_id && s.kind==="bench")
@@ -18406,21 +18040,21 @@ window.__seek=function(t){
         hw.style.opacity=0;
     }
 
-    /* ---------- COMPLETE GOLD DATA TABLE + NARRATED EMPHASIS ---------- */
+    /* ---------- APPROVED LEFT PANELS + NARRATED TABLE EMPHASIS ---------- */
 
-    const metrics=$v("#vxMetrics");
-    const metricsP=ease(
+    const panelsP=ease(
       (t-VX.metrics_t)/Number(timing.table_reveal_duration||.58)
     );
-    metrics.style.opacity=metricsP;
-    metrics.style.transform=
-      `translateY(${(1-metricsP)*38}px) scale(${.985+.015*metricsP})`;
+    document.querySelectorAll(".reviewPanel,.chipsPanel,.fixturesPanel").forEach(el=>{
+        el.style.setProperty("opacity",panelsP,"important");
+        el.style.transform=
+          `translateY(${(1-panelsP)*38}px) scale(${.985+.015*panelsP})`;
+    });
 
-    document.querySelectorAll("#vxMetrics .vxm").forEach(el=>{
+    document.querySelectorAll(".reviewPanel .metric").forEach(el=>{
         el.style.transform="none";
         el.style.filter="";
         el.style.boxShadow="";
-        el.style.borderColor="rgba(83,52,0,.20)";
     });
 
     Object.entries(VX.metric_times||{}).forEach(([key,span])=>{
@@ -18428,12 +18062,11 @@ window.__seek=function(t){
         const emphasisDuration=Number(timing.metric_highlight_duration||1.15);
         const p=Math.sin(clamp((t-start)/Math.max(.01,emphasisDuration))*Math.PI);
         if(p<=0) return;
-        const el=document.querySelector(`#vxMetrics .vxm[data-key="${key}"]`);
+        const el=document.querySelector(`.reviewPanel .metric[data-vx-metric-key="${key}"]`);
         if(!el) return;
         el.style.transform=`translateY(${-8*p}px) scale(${1+.025*p})`;
         el.style.filter=`brightness(${1+.14*p}) saturate(${1+.12*p})`;
         el.style.boxShadow=`0 0 ${18+30*p}px rgba(255,190,25,${.18+.32*p})`;
-        el.style.borderColor=`rgba(118,70,0,${.28+.52*p})`;
     });
 
     document.documentElement.dataset.vortexTime=t.toFixed(3);
@@ -18461,12 +18094,15 @@ window.__auditLayout=function(t){
       title:Number($v(".pitchHeader")?.style.opacity||0),
       pitch:Number($v(".pitch")?.style.opacity||0),
       hero:Number($v("#vxHeroWrap")?.style.opacity||0),
-      benchCards:[...document.querySelectorAll(".vxb")]
+      benchCards:[...document.querySelectorAll(".benchPanel .mini")]
         .filter(x=>Number(x.style.opacity)>.5).length,
-      table:Number($v("#vxMetrics")?.style.opacity||0),
-      activeMetrics:[...document.querySelectorAll("#vxMetrics .vxm")]
+      table:Number(getComputedStyle($v(".reviewPanel")).opacity||0),
+      chipsPanel:Number(getComputedStyle($v(".chipsPanel")).opacity||0),
+      fixturePanel:Number(getComputedStyle($v(".fixturesPanel")).opacity||0),
+      benchPanel:Number(getComputedStyle($v(".benchPanel")).opacity||0),
+      activeMetrics:[...document.querySelectorAll(".reviewPanel .metric")]
         .filter(x=>Boolean(x.style.boxShadow))
-        .map(x=>String(x.dataset.key||""))
+        .map(x=>String(x.dataset.vxMetricKey||""))
     };
 };
 
@@ -18574,12 +18210,12 @@ for _segment in pkg["segments"]:
         })
 
 _review_motion_windows.append({
-    "id":"substitutes_dock",
+    "id":"approved_substitutes_panel",
     "start":float(JS_DATA["bench_t"]),
     "end":float(JS_DATA["bench_t"]) + 0.46,
 })
 _review_motion_windows.append({
-    "id":"complete_data_table",
+    "id":"approved_left_information_panels",
     "start":float(JS_DATA["metrics_t"]),
     "end":float(JS_DATA["metrics_t"])
           + GW_REVIEW_ANIMATION_TIMING["table_reveal_duration"],
@@ -18629,8 +18265,9 @@ print("✅ Ryan-name → player pitch reveal")
 print("✅ Player remains on pitch")
 print("✅ Responsive CELL 15A hero card appears on the spoken name")
 print("✅ Hero disappears after explanation")
-print("✅ Bench builds independently and persists")
-print("✅ Complete gold metrics table reveals together and highlights by narration")
+print("✅ Approved HTML substitutes panel builds one card at a time and persists")
+print("✅ Original review, chips and fixture panels reveal without redesign")
+print("✅ Original six-cell review table highlights by narration")
 print(f"✅ Final completed composition hold: {GW_REVIEW_ANIMATION_TIMING['final_hold']:.2f}s")
 print(f"✅ Total review duration: {TOTAL:.2f}s")
 print("✅ HTML:",ANIM_HTML)
@@ -23870,7 +23507,7 @@ else:
                       return {
                         viewport:[innerWidth,innerHeight],
                         body:[Math.round(body.left),Math.round(body.top),Math.round(body.width),Math.round(body.height)],
-                        brokenPlayerImages:Array.from(document.querySelectorAll('.playerCard img,#vxBenchDock img,.vx-player-card img'))
+                        brokenPlayerImages:Array.from(document.querySelectorAll('.playerCard img,.benchPanel img,.vx-player-card img'))
                           .filter(img => !img.complete || img.naturalWidth===0).length
                       };
                     }
@@ -23916,7 +23553,10 @@ else:
                 initial = checkpoint_states["initial"]
                 _vx17_assert_near(initial["brand"], 1, "initial brand")
                 _vx17_assert_near(initial["footer"], 1, "initial footer")
-                for key in ("plLogo", "title", "pitch", "hero", "table"):
+                for key in (
+                    "plLogo", "title", "pitch", "hero", "table",
+                    "chipsPanel", "fixturePanel", "benchPanel",
+                ):
                     _vx17_assert_near(initial[key], 0, f"initial {key}")
                 if initial["pitchPlayers"] != 0 or initial["benchCards"] != 0:
                     raise RuntimeError(f"GW Review initial state is not blank: {initial}")
@@ -23985,6 +23625,9 @@ else:
                         or state["benchCards"] != expected_bench
                         or state["hero"] > 0.05
                         or state["table"] < 0.95
+                        or state["chipsPanel"] < 0.95
+                        or state["fixturePanel"] < 0.95
+                        or state["benchPanel"] < 0.95
                         or state["plLogo"] < 0.95
                         or state["title"] < 0.95
                         or state["pitch"] < 0.95
