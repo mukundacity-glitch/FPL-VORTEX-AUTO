@@ -17809,11 +17809,29 @@ function ease(x){
    BUILD PITCH XI
    ------------------------------------------------------- */
 
+function vxPitchPhotoFallback(img,code){
+    const numericCode=Number(code||0);
+    const official=numericCode
+      ? `https://resources.premierleague.com/premierleague/photos/players/250x250/p${numericCode}.png`
+      : "";
+
+    if(official && img.dataset.vxFallback!=="official"){
+        img.dataset.vxFallback="official";
+        img.src=official;
+        return;
+    }
+
+    img.style.display="none";
+    const avatar=img.nextElementSibling;
+    if(avatar) avatar.style.display="flex";
+}
+
 function pitchCard(p){
 
     const crest = p.team_code
       ? `<img class="teamCrest"
-           src="https://resources.premierleague.com/premierleague/badges/70/t${p.team_code}.png">`
+           src="https://resources.premierleague.com/premierleague/badges/70/t${p.team_code}.png"
+           onerror="this.style.display='none'">`
       : "";
 
     const badge = p.captain
@@ -17821,6 +17839,15 @@ function pitchCard(p){
       : p.vice
       ? `<div class="badge vc">VC</div>`
       : "";
+
+    const photo = p.photo
+      ? `<img class="vxPitchPlayerImg"
+           src="${escv(p.photo)}"
+           onerror="vxPitchPhotoFallback(this,${Number(p.code||0)})">`
+      : "";
+
+    const avatar = `<div class="avatarFallback"
+         style="${p.photo?"display:none":"display:flex"}">${escv(initials(p.name))}</div>`;
 
     return `
     <div
@@ -17831,7 +17858,8 @@ function pitchCard(p){
       ${badge}
 
       <div class="photoZone">
-        <img src="${p.photo}">
+        ${photo}
+        ${avatar}
         ${crest}
       </div>
 
@@ -23507,8 +23535,16 @@ else:
                       return {
                         viewport:[innerWidth,innerHeight],
                         body:[Math.round(body.left),Math.round(body.top),Math.round(body.width),Math.round(body.height)],
-                        brokenPlayerImages:Array.from(document.querySelectorAll('.playerCard img,.benchPanel img,.vx-player-card img'))
-                          .filter(img => !img.complete || img.naturalWidth===0).length
+                        brokenPlayerImages:Array.from(document.querySelectorAll('.vxPitchPlayerImg,.benchPanel .miniPlayerImg'))
+                          .filter(img => {
+                            const style=getComputedStyle(img);
+                            const hidden=(
+                              style.display==="none"
+                              || style.visibility==="hidden"
+                              || Number(style.opacity||1)===0
+                            );
+                            return !hidden && (!img.complete || img.naturalWidth===0);
+                          }).length
                       };
                     }
                     """
