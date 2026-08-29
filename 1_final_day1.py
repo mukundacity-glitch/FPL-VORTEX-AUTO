@@ -15775,8 +15775,8 @@ def vx_review_player_text(p, position_index=0, bench=False):
 segments=[{
     "id":"headline",
     "text":(
-        f"Time to analyze the fallout from Gameweek {REVIEW_GW}. "
-        "I will audit every player's performance, closing out with the high-level structural data."
+        f"Gameweek {REVIEW_GW} review. "
+        "Let's audit the squad, player by player."
     )
 }]
 
@@ -16170,7 +16170,18 @@ review_package={
         "overall_rank":cur_rank,
         "previous_rank":prev_rank,
         "rank_dir":rank_dir,
-        "transfer_cost":transfer_cost
+        "transfer_cost":transfer_cost,
+        "captain_name":captain_player["name"],
+        "captain_return":captain_return,
+        "top_return_name":highest_player["name"],
+        "top_return_points":int(highest_player["points"]),
+        "disappointment_name":disappointment["name"],
+        "disappointment_points":int(disappointment["points"]),
+        "attack_xg":attack_xg,
+        "attack_xa":attack_xa,
+        "def_clean_returns":def_clean_returns,
+        "goalkeeper_saves":gk_saves,
+        "bench_points":bench_points
     },
     "segments":segments
 }
@@ -17002,7 +17013,7 @@ print("✅ PLAYER CARD ONLY — pitch / formation / footer / narration untouched
 # ============================================================
 
 from pathlib import Path
-import json, re, subprocess
+import json, math, re, subprocess
 import pandas as pd
 
 ROOT   = Path(globals().get("PROJECT_ROOT", "/content/drive/MyDrive/FPL_VORTEX"))
@@ -17407,33 +17418,151 @@ for pos, arr in groups.items():
         p["pitch_y"] = ys[pos]
 
 # ------------------------------------------------------------
-# 2. GLOBAL AUDIO TIMELINE
+# 2. CONFIGURABLE GLOBAL AUDIO + VISUAL TIMELINE
 # ------------------------------------------------------------
 
-cursor = 0.0
+# Fixed editorial beats live here, while every later player/substitute reveal
+# is still sourced from Ryan's real WordBoundary timestamp. Override only the
+# values that need tuning after a final narration pass, for example:
+# GW_REVIEW_ANIMATION_TIMING_OVERRIDES = {"goalkeeper_card_out": 23.4}
+GW_REVIEW_ANIMATION_DEFAULTS = {
+    "premier_league_logo_at": 1.0,
+    "review_title_at": 2.0,
+    "pitch_at": 3.0,
+    "first_player_at": 8.0,
+    "goalkeeper_card_out": 23.0,
+    "entrance_duration": 0.42,
+    "hero_fade_in": 0.32,
+    "hero_fade_out": 0.34,
+    "table_reveal_duration": 0.58,
+    "metric_highlight_duration": 1.15,
+    "final_hold": 3.0,
+}
 
-for s in pkg["segments"]:
+GW_REVIEW_ANIMATION_TIMING = dict(GW_REVIEW_ANIMATION_DEFAULTS)
+_review_timing_overrides = globals().get(
+    "GW_REVIEW_ANIMATION_TIMING_OVERRIDES", {}
+) or {}
+_unknown_review_timing = sorted(
+    set(_review_timing_overrides) - set(GW_REVIEW_ANIMATION_TIMING)
+)
+if _unknown_review_timing:
+    raise KeyError(
+        "Unknown GW Review animation timing overrides: "
+        f"{_unknown_review_timing}"
+    )
+GW_REVIEW_ANIMATION_TIMING.update(
+    {key: float(value) for key, value in _review_timing_overrides.items()}
+)
 
-    s["t0"] = cursor
-    s["t1"] = cursor + float(s["duration"])
-
-    if s.get("player_id"):
-        s["reveal_at"] = s["t0"] + float(s.get("name_time",0))
-
-        # Pitch/bench image and HERO begin together at the exact word
-        # boundary where Ryan says the player's name.
-        s["hero_on"] = s["reveal_at"]
-
-        # The player remains on the pitch/bench; only the temporary hero leaves
-        # at the end of that player's explanation.
-        s["hero_off"] = min(
-            s["t1"]-0.02,
-            max(s["hero_on"]+0.35, s["t1"]-0.12)
+for _timing_key, _timing_value in GW_REVIEW_ANIMATION_TIMING.items():
+    if not math.isfinite(float(_timing_value)) or float(_timing_value) < 0:
+        raise ValueError(
+            f"Invalid GW Review animation timing {_timing_key}={_timing_value!r}"
         )
 
-    cursor = s["t1"]
 
-TOTAL = cursor
+def _vx_build_review_timeline(review_pkg, timing):
+    """Attach deterministic audio/visual times to one completed review package."""
+    review_segments = list(review_pkg.get("segments") or [])
+    starters = list(review_pkg.get("starters") or [])
+    if not review_segments or not starters:
+        raise RuntimeError("GW Review animation requires narration and a starting eleven.")
+
+    first_starter = starters[0]
+    if str(first_starter.get("pos", "")).upper() != "GK":
+        raise RuntimeError("GW Review animation must begin with the goalkeeper.")
+    first_starter_id = int(first_starter["id"])
+
+    cursor = 0.0
+    goalkeeper_gate_applied = False
+    first_player_seen = False
+
+    for index, segment in enumerate(review_segments):
+        duration = float(segment.get("duration") or 0.0)
+        if not math.isfinite(duration) or duration <= 0:
+            raise RuntimeError(
+                f"GW Review narration duration is invalid for {segment.get('id')}"
+            )
+
+        player_id = segment.get("player_id")
+        is_first_player = (
+            player_id is not None and int(player_id) == first_starter_id
+        )
+
+        if index == 0:
+            start = 0.0
+        elif is_first_player:
+            name_time = float(segment.get("name_time") or 0.0)
+            start = float(timing["first_player_at"]) - name_time
+            if start < cursor - 1e-6:
+                raise RuntimeError(
+                    "Headline narration overlaps the fixed 0:08 goalkeeper reveal. "
+                    f"Headline ends at {cursor:.3f}s; goalkeeper audio must begin "
+                    f"at {start:.3f}s. Shorten the headline or adjust the override."
+                )
+            first_player_seen = True
+        else:
+            start = cursor
+            if first_player_seen and not goalkeeper_gate_applied:
+                start = max(
+                    start,
+                    float(timing["goalkeeper_card_out"])
+                    + float(timing["hero_fade_out"]),
+                )
+                goalkeeper_gate_applied = True
+
+        segment["t0"] = float(start)
+        segment["t1"] = float(start + duration)
+
+        if player_id is not None:
+            reveal_at = float(start) + float(segment.get("name_time") or 0.0)
+            segment["reveal_at"] = reveal_at
+
+            if str(segment.get("kind", "")) == "starter":
+                segment["hero_on"] = reveal_at
+                if is_first_player:
+                    if abs(reveal_at - float(timing["first_player_at"])) > 1e-6:
+                        raise RuntimeError("Goalkeeper reveal drifted from the fixed 0:08 beat.")
+                    if segment["t1"] > float(timing["goalkeeper_card_out"]) + 1e-6:
+                        raise RuntimeError(
+                            "Goalkeeper narration runs past the fixed 0:23 card exit: "
+                            f"ends at {segment['t1']:.3f}s."
+                        )
+                    segment["hero_exit_at"] = float(timing["goalkeeper_card_out"])
+                else:
+                    # The explanation completes first; the card then eases away.
+                    segment["hero_exit_at"] = float(segment["t1"])
+                segment["hero_off"] = (
+                    float(segment["hero_exit_at"])
+                    + float(timing["hero_fade_out"])
+                )
+            else:
+                # Substitute cards persist in their own dock; no temporary hero.
+                segment.pop("hero_on", None)
+                segment.pop("hero_exit_at", None)
+                segment.pop("hero_off", None)
+
+        cursor = float(segment["t1"])
+
+    if not first_player_seen:
+        raise RuntimeError("Goalkeeper narration segment is missing from GW Review.")
+
+    narration_end = cursor
+    total = narration_end + float(timing["final_hold"])
+    return {
+        "narration_end": narration_end,
+        "final_hold_at": narration_end,
+        "total": total,
+        "first_starter_id": first_starter_id,
+    }
+
+
+GW_REVIEW_TIMELINE = _vx_build_review_timeline(
+    pkg, GW_REVIEW_ANIMATION_TIMING
+)
+NARRATION_END = float(GW_REVIEW_TIMELINE["narration_end"])
+TOTAL = float(GW_REVIEW_TIMELINE["total"])
 
 # ------------------------------------------------------------
 # 2B. SQUAD-REVEAL SYNC QA
@@ -17455,10 +17584,17 @@ if _actual_sync_ids != _expected_sync_ids:
 for s in _player_sync_segments:
     if not (float(s["t0"]) <= float(s["reveal_at"]) < float(s["t1"])):
         raise RuntimeError(f"Reveal outside narration window: {s['id']}")
-    if abs(float(s["hero_on"])-float(s["reveal_at"])) > 1e-6:
-        raise RuntimeError(f"Hero/pitch reveal not aligned to Ryan name: {s['id']}")
-    if not (float(s["hero_on"]) < float(s["hero_off"]) <= float(s["t1"])):
-        raise RuntimeError(f"Hero window invalid: {s['id']}")
+    if s.get("kind") == "starter":
+        if abs(float(s["hero_on"])-float(s["reveal_at"])) > 1e-6:
+            raise RuntimeError(f"Hero/pitch reveal not aligned to Ryan name: {s['id']}")
+        if not (
+            float(s["hero_on"])
+            < float(s["hero_exit_at"])
+            < float(s["hero_off"])
+        ):
+            raise RuntimeError(f"Hero window invalid: {s['id']}")
+    elif any(key in s for key in ("hero_on", "hero_exit_at", "hero_off")):
+        raise RuntimeError(f"Bench segment incorrectly owns a temporary hero: {s['id']}")
 
 _last_player_t1=max(float(s["t1"]) for s in _player_sync_segments)
 _metrics_seg=next(
@@ -17471,31 +17607,54 @@ if _metrics_seg is None or float(_metrics_seg["t0"]) < _last_player_t1-1e-6:
 print("✅ GW Review sync QA: Ryan name = hero reveal = player reveal")
 print("✅ Player images persist; only hero windows end")
 print("✅ Full data board begins after the final reserve")
+print("✅ Fixed beats: PL 0:01 • title 0:02 • pitch 0:03 • goalkeeper 0:08 • card out 0:23")
 
 # ------------------------------------------------------------
-# 3. CONCAT RYAN SEGMENTS → ONE MASTER AUDIO
+# 3. PLACE RYAN SEGMENTS ON THE CONFIGURABLE MASTER TIMELINE
 # ------------------------------------------------------------
 
-concat_file = Path(globals().get("AUDIO_WORK_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/audio"))/"gw_review_concat.txt"
+MASTER_MP3.parent.mkdir(parents=True, exist_ok=True)
+_review_audio_inputs = []
+_review_audio_filters = []
+_review_audio_labels = []
 
-concat_file.write_text(
-    "\n".join(
-        f"file '{Path(s['audio']).as_posix()}'"
-        for s in pkg["segments"]
-    ),
-    encoding="utf-8"
+for _audio_index, _segment in enumerate(pkg["segments"]):
+    _review_audio_inputs += ["-i", str(Path(_segment["audio"]))]
+    _delay_ms = max(0, int(round(float(_segment["t0"]) * 1000.0)))
+    _label = f"review{_audio_index}"
+    _review_audio_filters.append(
+        f"[{_audio_index}:a]aresample=48000,"
+        f"adelay=delays={_delay_ms}:all=1[{_label}]"
+    )
+    _review_audio_labels.append(f"[{_label}]")
+
+_review_audio_filters.append(
+    "".join(_review_audio_labels)
+    + f"amix=inputs={len(_review_audio_labels)}:duration=longest:normalize=0,"
+      f"apad=pad_dur={float(GW_REVIEW_ANIMATION_TIMING['final_hold']):.6f},"
+      f"atrim=start=0:end={TOTAL:.6f}[reviewmaster]"
 )
 
 subprocess.run(
     [
-        "ffmpeg","-y","-v","error",
-        "-f","concat","-safe","0",
-        "-i",str(concat_file),
-        "-c","copy",
-        str(MASTER_MP3)
+        "ffmpeg", "-y", "-v", "error",
+        *_review_audio_inputs,
+        "-filter_complex", ";".join(_review_audio_filters),
+        "-map", "[reviewmaster]",
+        "-c:a", "libmp3lame",
+        "-b:a", "192k",
+        "-ar", "48000",
+        str(MASTER_MP3),
     ],
-    check=True
+    check=True,
 )
+
+MASTER_AUDIO_DURATION = float(vx_media_duration(MASTER_MP3))
+if abs(MASTER_AUDIO_DURATION - TOTAL) > 0.12:
+    raise RuntimeError(
+        "GW Review master audio drifted from its visual timeline: "
+        f"audio={MASTER_AUDIO_DURATION:.3f}s, timeline={TOTAL:.3f}s"
+    )
 
 # ------------------------------------------------------------
 # 4. VTT
@@ -17533,7 +17692,6 @@ def seg(name):
         None
     )
 
-headline_seg = seg("headline")
 bench_intro  = seg("bench_intro")
 metrics_intro = seg("metrics_intro")
 
@@ -17542,6 +17700,9 @@ metric_map = {}
 for sid,key in [
     ("metric_points","points"),
     ("metric_captain","captain"),
+    ("metric_disappointment","disappointment"),
+    ("metric_attack","attack"),
+    ("metric_defence","defence"),
     ("metric_bench","bench"),
     ("metric_bank","bank"),
     ("metric_gwrank","gwrank"),
@@ -17571,11 +17732,8 @@ JS_DATA = {
     "bench":pkg["bench"],
     "segments":pkg["segments"],
     "total":TOTAL,
-
-    "headline":f"GAMEWEEK {pkg['gw']} REVIEW • PLAYER BY PLAYER",
-
-    "headline_t0":headline_seg["t0"],
-    "headline_t1":headline_seg["t1"],
+    "narration_end":NARRATION_END,
+    "timeline":GW_REVIEW_ANIMATION_TIMING,
 
     "bench_t":bench_intro["t0"] if bench_intro else TOTAL,
     "metrics_t":metrics_intro["t0"] if metrics_intro else TOTAL,
@@ -17591,9 +17749,19 @@ JS_DATA = {
         "prev_rank":metrics["previous_rank"],
         "rank_dir":metrics["rank_dir"],
         "hit":metrics["transfer_cost"],
-        "captain":captain["name"],
-        "captain_return":captain["points"]*captain["multiplier"],
-        "bench_points":bench_pts,
+        "captain":metrics.get("captain_name", captain["name"]),
+        "captain_return":metrics.get(
+            "captain_return", captain["points"]*captain["multiplier"]
+        ),
+        "top_return_name":metrics.get("top_return_name", "—"),
+        "top_return_points":metrics.get("top_return_points", 0),
+        "disappointment_name":metrics.get("disappointment_name", "—"),
+        "disappointment_points":metrics.get("disappointment_points", 0),
+        "attack_xg":metrics.get("attack_xg", 0.0),
+        "attack_xa":metrics.get("attack_xa", 0.0),
+        "def_clean_returns":metrics.get("def_clean_returns", 0),
+        "goalkeeper_saves":metrics.get("goalkeeper_saves", 0),
+        "bench_points":metrics.get("bench_points", bench_pts),
     }
 }
 
@@ -17615,6 +17783,34 @@ CSS = r"""
     display:none !important;
 }
 
+/* Persistent broadcast furniture is present at frame zero. */
+.brand,
+.footer{
+    opacity:1 !important;
+}
+
+/* Every staged element begins hidden; window.__seek owns all motion. */
+.plBug{
+    opacity:0;
+    transform:translateY(-18px) scale(.94);
+    transform-origin:top right;
+    will-change:opacity,transform;
+}
+
+.pitch,
+.pitchGlow,
+.pitchSvg{
+    opacity:0;
+    transform:translateY(34px) scale(.975);
+    transform-origin:center center;
+    will-change:opacity,transform;
+}
+
+.pitchHeader{
+    opacity:0;
+    will-change:opacity,transform;
+}
+
 /* player pitch cards initially invisible */
 .playerCard{
     opacity:0;
@@ -17631,48 +17827,6 @@ CSS = r"""
     z-index:80;
     overflow:hidden;
     border-radius:23px;
-}
-
-#vxBlank{
-    position:absolute;
-    inset:0;
-    border:2px solid rgba(255,225,94,.45);
-    border-radius:23px;
-
-    background:
-      radial-gradient(circle at 50% 30%,
-      rgba(255,218,66,.11),transparent 35%),
-
-      linear-gradient(160deg,
-      rgba(6,18,31,.98),
-      rgba(3,9,17,.99));
-
-    box-shadow:
-      inset 0 0 55px rgba(255,213,54,.055),
-      0 20px 45px rgba(0,0,0,.35);
-}
-
-#vxHeadline{
-    position:absolute;
-    left:70px;
-    right:70px;
-    top:400px;
-
-    font-size:69px;
-    line-height:1.08;
-    font-weight:1000;
-    font-style:italic;
-
-    color:#fff;
-    text-align:center;
-
-    text-shadow:
-      0 4px 8px #000,
-      0 0 25px rgba(255,216,70,.26);
-}
-
-#vxCaret{
-    color:#ffe04b;
 }
 
 /* -------------------------------------------------------
@@ -17724,10 +17878,14 @@ CSS = r"""
     opacity:0;
 
     border-radius:20px;
-    border:2px solid rgba(255,220,74,.35);
+    border:2px solid rgba(255,241,164,.92);
 
     background:
-      linear-gradient(180deg,#091827,#030a11);
+      linear-gradient(180deg,#fff2a6 0%,#ffe37a 48%,#f4c94f 100%);
+
+    box-shadow:
+      0 24px 55px rgba(0,0,0,.36),
+      inset 0 1px 0 rgba(255,255,255,.74);
 
     display:grid;
     grid-template-columns:repeat(4,1fr);
@@ -17742,9 +17900,9 @@ CSS = r"""
     overflow:hidden;
 
     background:
-      linear-gradient(180deg,#10283a,#06121c);
+      linear-gradient(180deg,#fff7c7 0%,#ffe58a 100%);
 
-    border:2px solid rgba(255,255,255,.14);
+    border:2px solid rgba(92,55,0,.28);
 
     text-align:center;
 }
@@ -17763,7 +17921,7 @@ CSS = r"""
     justify-content:center;
 
     color:#fff;
-    background:#02080d;
+    background:#07131f;
 
     font-size:20px;
     font-weight:1000;
@@ -17805,27 +17963,31 @@ CSS = r"""
     padding:22px;
 
     display:grid;
-    grid-template-columns:1fr 1fr;
+    grid-template-columns:repeat(3,minmax(0,1fr));
     grid-template-rows:repeat(4,1fr);
     gap:14px;
 
     opacity:0;
 
     background:
-      linear-gradient(
-        160deg,
-        rgba(5,16,28,.985),
-        rgba(2,8,15,.995)
-      );
+      linear-gradient(180deg,#fff2a6 0%,#ffe37a 48%,#f4c94f 100%);
 
-    border:2px solid rgba(255,220,70,.36);
+    border:2px solid rgba(255,241,164,.94);
     border-radius:22px;
+
+    box-shadow:
+      0 26px 70px rgba(0,0,0,.42),
+      inset 0 1px 0 rgba(255,255,255,.78);
+
+    transform:translateY(38px) scale(.985);
+    transform-origin:center bottom;
+    will-change:opacity,transform;
 }
 
 .vxm{
     position:relative;
 
-    padding:28px;
+    padding:22px;
 
     display:flex;
     flex-direction:column;
@@ -17834,20 +17996,18 @@ CSS = r"""
     border-radius:17px;
 
     background:
-      linear-gradient(
-        160deg,
-        rgba(255,224,74,.14),
-        rgba(255,255,255,.025)
-      );
+      linear-gradient(180deg,rgba(255,255,255,.58),rgba(255,231,115,.20));
 
-    border:1px solid rgba(255,224,74,.24);
+    border:2px solid rgba(83,52,0,.20);
 
-    transition:none;
+    color:#09111a;
+    transform-origin:center center;
+    will-change:transform,filter,box-shadow;
 }
 
 .vxm-label{
-    color:#94a9ba;
-    font-size:23px;
+    color:#3a2a08;
+    font-size:21px;
     font-weight:900;
     letter-spacing:2px;
 }
@@ -17855,8 +18015,8 @@ CSS = r"""
 .vxm-value{
     margin-top:8px;
 
-    color:white;
-    font-size:54px;
+    color:#07111a;
+    font-size:42px;
     line-height:1;
     font-weight:1000;
 }
@@ -17864,8 +18024,8 @@ CSS = r"""
 .vxm-sub{
     margin-top:9px;
 
-    color:#ffe04b;
-    font-size:20px;
+    color:#6f4600;
+    font-size:18px;
     font-weight:900;
 }
 
@@ -17991,6 +18151,42 @@ function metricsHTML(){
         <div class="vxm-sub">GAMEWEEK ${VX.gw}</div>
       </div>
 
+      <div class="vxm" data-key="top_return">
+        <div class="vxm-label">TOP RETURN</div>
+        <div class="vxm-value">${escv(m.top_return_name)}</div>
+        <div class="vxm-sub">${fmtN(m.top_return_points)} POINTS</div>
+      </div>
+
+      <div class="vxm" data-key="captain">
+        <div class="vxm-label">CAPTAIN</div>
+        <div class="vxm-value">${escv(m.captain)}</div>
+        <div class="vxm-sub">${fmtN(m.captain_return)} RETURNED POINTS</div>
+      </div>
+
+      <div class="vxm" data-key="disappointment">
+        <div class="vxm-label">UNDERPERFORMANCE</div>
+        <div class="vxm-value">${escv(m.disappointment_name)}</div>
+        <div class="vxm-sub">${fmtN(m.disappointment_points)} POINTS</div>
+      </div>
+
+      <div class="vxm" data-key="attack">
+        <div class="vxm-label">ATTACKING PROCESS</div>
+        <div class="vxm-value">${Number(m.attack_xg||0).toFixed(2)} xG</div>
+        <div class="vxm-sub">${Number(m.attack_xa||0).toFixed(2)} EXPECTED ASSISTS</div>
+      </div>
+
+      <div class="vxm" data-key="defence">
+        <div class="vxm-label">DEFENSIVE RETURNS</div>
+        <div class="vxm-value">${fmtN(m.def_clean_returns)}</div>
+        <div class="vxm-sub">${fmtN(m.goalkeeper_saves)} GOALKEEPER SAVES</div>
+      </div>
+
+      <div class="vxm" data-key="bench">
+        <div class="vxm-label">BENCH POINTS</div>
+        <div class="vxm-value">${m.bench_points}</div>
+        <div class="vxm-sub">UNUSED OUTPUT</div>
+      </div>
+
       <div class="vxm" data-key="bank">
         <div class="vxm-label">BANK</div>
         <div class="vxm-value">${m.bank}</div>
@@ -18008,21 +18204,7 @@ function metricsHTML(){
         <div class="vxm-value ${rankClass}">
           ${fmtN(m.orank)} ${arrow}
         </div>
-        <div class="vxm-sub">
-          PREVIOUS ${fmtN(m.prev_rank)}
-        </div>
-      </div>
-
-      <div class="vxm" data-key="captain">
-        <div class="vxm-label">CAPTAIN</div>
-        <div class="vxm-value">${escv(m.captain)}</div>
-        <div class="vxm-sub">${m.captain_return} RETURNED PTS</div>
-      </div>
-
-      <div class="vxm" data-key="bench">
-        <div class="vxm-label">BENCH POINTS</div>
-        <div class="vxm-value">${m.bench_points}</div>
-        <div class="vxm-sub">UNUSED OUTPUT</div>
+        <div class="vxm-sub">PREVIOUS ${fmtN(m.prev_rank)}</div>
       </div>
 
       <div class="vxm" data-key="hit">
@@ -18031,7 +18213,7 @@ function metricsHTML(){
         <div class="vxm-sub">${hit ? "POINT HIT" : "NO HIT"}</div>
       </div>
 
-      <div class="vxm">
+      <div class="vxm" data-key="complete">
         <div class="vxm-label">REVIEW STATUS</div>
         <div class="vxm-value">COMPLETE</div>
         <div class="vxm-sub">STARTING XI + BENCH</div>
@@ -18054,11 +18236,6 @@ function buildReview(){
       "beforeend",
       `
       <div id="vxReviewStage">
-
-        <div id="vxBlank">
-          <div id="vxHeadline"></div>
-        </div>
-
         <div id="vxMetrics">
           ${metricsHTML()}
         </div>
@@ -18077,8 +18254,10 @@ function buildReview(){
       <div id="vxHeroWrap"></div>`
     );
 
-    $v("#pitchGW").textContent=`GW ${VX.gw} REVIEW`;
-    $v("#entryName").textContent="MY SQUAD";
+    $v("#pitchGW").textContent=`GAMEWEEK ${VX.gw} REVIEW`;
+    $v("#entryName").textContent="— FPL VORTEX";
+    const footerGW=$v("#footerGW");
+    if(footerGW) footerGW.textContent=`GAMEWEEK ${VX.gw} REVIEW`;
     $v("#loading").classList.add("hide");
 
     window.__ready=true;
@@ -18093,30 +18272,34 @@ window.__seek=function(t){
 
     t=clamp(Number(t)||0,0,VX.total);
 
-    /* ---------- TYPEWRITER ---------- */
+    const timing=VX.timeline || {};
 
-    const headline=$v("#vxHeadline");
+    /* ---------- FIXED OPENING BEATS ---------- */
 
-    const typeEnd =
-      VX.headline_t0 +
-      (VX.headline_t1-VX.headline_t0)*0.72;
+    const pl=$v(".plBug");
+    if(pl){
+        const p=ease((t-Number(timing.premier_league_logo_at||1))/.46);
+        pl.style.opacity=p;
+        pl.style.transform=`translateY(${(1-p)*-18}px) scale(${.94+.06*p})`;
+    }
 
-    const tp=clamp(
-      (t-VX.headline_t0) /
-      Math.max(.01,typeEnd-VX.headline_t0)
-    );
+    const title=$v(".pitchHeader");
+    if(title){
+        const p=ease((t-Number(timing.review_title_at||2))/.52);
+        title.style.opacity=p;
+        title.style.setProperty(
+          "transform",
+          `translateY(${(1-p)*24}px) scale(${.95+.05*p})`,
+          "important"
+        );
+    }
 
-    const chars=Math.floor(VX.headline.length*tp);
-
-    headline.innerHTML =
-      escv(VX.headline.slice(0,chars)) +
-      (t < typeEnd ? `<span id="vxCaret">▌</span>` : "");
-
-    const firstPlayer =
-      VX.segments.find(s=>s.player_id);
-
-    $v("#vxBlank").style.opacity =
-      firstPlayer && t >= firstPlayer.reveal_at ? 0 : 1;
+    const pitchP=ease((t-Number(timing.pitch_at||3))/.62);
+    document.querySelectorAll(".pitch,.pitchGlow,.pitchSvg").forEach(el=>{
+        el.style.opacity=pitchP;
+        el.style.transform=
+          `translateY(${(1-pitchP)*34}px) scale(${.975+.025*pitchP})`;
+    });
 
     /* ---------- STARTING XI ---------- */
 
@@ -18129,7 +18312,7 @@ window.__seek=function(t){
         if(!el) return;
 
         const p=ease(
-          (t-s.reveal_at)/.42
+          (t-s.reveal_at)/Number(timing.entrance_duration||.42)
         );
 
         el.style.opacity=p;
@@ -18147,8 +18330,10 @@ window.__seek=function(t){
 
     const benchDock=$v("#vxBenchDock");
 
-    benchDock.style.opacity =
-      t >= VX.bench_t ? 1 : 0;
+    const benchDockP=ease((t-VX.bench_t)/.46);
+    benchDock.style.opacity=benchDockP;
+    benchDock.style.transform=
+      `translateY(${(1-benchDockP)*28}px) scale(${.985+.015*benchDockP})`;
 
     VX.segments
       .filter(s=>s.player_id && s.kind==="bench")
@@ -18157,7 +18342,9 @@ window.__seek=function(t){
         const el=$v(`#vxb_${s.player_id}`);
         if(!el) return;
 
-        const p=ease((t-s.reveal_at)/.38);
+        const p=ease(
+          (t-s.reveal_at)/Number(timing.entrance_duration||.42)
+        );
 
         el.style.opacity=p;
         el.style.transform=
@@ -18166,13 +18353,15 @@ window.__seek=function(t){
 
     /* ---------- TEMP HERO ---------- */
 
-    const heroSeg =
-      VX.segments.find(
+    const heroSeg = VX.segments
+      .filter(
         s =>
           s.player_id &&
+          s.kind==="starter" &&
           t >= s.hero_on &&
           t < s.hero_off
-      );
+      )
+      .sort((a,b)=>Number(b.hero_on)-Number(a.hero_on))[0];
 
     const hw=$v("#vxHeroWrap");
 
@@ -18195,12 +18384,15 @@ window.__seek=function(t){
             }
 
             const ein=ease(
-              (t-heroSeg.hero_on)/.28
+              (t-heroSeg.hero_on)/Number(timing.hero_fade_in||.32)
             );
 
-            const eout=ease(
-              (heroSeg.hero_off-t)/.28
-            );
+            const eout=t < heroSeg.hero_exit_at
+              ? 1
+              : 1-ease(
+                  (t-heroSeg.hero_exit_at) /
+                  Math.max(.01,heroSeg.hero_off-heroSeg.hero_exit_at)
+                );
 
             const vis=Math.min(ein,eout);
 
@@ -18214,15 +18406,35 @@ window.__seek=function(t){
         hw.style.opacity=0;
     }
 
-    /* ---------- METRICS: keep the gold panels visible instead ----------
-       The dark #vxMetrics board used to fade in over the gold panels
-       during the table-narration phase. It now stays hidden so the
-       PNG-style gold Gameweek Review / Chip Intelligence / Fixture /
-       Substitutes panels (already visible once #vxBlank fades out at
-       the first player reveal) stay on screen while Ryan explains them. */
+    /* ---------- COMPLETE GOLD DATA TABLE + NARRATED EMPHASIS ---------- */
 
     const metrics=$v("#vxMetrics");
-    metrics.style.opacity=0;
+    const metricsP=ease(
+      (t-VX.metrics_t)/Number(timing.table_reveal_duration||.58)
+    );
+    metrics.style.opacity=metricsP;
+    metrics.style.transform=
+      `translateY(${(1-metricsP)*38}px) scale(${.985+.015*metricsP})`;
+
+    document.querySelectorAll("#vxMetrics .vxm").forEach(el=>{
+        el.style.transform="none";
+        el.style.filter="";
+        el.style.boxShadow="";
+        el.style.borderColor="rgba(83,52,0,.20)";
+    });
+
+    Object.entries(VX.metric_times||{}).forEach(([key,span])=>{
+        const start=Number(span?.[0]||0);
+        const emphasisDuration=Number(timing.metric_highlight_duration||1.15);
+        const p=Math.sin(clamp((t-start)/Math.max(.01,emphasisDuration))*Math.PI);
+        if(p<=0) return;
+        const el=document.querySelector(`#vxMetrics .vxm[data-key="${key}"]`);
+        if(!el) return;
+        el.style.transform=`translateY(${-8*p}px) scale(${1+.025*p})`;
+        el.style.filter=`brightness(${1+.14*p}) saturate(${1+.12*p})`;
+        el.style.boxShadow=`0 0 ${18+30*p}px rgba(255,190,25,${.18+.32*p})`;
+        el.style.borderColor=`rgba(118,70,0,${.28+.52*p})`;
+    });
 
     document.documentElement.dataset.vortexTime=t.toFixed(3);
 
@@ -18240,9 +18452,21 @@ window.__auditLayout=function(t){
         document.documentElement.scrollWidth,
         document.documentElement.scrollHeight
       ],
+      brand:Number(getComputedStyle($v(".brand")).opacity||0),
+      footer:Number(getComputedStyle($v(".footer")).opacity||0),
       pitchPlayers:
         [...document.querySelectorAll(".playerCard")]
-        .filter(x=>Number(x.style.opacity)>.5).length
+        .filter(x=>Number(x.style.opacity)>.5).length,
+      plLogo:Number($v(".plBug")?.style.opacity||0),
+      title:Number($v(".pitchHeader")?.style.opacity||0),
+      pitch:Number($v(".pitch")?.style.opacity||0),
+      hero:Number($v("#vxHeroWrap")?.style.opacity||0),
+      benchCards:[...document.querySelectorAll(".vxb")]
+        .filter(x=>Number(x.style.opacity)>.5).length,
+      table:Number($v("#vxMetrics")?.style.opacity||0),
+      activeMetrics:[...document.querySelectorAll("#vxMetrics .vxm")]
+        .filter(x=>Boolean(x.style.boxShadow))
+        .map(x=>String(x.dataset.key||""))
     };
 };
 
@@ -18310,15 +18534,85 @@ ANIM_HTML.write_text(
 # 10. SAVE ANIMATION MANIFEST
 # ------------------------------------------------------------
 
+_review_motion_windows = [
+    {
+        "id":"premier_league_logo",
+        "start":GW_REVIEW_ANIMATION_TIMING["premier_league_logo_at"],
+        "end":GW_REVIEW_ANIMATION_TIMING["premier_league_logo_at"] + 0.46,
+    },
+    {
+        "id":"review_title",
+        "start":GW_REVIEW_ANIMATION_TIMING["review_title_at"],
+        "end":GW_REVIEW_ANIMATION_TIMING["review_title_at"] + 0.52,
+    },
+    {
+        "id":"soccer_pitch",
+        "start":GW_REVIEW_ANIMATION_TIMING["pitch_at"],
+        "end":GW_REVIEW_ANIMATION_TIMING["pitch_at"] + 0.62,
+    },
+]
+
+for _segment in pkg["segments"]:
+    if _segment.get("player_id") is not None:
+        _review_motion_windows.append({
+            "id":f"player_{_segment['player_id']}_reveal",
+            "start":float(_segment["reveal_at"]),
+            "end":float(_segment["reveal_at"])
+                  + GW_REVIEW_ANIMATION_TIMING["entrance_duration"],
+        })
+    if _segment.get("kind") == "starter":
+        _review_motion_windows.append({
+            "id":f"hero_{_segment['player_id']}_in",
+            "start":float(_segment["hero_on"]),
+            "end":float(_segment["hero_on"])
+                  + GW_REVIEW_ANIMATION_TIMING["hero_fade_in"],
+        })
+        _review_motion_windows.append({
+            "id":f"hero_{_segment['player_id']}_out",
+            "start":float(_segment["hero_exit_at"]),
+            "end":float(_segment["hero_off"]),
+        })
+
+_review_motion_windows.append({
+    "id":"substitutes_dock",
+    "start":float(JS_DATA["bench_t"]),
+    "end":float(JS_DATA["bench_t"]) + 0.46,
+})
+_review_motion_windows.append({
+    "id":"complete_data_table",
+    "start":float(JS_DATA["metrics_t"]),
+    "end":float(JS_DATA["metrics_t"])
+          + GW_REVIEW_ANIMATION_TIMING["table_reveal_duration"],
+})
+
+for _metric_key, _metric_span in metric_map.items():
+    _review_motion_windows.append({
+        "id":f"metric_{_metric_key}_highlight",
+        "start":float(_metric_span[0]),
+        "end":min(
+            float(_metric_span[1]),
+            float(_metric_span[0])
+            + GW_REVIEW_ANIMATION_TIMING["metric_highlight_duration"],
+        ),
+    })
+
 manifest = {
     "html":str(ANIM_HTML),
     "audio":str(MASTER_MP3),
     "vtt":str(MASTER_VTT),
     "duration":TOTAL,
+    "audio_duration":MASTER_AUDIO_DURATION,
+    "narration_end":NARRATION_END,
+    "final_hold_start":NARRATION_END,
+    "final_hold_seconds":GW_REVIEW_ANIMATION_TIMING["final_hold"],
     "canvas":[3840,2160],
     "gw":pkg["gw"],
     "starting_xi":len(pkg["starters"]),
     "bench":len(pkg["bench"]),
+    "first_starter_id":GW_REVIEW_TIMELINE["first_starter_id"],
+    "timeline":GW_REVIEW_ANIMATION_TIMING,
+    "metric_times":metric_map,
+    "motion_windows":_review_motion_windows,
     "segments":pkg["segments"]
 }
 
@@ -18329,14 +18623,15 @@ manifest = {
 
 print("✅ GW REVIEW ANIMATION READY")
 print(f"✅ GW: {pkg['gw']}")
-print("✅ Blank pitch at opening")
-print("✅ Deterministic typewriter headline")
+print("✅ Frame zero: header + channel logo + footer only")
+print("✅ Premier League logo 0:01 • title 0:02 • pitch 0:03")
 print("✅ Ryan-name → player pitch reveal")
 print("✅ Player remains on pitch")
 print("✅ Responsive CELL 15A hero card appears on the spoken name")
 print("✅ Hero disappears after explanation")
-print("✅ Bench builds independently")
-print("✅ Metrics reveal together")
+print("✅ Bench builds independently and persists")
+print("✅ Complete gold metrics table reveals together and highlights by narration")
+print(f"✅ Final completed composition hold: {GW_REVIEW_ANIMATION_TIMING['final_hold']:.2f}s")
 print(f"✅ Total review duration: {TOTAL:.2f}s")
 print("✅ HTML:",ANIM_HTML)
 print("✅ AUDIO:",MASTER_MP3)
@@ -23152,8 +23447,8 @@ output.serve_kernel_port_as_iframe(
 )
 
 # ============================================================
-# CELL 17 — GW REVIEW • PNG-LOCKED FRESH MP4 RENDER
-# CURRENT GENERATED PNG GRAPHICS • ALWAYS REPLACE SAME DRIVE FILE
+# CELL 17 — GW REVIEW • DETERMINISTIC ANIMATED HTML MP4 RENDER
+# SEEKABLE DOM KEYFRAMES • RYAN-SYNCED • ALWAYS REPLACE SAME DRIVE FILE
 # ============================================================
 
 if not globals().get("SLIDE_SELECTION", {}).get("gw_review", True):
@@ -23168,7 +23463,6 @@ else:
     import subprocess
 
     from IPython.display import Video, display
-    from PIL import Image
 
     VIDEO = Path(
         globals().get(
@@ -23198,42 +23492,103 @@ else:
     for _vx17_folder in (VIDEO, SLIDES, TIMING, WORK):
         _vx17_folder.mkdir(parents=True, exist_ok=True)
 
-    SOURCE_PNG = SLIDES / "gw_review_scene_4k.png"
     MANIFEST = TIMING / "gw_review_animation_manifest.json"
     FINAL_MP4 = VIDEO / "gw_review.mp4"
-    LOCAL_MP4 = WORK / "gw_review_png_master.mp4"
+    LOCAL_MP4 = WORK / "gw_review_html_master.mp4"
+    SILENT_MP4 = WORK / "gw_review_html_silent.mp4"
+    FRAME_DIR = WORK / "gw_review_html_frames"
+    CONCAT_FILE = FRAME_DIR / "frames.ffconcat"
+    FINAL_PREVIEW = SLIDES / "gw_review_animated_final.png"
     UPLOAD_MP4 = VIDEO / ".gw_review.uploading.mp4"
     RENDER_QA = TIMING / "gw_review_render.json"
-    RENDERER_VERSION = "VX17-PNG-LOCKED-ALWAYS-REPLACE-V1"
+    RENDERER_VERSION = "VX17-ANIMATED-DOM-TIMELINE-V2"
 
-    if not SOURCE_PNG.is_file() or SOURCE_PNG.stat().st_size < 100_000:
-        raise FileNotFoundError(
-            "Current generated GW Review PNG is missing or incomplete: "
-            f"{SOURCE_PNG}. Run the GW Review slide cell first."
-        )
     if not MANIFEST.is_file():
         raise FileNotFoundError(
             "GW Review narration manifest is missing. Run Cell 16 first."
         )
 
-    with Image.open(SOURCE_PNG) as _vx17_image:
-        _vx17_image.verify()
-    with Image.open(SOURCE_PNG) as _vx17_image:
-        _vx17_png_size = tuple(map(int, _vx17_image.size))
-        _vx17_png_format = str(_vx17_image.format or "").upper()
-
-    if _vx17_png_format != "PNG" or _vx17_png_size != (3840, 2160):
-        raise RuntimeError(
-            "GW Review graphics must be the current 3840×2160 PNG slide; "
-            f"found format={_vx17_png_format!r}, size={_vx17_png_size}"
-        )
-
     _vx17_manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    ANIM_HTML = Path(str(_vx17_manifest.get("html") or ""))
     AUDIO = Path(str(_vx17_manifest.get("audio") or ""))
+    if not ANIM_HTML.is_file() or ANIM_HTML.stat().st_size < 100_000:
+        raise FileNotFoundError(
+            f"Current animated GW Review HTML is missing or incomplete: {ANIM_HTML}"
+        )
     if not AUDIO.is_file() or AUDIO.stat().st_size < 10_000:
         raise FileNotFoundError(
             f"Current GW Review narration audio is missing or incomplete: {AUDIO}"
         )
+
+    _vx17_canvas = list(_vx17_manifest.get("canvas") or [])
+    if _vx17_canvas != [3840, 2160]:
+        raise RuntimeError(
+            f"GW Review animated canvas must be [3840, 2160], got {_vx17_canvas}"
+        )
+    DESIGN_W, DESIGN_H = map(int, _vx17_canvas)
+
+    _vx17_timeline = dict(_vx17_manifest.get("timeline") or {})
+    _vx17_motion_windows = list(_vx17_manifest.get("motion_windows") or [])
+    _vx17_metric_times = dict(_vx17_manifest.get("metric_times") or {})
+    _vx17_segments = list(_vx17_manifest.get("segments") or [])
+    if (
+        not _vx17_timeline
+        or not _vx17_motion_windows
+        or not _vx17_metric_times
+        or not _vx17_segments
+    ):
+        raise RuntimeError(
+            "GW Review manifest is missing timeline, motion windows, metric windows, "
+            "or narration segments."
+        )
+
+    for _vx17_required_timing in (
+        "premier_league_logo_at",
+        "review_title_at",
+        "pitch_at",
+        "first_player_at",
+        "goalkeeper_card_out",
+        "final_hold",
+    ):
+        if _vx17_required_timing not in _vx17_timeline:
+            raise RuntimeError(
+                f"GW Review timeline is missing {_vx17_required_timing!r}"
+            )
+
+    if not (
+        float(_vx17_timeline["premier_league_logo_at"])
+        < float(_vx17_timeline["review_title_at"])
+        < float(_vx17_timeline["pitch_at"])
+        < float(_vx17_timeline["first_player_at"])
+        < float(_vx17_timeline["goalkeeper_card_out"])
+    ):
+        raise RuntimeError(f"GW Review fixed opening beats are not ordered: {_vx17_timeline}")
+
+    if float(_vx17_manifest.get("final_hold_seconds") or 0.0) < 3.0 - 1e-6:
+        raise RuntimeError("GW Review final completed composition hold must be at least 3 seconds.")
+    if int(_vx17_manifest.get("starting_xi") or 0) != 11:
+        raise RuntimeError("GW Review animated slide must contain exactly eleven starters.")
+
+    _vx17_first_id = int(_vx17_manifest.get("first_starter_id") or 0)
+    _vx17_first_segment = next(
+        (
+            segment for segment in _vx17_segments
+            if int(segment.get("player_id") or 0) == _vx17_first_id
+        ),
+        None,
+    )
+    if _vx17_first_segment is None:
+        raise RuntimeError("GW Review goalkeeper segment is missing from the manifest.")
+    if abs(
+        float(_vx17_first_segment["reveal_at"])
+        - float(_vx17_timeline["first_player_at"])
+    ) > 1e-6:
+        raise RuntimeError("GW Review goalkeeper is not aligned to the configured 0:08 beat.")
+    if abs(
+        float(_vx17_first_segment["hero_exit_at"])
+        - float(_vx17_timeline["goalkeeper_card_out"])
+    ) > 1e-6:
+        raise RuntimeError("GW Review goalkeeper hero is not aligned to the configured 0:23 exit.")
 
     if "REVIEW_GW" in globals() and _vx17_manifest.get("gw") is not None:
         if int(_vx17_manifest["gw"]) != int(REVIEW_GW):
@@ -23245,6 +23600,12 @@ else:
     W = int(globals().get("VIDEO_WIDTH", 3840))
     H = int(globals().get("VIDEO_HEIGHT", 2160))
     FPS = int(globals().get("VIDEO_FPS", 30))
+    MOTION_CAPTURE_FPS = int(
+        globals().get("GW_REVIEW_MOTION_CAPTURE_FPS", min(FPS, 20))
+    )
+    MOTION_CAPTURE_FPS = max(1, min(MOTION_CAPTURE_FPS, FPS))
+    JPEG_QUALITY = int(globals().get("GW_REVIEW_JPEG_QUALITY", 94))
+    JPEG_QUALITY = max(82, min(JPEG_QUALITY, 100))
     if W <= 0 or H <= 0 or FPS <= 0:
         raise ValueError(f"Invalid GW Review output: {W}×{H} at {FPS} FPS")
     if W * 9 != H * 16:
@@ -23259,6 +23620,12 @@ else:
             )
 
     AUDIO_DURATION = float(vx_media_duration(AUDIO))
+    MANIFEST_DURATION = float(_vx17_manifest.get("duration") or 0.0)
+    if abs(AUDIO_DURATION - MANIFEST_DURATION) > 0.15:
+        raise RuntimeError(
+            "GW Review audio/manifest duration drift: "
+            f"audio={AUDIO_DURATION:.3f}s, manifest={MANIFEST_DURATION:.3f}s"
+        )
     FRAME_PLAN = vx_frame_plan(AUDIO_DURATION, FPS)
     N_FRAMES = int(FRAME_PLAN["frames"])
     VIDEO_GRID_DURATION = float(FRAME_PLAN["grid_duration"])
@@ -23383,59 +23750,371 @@ else:
         )
         os.replace(temporary, path)
 
+    def _vx17_concat_quote(path):
+        return str(Path(path).resolve()).replace("'", "'\\''")
+
+    def _vx17_add_motion_window(times, start, end, last_t):
+        pad = 1.0 / max(FPS, 1)
+        start = max(0.0, float(start) - pad)
+        end = min(float(last_t), max(start, float(end) + pad))
+        if end <= start:
+            times.add(round(start, 6))
+            return
+        steps = max(
+            1,
+            int(math.ceil((end - start) * MOTION_CAPTURE_FPS)),
+        )
+        for index in range(steps + 1):
+            times.add(round(start + (end - start) * index / steps, 6))
+
+    def _vx17_final_hold_times(last_t):
+        start = float(_vx17_manifest["final_hold_start"])
+        hold = float(_vx17_manifest["final_hold_seconds"])
+        return [
+            round(min(last_t, start + 0.05), 6),
+            round(min(last_t, start + hold / 2.0), 6),
+            round(min(last_t, start + hold - 0.05), 6),
+        ]
+
+    def _vx17_sample_times():
+        last_t = max(0.0, (N_FRAMES - 1) / FPS)
+        times = {0.0, round(last_t, 6)}
+        for window in _vx17_motion_windows:
+            start = float(window.get("start") or 0.0)
+            end = float(window.get("end") or start)
+            if end < start:
+                raise RuntimeError(f"Invalid GW Review motion window: {window}")
+            _vx17_add_motion_window(times, start, end, last_t)
+
+        checkpoints = [
+            0.0,
+            float(_vx17_timeline["premier_league_logo_at"]) + 0.50,
+            float(_vx17_timeline["review_title_at"]) + 0.60,
+            float(_vx17_timeline["pitch_at"]) + 0.70,
+            max(0.0, float(_vx17_timeline["first_player_at"]) - 1.0 / FPS),
+            float(_vx17_timeline["first_player_at"]) + 0.50,
+            float(_vx17_timeline["goalkeeper_card_out"]),
+            float(_vx17_first_segment["hero_off"]) + 0.05,
+            *_vx17_final_hold_times(last_t),
+        ]
+        for checkpoint in checkpoints:
+            if 0.0 <= checkpoint <= last_t:
+                times.add(round(checkpoint, 6))
+        return sorted(times)
+
+    async def _vx17_dom_state(page, timeline_t):
+        return await page.evaluate(
+            "t => window.__auditLayout(t)",
+            float(timeline_t),
+        )
+
+    def _vx17_assert_near(value, expected, label, tolerance=0.12):
+        if abs(float(value) - float(expected)) > float(tolerance):
+            raise RuntimeError(
+                f"GW Review DOM QA failed: {label}={value!r}, expected {expected!r}"
+            )
+
+    async def _vx17_capture_dom():
+        if (
+            "_vx_ensure_playwright_chromium" not in globals()
+            or "async_playwright" not in globals()
+        ):
+            raise RuntimeError("Run Cell 14 first — the Playwright renderer is missing.")
+        _vx_ensure_playwright_chromium()
+
+        FRAME_DIR.mkdir(parents=True, exist_ok=True)
+        for stale in FRAME_DIR.glob("frame_*.jpg"):
+            stale.unlink(missing_ok=True)
+        CONCAT_FILE.unlink(missing_ok=True)
+        FINAL_PREVIEW.unlink(missing_ok=True)
+
+        sample_times = _vx17_sample_times()
+        browser_errors = []
+        frame_paths = []
+        checkpoint_states = {}
+
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+            )
+            context = await browser.new_context(
+                viewport={"width": DESIGN_W, "height": DESIGN_H},
+                device_scale_factor=1,
+            )
+            page = await context.new_page()
+            page.on("pageerror", lambda error: browser_errors.append(str(error)))
+            try:
+                await page.goto(
+                    ANIM_HTML.resolve().as_uri(),
+                    wait_until="load",
+                    timeout=120000,
+                )
+                await page.wait_for_function(
+                    "window.__ready === true && typeof window.__seek === 'function'",
+                    timeout=60000,
+                )
+                try:
+                    await page.evaluate("() => document.fonts.ready")
+                except Exception:
+                    pass
+                await page.wait_for_function(
+                    "() => Array.from(document.images).every(img => img.complete)",
+                    timeout=30000,
+                )
+
+                page_box = await page.evaluate(
+                    """
+                    () => {
+                      const body=document.body.getBoundingClientRect();
+                      return {
+                        viewport:[innerWidth,innerHeight],
+                        body:[Math.round(body.left),Math.round(body.top),Math.round(body.width),Math.round(body.height)],
+                        brokenPlayerImages:Array.from(document.querySelectorAll('.playerCard img,#vxBenchDock img,.vx-player-card img'))
+                          .filter(img => !img.complete || img.naturalWidth===0).length
+                      };
+                    }
+                    """
+                )
+                if page_box["viewport"] != [DESIGN_W, DESIGN_H]:
+                    raise RuntimeError(f"GW Review viewport audit failed: {page_box}")
+                if page_box["body"] != [0, 0, DESIGN_W, DESIGN_H]:
+                    raise RuntimeError(f"GW Review full-page audit failed: {page_box}")
+                if int(page_box["brokenPlayerImages"]) != 0:
+                    raise RuntimeError(f"GW Review has broken player artwork: {page_box}")
+
+                pl_done = float(_vx17_timeline["premier_league_logo_at"]) + 0.50
+                title_done = float(_vx17_timeline["review_title_at"]) + 0.60
+                pitch_done = float(_vx17_timeline["pitch_at"]) + 0.70
+                before_goalkeeper = (
+                    float(_vx17_timeline["first_player_at"]) - 1.0 / FPS
+                )
+                goalkeeper_done = float(_vx17_timeline["first_player_at"]) + 0.50
+                goalkeeper_exit_mid = (
+                    float(_vx17_first_segment["hero_exit_at"])
+                    + float(_vx17_first_segment["hero_off"])
+                ) / 2.0
+                goalkeeper_exit_done = float(_vx17_first_segment["hero_off"]) + 0.05
+                final_times = _vx17_final_hold_times((N_FRAMES - 1) / FPS)
+
+                checkpoint_times = {
+                    "initial":0.0,
+                    "pl_logo":pl_done,
+                    "title":title_done,
+                    "pitch":pitch_done,
+                    "before_goalkeeper":before_goalkeeper,
+                    "goalkeeper_visible":goalkeeper_done,
+                    "goalkeeper_exiting":goalkeeper_exit_mid,
+                    "goalkeeper_hero_gone":goalkeeper_exit_done,
+                    "final_start":final_times[0],
+                    "final_mid":final_times[1],
+                    "final_end":final_times[2],
+                }
+                for name, checkpoint_t in checkpoint_times.items():
+                    checkpoint_states[name] = await _vx17_dom_state(page, checkpoint_t)
+
+                initial = checkpoint_states["initial"]
+                _vx17_assert_near(initial["brand"], 1, "initial brand")
+                _vx17_assert_near(initial["footer"], 1, "initial footer")
+                for key in ("plLogo", "title", "pitch", "hero", "table"):
+                    _vx17_assert_near(initial[key], 0, f"initial {key}")
+                if initial["pitchPlayers"] != 0 or initial["benchCards"] != 0:
+                    raise RuntimeError(f"GW Review initial state is not blank: {initial}")
+
+                pl_state = checkpoint_states["pl_logo"]
+                _vx17_assert_near(pl_state["plLogo"], 1, "PL logo after 0:01")
+                _vx17_assert_near(pl_state["title"], 0, "title before 0:02")
+                _vx17_assert_near(pl_state["pitch"], 0, "pitch before 0:03")
+
+                title_state = checkpoint_states["title"]
+                _vx17_assert_near(title_state["title"], 1, "title after 0:02")
+                _vx17_assert_near(title_state["pitch"], 0, "pitch before 0:03")
+
+                pitch_state = checkpoint_states["pitch"]
+                _vx17_assert_near(pitch_state["pitch"], 1, "pitch after 0:03")
+                if pitch_state["pitchPlayers"] != 0:
+                    raise RuntimeError(f"GW Review players appeared before 0:08: {pitch_state}")
+
+                if checkpoint_states["before_goalkeeper"]["pitchPlayers"] != 0:
+                    raise RuntimeError("GW Review goalkeeper appeared before the fixed 0:08 beat.")
+                goalkeeper_state = checkpoint_states["goalkeeper_visible"]
+                if goalkeeper_state["pitchPlayers"] != 1 or goalkeeper_state["hero"] < 0.88:
+                    raise RuntimeError(
+                        "GW Review goalkeeper hero/pitch reveal is not synchronized: "
+                        f"{goalkeeper_state}"
+                    )
+                exiting_state = checkpoint_states["goalkeeper_exiting"]
+                if (
+                    not (0.02 < exiting_state["hero"] < 0.98)
+                    or exiting_state["pitchPlayers"] < 1
+                ):
+                    raise RuntimeError(
+                        "GW Review 0:23 goalkeeper exit removed the wrong content: "
+                        f"{exiting_state}"
+                    )
+                gone_state = checkpoint_states["goalkeeper_hero_gone"]
+                if gone_state["hero"] > 0.05 or gone_state["pitchPlayers"] < 1:
+                    raise RuntimeError(
+                        "GW Review goalkeeper marker did not persist after hero exit: "
+                        f"{gone_state}"
+                    )
+
+                metric_pulse = float(
+                    _vx17_timeline.get("metric_highlight_duration") or 1.15
+                )
+                for metric_key, metric_span in _vx17_metric_times.items():
+                    metric_start = float(metric_span[0])
+                    metric_end = float(metric_span[1])
+                    metric_t = metric_start + min(
+                        metric_pulse * 0.5,
+                        max(0.05, (metric_end - metric_start) * 0.5),
+                    )
+                    metric_state = await _vx17_dom_state(page, metric_t)
+                    checkpoint_states[f"metric_{metric_key}"] = metric_state
+                    if metric_state.get("activeMetrics") != [metric_key]:
+                        raise RuntimeError(
+                            "GW Review metric emphasis is not isolated to the narrated block: "
+                            f"key={metric_key!r}, state={metric_state}"
+                        )
+
+                expected_bench = int(_vx17_manifest.get("bench") or 0)
+                for final_key in ("final_start", "final_mid", "final_end"):
+                    state = checkpoint_states[final_key]
+                    if (
+                        state["pitchPlayers"] != 11
+                        or state["benchCards"] != expected_bench
+                        or state["hero"] > 0.05
+                        or state["table"] < 0.95
+                        or state["plLogo"] < 0.95
+                        or state["title"] < 0.95
+                        or state["pitch"] < 0.95
+                        or state["brand"] < 0.95
+                        or state["footer"] < 0.95
+                    ):
+                        raise RuntimeError(
+                            f"GW Review final composition is incomplete at {final_key}: {state}"
+                        )
+
+                report_every = max(1, len(sample_times) // 20)
+                for index, timeline_t in enumerate(sample_times):
+                    await page.evaluate("t => window.__seek(t)", float(timeline_t))
+                    frame_path = FRAME_DIR / f"frame_{index:06d}.jpg"
+                    await page.screenshot(
+                        path=str(frame_path),
+                        type="jpeg",
+                        quality=JPEG_QUALITY,
+                    )
+                    frame_paths.append(frame_path)
+                    if index % report_every == 0 or index == len(sample_times) - 1:
+                        pct = (index + 1) / len(sample_times) * 100.0
+                        print(
+                            f"\rCapturing GW Review motion {pct:5.1f}% "
+                            f"({index + 1:,}/{len(sample_times):,})",
+                            end="",
+                        )
+                print()
+
+                await page.evaluate(
+                    "t => window.__seek(t)",
+                    float(final_times[2]),
+                )
+                await page.screenshot(path=str(FINAL_PREVIEW), type="png")
+            finally:
+                await context.close()
+                await browser.close()
+
+        if browser_errors:
+            raise RuntimeError(f"GW Review browser errors: {browser_errors[:5]}")
+
+        frame_hashes = [_vx17_sha256(path) for path in frame_paths]
+        distinct_hashes = len(set(frame_hashes))
+        if distinct_hashes < 8:
+            raise RuntimeError(
+                "GW Review animation regressed to static or near-static output: "
+                f"{distinct_hashes} distinct browser keyframes"
+            )
+
+        last_t = (N_FRAMES - 1) / FPS
+        final_hashes = []
+        for final_t in _vx17_final_hold_times(last_t):
+            nearest = min(
+                range(len(sample_times)),
+                key=lambda i: abs(sample_times[i] - final_t),
+            )
+            final_hashes.append(frame_hashes[nearest])
+        if len(set(final_hashes)) != 1:
+            raise RuntimeError("GW Review final three-second hold is not visually stable.")
+
+        return sample_times, frame_paths, checkpoint_states, distinct_hashes
+
     _vx17_replaced_existing = FINAL_MP4.exists()
-    _vx17_source_sha256 = _vx17_sha256(SOURCE_PNG)
+    _vx17_html_sha256 = _vx17_sha256(ANIM_HTML)
+    _vx17_manifest_sha256 = _vx17_sha256(MANIFEST)
     _vx17_audio_sha256 = _vx17_sha256(AUDIO)
 
-    # The PNG generated by the current GW Review slide cell is the sole visual
-    # source. The legacy animated HTML is intentionally not used here.
     LOCAL_MP4.unlink(missing_ok=True)
+    SILENT_MP4.unlink(missing_ok=True)
     UPLOAD_MP4.unlink(missing_ok=True)
 
     try:
+        (
+            _vx17_sampled_times,
+            _vx17_frame_paths,
+            _vx17_checkpoint_states,
+            _vx17_distinct_keyframes,
+        ) = await _vx17_capture_dom()
+
+        _vx17_concat_lines = ["ffconcat version 1.0"]
+        for _vx17_index in range(len(_vx17_frame_paths) - 1):
+            _vx17_delta = max(
+                1e-6,
+                _vx17_sampled_times[_vx17_index + 1]
+                - _vx17_sampled_times[_vx17_index],
+            )
+            _vx17_concat_lines.append(
+                f"file '{_vx17_concat_quote(_vx17_frame_paths[_vx17_index])}'"
+            )
+            _vx17_concat_lines.append(f"duration {_vx17_delta:.9f}")
+        _vx17_concat_lines.append(
+            f"file '{_vx17_concat_quote(_vx17_frame_paths[-1])}'"
+        )
+        _vx17_concat_lines.append(
+            f"file '{_vx17_concat_quote(_vx17_frame_paths[-1])}'"
+        )
+        CONCAT_FILE.write_text(
+            "\n".join(_vx17_concat_lines) + "\n",
+            encoding="utf-8",
+        )
+
         subprocess.run(
             [
-                "ffmpeg",
-                "-y",
-                "-v",
-                "error",
-                "-loop",
-                "1",
-                "-framerate",
-                str(FPS),
-                "-i",
-                str(SOURCE_PNG),
-                "-i",
-                str(AUDIO),
-                "-map",
-                "0:v:0",
-                "-map",
-                "1:a:0",
+                "ffmpeg", "-y", "-v", "error",
+                "-f", "concat", "-safe", "0", "-i", str(CONCAT_FILE),
+                "-an",
                 "-vf",
                 (
+                    f"fps={FPS}:round=near,"
                     f"scale={W}:{H}:flags=lanczos,"
-                    f"fps={FPS},setsar=1,format=yuv420p"
+                    "setsar=1,format=yuv420p"
                 ),
-                "-frames:v",
-                str(N_FRAMES),
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "18",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-af",
-                f"apad=pad_dur={VIDEO_GRID_DURATION:.6f}",
-                "-t",
-                f"{VIDEO_GRID_DURATION:.6f}",
-                "-movflags",
-                "+faststart",
+                "-frames:v", str(N_FRAMES),
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                str(SILENT_MP4),
+            ],
+            check=True,
+        )
+
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-v", "error",
+                "-i", str(SILENT_MP4), "-i", str(AUDIO),
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-c:v", "copy",
+                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                "-af", "aresample=48000:async=1:first_pts=0,apad",
+                "-t", f"{VIDEO_GRID_DURATION:.9f}",
+                "-movflags", "+faststart",
                 str(LOCAL_MP4),
             ],
             check=True,
@@ -23462,23 +24141,35 @@ else:
             )
     finally:
         LOCAL_MP4.unlink(missing_ok=True)
+        SILENT_MP4.unlink(missing_ok=True)
         UPLOAD_MP4.unlink(missing_ok=True)
+        CONCAT_FILE.unlink(missing_ok=True)
+        for _vx17_temporary_frame in FRAME_DIR.glob("frame_*.jpg"):
+            _vx17_temporary_frame.unlink(missing_ok=True)
 
     _vx17_report = {
         "passed": True,
         "renderer_version": RENDERER_VERSION,
-        "visual_source": "CURRENT_GENERATED_GW_REVIEW_PNG",
-        "legacy_animated_html_used": False,
+        "visual_source": "ANIMATED_DOM_HTML",
+        "animated_html_used": True,
         "always_render_fresh": True,
         "existing_output_replaced": bool(_vx17_replaced_existing),
-        "source_png": str(SOURCE_PNG),
-        "source_png_size": list(_vx17_png_size),
-        "source_png_sha256": _vx17_source_sha256,
+        "animated_html": str(ANIM_HTML),
+        "animated_html_sha256": _vx17_html_sha256,
+        "manifest": str(MANIFEST),
+        "manifest_sha256": _vx17_manifest_sha256,
         "audio": str(AUDIO),
         "audio_sha256": _vx17_audio_sha256,
         "audio_duration": AUDIO_DURATION,
         "frame_grid_duration": VIDEO_GRID_DURATION,
-        "frames": N_FRAMES,
+        "browser_keyframes": len(_vx17_sampled_times),
+        "distinct_browser_keyframes": _vx17_distinct_keyframes,
+        "motion_capture_fps": MOTION_CAPTURE_FPS,
+        "output_frames": N_FRAMES,
+        "timeline": _vx17_timeline,
+        "motion_windows": _vx17_motion_windows,
+        "dom_checkpoints": _vx17_checkpoint_states,
+        "final_preview": str(FINAL_PREVIEW),
         "final_file": str(FINAL_MP4),
         "final_sha256": _vx17_final_sha256,
         "output": _vx17_final_media,
@@ -23486,16 +24177,20 @@ else:
     _vx17_write_json_atomic(RENDER_QA, _vx17_report)
 
     print("\n" + "=" * 70)
-    print("✅ GW REVIEW — CURRENT PNG RENDER PASSED")
+    print("✅ GW REVIEW — ANIMATED HTML RENDER PASSED")
     print("=" * 70)
-    print(f"✅ Graphics  : {SOURCE_PNG}")
-    print("✅ Source    : current generated 3840×2160 PNG slide")
-    print("✅ Old HTML  : not used")
+    print(f"✅ Graphics  : {ANIM_HTML}")
+    print("✅ Source    : deterministic seekable 3840×2160 DOM")
+    print(
+        f"✅ Motion    : {len(_vx17_sampled_times):,} browser keyframes • "
+        f"{_vx17_distinct_keyframes:,} distinct"
+    )
     print(f"✅ Output    : {W}×{H} at {FPS} FPS")
     print(f"✅ Duration  : {_vx17_final_media['duration']:.3f}s")
     print("✅ Video     : H.264 CRF 18")
     print("✅ Audio     : current Ryan narration AAC")
-    print("✅ Publish   : fresh render atomically replaced gw_review.mp4")
+    print("✅ Final hold: complete composition remains visible for 3 seconds")
+    print("✅ Publish   : fresh animated render atomically replaced gw_review.mp4")
     print(f"✅ FILE      : {FINAL_MP4}")
 
     display(
