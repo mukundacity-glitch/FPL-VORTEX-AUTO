@@ -18466,6 +18466,119 @@ def _vx_eastern_stamp(value):
     return escape(local.strftime("%a %b %-d • %-I:%M %p %Z").upper())
 
 
+def _vx_intro_review_strip():
+    """Latest pre-NEXT_GW fixture status for Slide 1 only.
+
+    The full GW Review slide keeps its stricter all-fixtures-complete contract.
+    Slide 1 instead shows the latest officially scheduled Gameweek before
+    NEXT_GW, rendering completed matches as results and every other match with
+    its official kickoff date and time.
+    """
+    if "fixtures_raw" not in globals() or "NEXT_GW" not in globals():
+        return "", None, 0, 0
+
+    rows = fixtures_raw.copy()
+    required = {"event", "team_h", "team_a", "kickoff_time", "vx_completed"}
+    missing = sorted(required - set(rows.columns))
+    if missing:
+        raise RuntimeError(
+            f"Intro Gameweek review strip is missing canonical fixture fields: {missing}"
+        )
+
+    rows["_vx_event"] = pd.to_numeric(rows["event"], errors="coerce")
+    eligible = rows.loc[
+        rows["_vx_event"].notna()
+        & rows["_vx_event"].lt(int(NEXT_GW))
+    ].copy()
+    if eligible.empty:
+        return "", None, 0, 0
+
+    intro_review_gw = int(eligible["_vx_event"].max())
+    rows = eligible.loc[eligible["_vx_event"].eq(intro_review_gw)].copy()
+    rows["_vx_kick"] = pd.to_datetime(
+        rows["kickoff_time"], errors="coerce", utc=True
+    )
+    sort_columns = ["_vx_kick"] + (["id"] if "id" in rows.columns else [])
+    rows = rows.sort_values(sort_columns, na_position="last")
+
+    tiles = []
+    result_count = 0
+    fixture_count = 0
+
+    for _, row in rows.iterrows():
+        try:
+            home_id = int(row.get("team_h"))
+            away_id = int(row.get("team_a"))
+        except Exception:
+            continue
+
+        home_meta = dict(team_meta_by_id.get(home_id, {}))
+        away_meta = dict(team_meta_by_id.get(away_id, {}))
+        home_badge = str(home_meta.get("badge", "") or "")
+        away_badge = str(away_meta.get("badge", "") or "")
+        home_short = escape(str(home_meta.get("short", "HOME")).upper())
+        away_short = escape(str(away_meta.get("short", "AWAY")).upper())
+
+        home_logo = (
+            f'<img class="prevResultLogo" src="{home_badge}" alt="{home_short}">'
+            if home_badge else f'<span class="prevResultFallback">{home_short[:3]}</span>'
+        )
+        away_logo = (
+            f'<img class="prevResultLogo" src="{away_badge}" alt="{away_short}">'
+            if away_badge else f'<span class="prevResultFallback">{away_short[:3]}</span>'
+        )
+
+        completed_value = row.get("vx_completed")
+        completed = bool(completed_value) if pd.notna(completed_value) else False
+        score_ready = pd.notna(row.get("team_h_score")) and pd.notna(row.get("team_a_score"))
+        if completed and score_ready:
+            home_score = int(float(row.get("team_h_score")))
+            away_score = int(float(row.get("team_a_score")))
+            status = "RESULT"
+            state_class = "isResult"
+            centre = f'<span class="prevResultScore">{home_score}-{away_score}</span>'
+            result_count += 1
+        else:
+            kickoff = _vx_eastern_stamp(row.get("_vx_kick"))
+            if " • " in kickoff:
+                date_text, time_text = kickoff.split(" • ", 1)
+            else:
+                date_text, time_text = kickoff, "TBD"
+            status = "FIXTURE"
+            state_class = "isFixture"
+            centre = (
+                f'<span class="introReviewDate">{date_text}</span>'
+                f'<span class="introReviewTime">{time_text}</span>'
+            )
+            fixture_count += 1
+
+        tiles.append(
+            f'<div class="prevResultChip introReviewChip {state_class}">'
+            f'<span class="introReviewStatus">{status}</span>'
+            f'<div class="introReviewClub">{home_logo}<span>{home_short}</span></div>'
+            f'<div class="introReviewCentre">{centre}</div>'
+            f'<div class="introReviewClub">{away_logo}<span>{away_short}</span></div>'
+            '</div>'
+        )
+
+    if not tiles:
+        return "", intro_review_gw, 0, 0
+
+    result_word = "RESULT" if result_count == 1 else "RESULTS"
+    fixture_word = "FIXTURE" if fixture_count == 1 else "FIXTURES"
+    label_detail = f"{result_count} {result_word} • {fixture_count} {fixture_word}"
+    strip = (
+        f'<div class="prevResultsStrip introReviewStrip" '
+        f'style="--vx-result-count:{len(tiles)}" '
+        f'aria-label="Gameweek {intro_review_gw} review">'
+        f'<div class="prevResultsLabel"><span>GW{intro_review_gw} REVIEW</span>'
+        f'<small>{label_detail}</small></div>'
+        + "".join(tiles)
+        + '</div>'
+    )
+    return strip, intro_review_gw, result_count, fixture_count
+
+
 def _vx_next_fixture_grid():
     if "fixtures_raw" not in globals() or "NEXT_GW" not in globals():
         return ""
@@ -18548,6 +18661,12 @@ def _vx_next_fixture_grid():
 NEXT_FIXTURE_GRID_HTML = _vx_next_fixture_grid()
 
 PREVIOUS_RESULTS_STRIP, PREVIOUS_RESULTS_GW, PREVIOUS_RESULTS_COUNT = _vx_previous_results_strip()
+(
+    INTRO_REVIEW_STRIP,
+    INTRO_REVIEW_GW,
+    INTRO_REVIEW_RESULT_COUNT,
+    INTRO_REVIEW_FIXTURE_COUNT,
+) = _vx_intro_review_strip()
 def _vx_team_pair(df, column="team_short", n=2):
     vals = [str(v).upper() for v in df[column].dropna().astype(str).head(n).tolist()]
     return " • ".join(vals) if vals else "TBD • TBD"
@@ -18673,6 +18792,23 @@ linear-gradient(145deg,#020713 0%,#07182b 52%,#020711 100%)}
   letter-spacing:-1px;
   color:#04121f;
 }
+.introReviewStrip{
+  height:138px;
+  grid-template-columns:390px repeat(var(--vx-result-count),minmax(0,1fr));
+}
+.introReviewStrip .prevResultsLabel{flex-direction:column;gap:7px;font-size:30px;line-height:1}
+.introReviewStrip .prevResultsLabel small{font-size:17px;line-height:1;font-weight:1000;letter-spacing:1.1px;color:#fff}
+.introReviewChip{position:relative;gap:7px;padding:30px 7px 7px}
+.introReviewStatus{position:absolute;left:9px;right:9px;top:7px;height:23px;display:flex;align-items:center;justify-content:center;border-radius:999px;font-size:16px;line-height:1;font-weight:1000;letter-spacing:1.2px;color:#fff;background:#0a2639}
+.introReviewChip.isResult .introReviewStatus{background:#087338}
+.introReviewChip.isFixture .introReviewStatus{background:#8b5600}
+.introReviewClub{min-width:0;width:63px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:16px;line-height:1;font-weight:1000;white-space:nowrap}
+.introReviewClub .prevResultLogo{width:54px;height:54px}
+.introReviewClub .prevResultFallback{min-width:54px;font-size:17px}
+.introReviewCentre{min-width:0;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;white-space:nowrap}
+.introReviewCentre .prevResultScore{font-size:36px}
+.introReviewDate{font-size:18px;line-height:1;font-weight:1000;letter-spacing:.3px;color:#071522}
+.introReviewTime{margin-top:6px;font-size:20px;line-height:1;font-weight:1000;color:#07556b}
 .footer{position:absolute;left:78px;right:78px;bottom:24px;height:118px;border-top:2px solid rgba(255,255,255,.12);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;column-gap:42px;z-index:20;font-size:34px;font-weight:950;letter-spacing:1px;color:#b8cad7}
 .footerLeft{justify-self:start;white-space:nowrap}.footerLeft strong{font-size:39px;color:#ffd447}.footerRight{justify-self:end;text-align:right;display:flex;flex-direction:column;gap:7px;white-space:nowrap}.footerRight .updated{font-size:32px;font-weight:1000;color:#fff}.footerRight .season{font-size:27px;color:#9fb4c4}.footerSocial{justify-self:center;display:flex;align-items:center;gap:54px;color:#fff;font-size:36px;font-weight:1000;letter-spacing:1px}.socialPair{display:inline-flex;align-items:center;gap:15px;white-space:nowrap}.ytIcon{display:inline-flex;width:58px;height:41px}.ytIcon svg{width:58px;height:41px}.xIcon{font-size:45px;line-height:1;color:#fff}
 '''
@@ -18760,7 +18896,7 @@ INTRO = Template(r'''<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$st
 <div class="agenda-card agenda-2"><div class="agendaNum">02</div><div><div class="agenda-title" data-vx-type="FIXTURE DIFFICULTY">FIXTURE DIFFICULTY</div><div class="agenda-sub">ALL 20 TEAMS • NEXT 6 GAMEWEEKS</div></div></div>
 <div class="agenda-card agenda-3"><div class="agendaNum">03</div><div><div class="agenda-title" data-vx-type="PROJECTED GOALS">PROJECTED GOALS</div><div class="agenda-sub">ATTACKING OUTLOOK • NEXT 6 GAMEWEEKS</div></div></div>
 <div class="agenda-card agenda-4"><div class="agendaNum">04</div><div><div class="agenda-title" data-vx-type="CLEAN SHEET ODDS">CLEAN SHEET ODDS</div><div class="agenda-sub">DEFENSIVE OUTLOOK • NEXT 6 GAMEWEEKS</div></div></div>
-</main>$fixture_grid$results_strip<footer class="footer"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div></body></html>''').substitute(style=STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),results_strip=PREVIOUS_RESULTS_STRIP,fixture_grid=NEXT_FIXTURE_GRID_HTML)
+</main>$fixture_grid$results_strip<footer class="footer"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div></body></html>''').substitute(style=STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),results_strip=INTRO_REVIEW_STRIP,fixture_grid=NEXT_FIXTURE_GRID_HTML)
 
 OUTRO = Template(r'''<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene outroScene">
 <div class="bgFade" id="bgFade"></div>
@@ -18787,6 +18923,14 @@ if PREVIOUS_RESULTS_COUNT:
     )
 else:
     print("ℹ️ Previous-GW results strip: no completed fixture results available yet")
+if INTRO_REVIEW_GW is not None:
+    print(
+        f"✅ Intro GW{INTRO_REVIEW_GW} review strip: "
+        f"{INTRO_REVIEW_RESULT_COUNT} results • "
+        f"{INTRO_REVIEW_FIXTURE_COUNT} scheduled fixtures"
+    )
+else:
+    print("ℹ️ Intro review strip: no official pre-NEXT_GW fixtures available")
 INTRO_HTML.write_text(INTRO,encoding="utf-8")
 OUTRO_HTML.write_text(OUTRO,encoding="utf-8")
 print("✅ INTRO HTML:",INTRO_HTML)
@@ -24147,18 +24291,18 @@ def events_for(key, info):
         _,agenda_3_dur=_sync("projected goals",0.45)
         _,agenda_4_dur=_sync("clean sheet odds",0.45)
 
-        # Intro visual order is clock-locked: fixtures fill seconds 00–09,
-        # disappear at 10.000s, then the agenda cards pop in from 10.000s.
+        # Intro visual order is clock-locked: fixtures remain visible through
+        # 18.000s, disappear, then the agenda cards pop in from 18.000s.
         fixture_at=0.0
-        agenda_1_at=10.0
-        agenda_2_at=10.12
-        agenda_3_at=10.24
-        agenda_4_at=10.36
+        agenda_1_at=18.0
+        agenda_2_at=18.12
+        agenda_3_at=18.24
+        agenda_4_at=18.36
 
         agenda_times=[agenda_1_at,agenda_2_at,agenda_3_at,agenda_4_at]
         if agenda_times != sorted(agenda_times) or len(set(agenda_times)) != 4:
             raise RuntimeError(f"00_intro agenda timing is not sequential: {agenda_times}")
-        if fixture_at != 0.0 or agenda_1_at != 10.0:
+        if fixture_at != 0.0 or agenda_1_at != 18.0:
             raise RuntimeError(
                 f"00_intro visual order drifted: "
                 f"fixture={fixture_at:.3f}, agenda01={agenda_1_at:.3f}"
@@ -24577,13 +24721,7 @@ window.__seek=function(t){
     if(fxGridEl && VX.fixture_grid_window){
         const w=VX.fixture_grid_window;
         const inWindow=t>=w.at && t<w.end;
-        if(inWindow){
-            const age=t-w.at, remain=w.end-t;
-            const vis=Math.min(ease(age/0.4),ease(remain/0.4));
-            fxGridEl.style.opacity=String(vis);
-        }else{
-            fxGridEl.style.opacity="0";
-        }
+        fxGridEl.style.opacity=inWindow ? "1" : "0";
     }
         /* row zoom-to-center: only the currently narrated team row */
     if(Array.isArray(VX.row_zoom_windows) && VX.row_zoom_windows.length){
@@ -25011,7 +25149,7 @@ for _helper in ("vx_media_duration", "vx_frame_plan", "vx_video_info", "vx_apply
 
 RENDERER_VERSION = "VX20-EVENT-KEYFRAMES-V1"
 SCENE_RENDER_REVISIONS = {
-    "00_intro": "VX20-INTRO-CENTERED-FIXTURES-V3-ONDISK-VERIFIED",
+    "00_intro": "VX20-INTRO-CENTERED-FIXTURES-V4-18S-MIXED-REVIEW",
     "05_outro": "VX20-OUTRO-VISIBLE-TAIL-V3-CACHE-FIX",
 }
 RESUME = bool(globals().get("RESUME_EXISTING_MP4", True))
