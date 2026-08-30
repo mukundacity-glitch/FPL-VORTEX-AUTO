@@ -36,13 +36,13 @@ FORCE_IMAGE_FALLBACK_PLAYERS = "Joao Pedro, "  # @param {type:"string"}
 
 # @markdown ---
 # @markdown ### 🎬 MP4 OUTPUT
-# @markdown **DRAFT = 854×480 at 5 FPS • FINAL = 1920×1080 at 24 FPS**
+# @markdown **DRAFT = 854×480 at 5 FPS • FINAL = TRUE 4K 3840×2160 at 24 FPS**
 MP4_QUALITY = "FINAL"  # @param ["DRAFT", "FINAL"]
 
 if MP4_QUALITY == "DRAFT":
     VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS = 854, 480, 5
 else:
-    VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS = 1920, 1080, 24
+    VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS = 3840, 2160, 24
 
 # Resume controls used by the video-render cells.
 # Existing completed MP4s are preserved across Colab restarts.
@@ -25586,7 +25586,7 @@ print("✅ Outro finale has a protected visible tail hold")
 # ============================================================
 # CELL 20 — RESUME-SAFE SHARED MP4 RENDERER
 # Event-aware Chromium keyframes → FFmpeg CFR master
-# Cell 0 controls selected scenes + Draft 480p5 / Final 1080p24
+# Cell 0 controls selected scenes + Draft 480p5 / Final true 4K 2160p24
 # ============================================================
 
 from pathlib import Path
@@ -26267,8 +26267,8 @@ if _selection.get("05_outro", True) and ORDER[-1][0] != "05_outro":
 
 NEXT_GW_LOCAL = globals().get("NEXT_GW")
 QUALITY_LOCAL = str(globals().get("MP4_QUALITY", "FINAL")).upper()
-W = int(globals().get("VIDEO_WIDTH", 1920))
-H = int(globals().get("VIDEO_HEIGHT", 1080))
+W = int(globals().get("VIDEO_WIDTH", 3840))
+H = int(globals().get("VIDEO_HEIGHT", 2160))
 FPS = int(globals().get("VIDEO_FPS", 24))
 RESUME = bool(globals().get("RESUME_EXISTING_MP4", True))
 FORCE = bool(globals().get("FORCE_RERENDER", False))
