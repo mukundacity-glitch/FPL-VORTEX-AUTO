@@ -277,7 +277,10 @@ def vx_phase0_reset_stale_runtime():
         "fixtures",
         "NEXT_GW",
         "LATEST_COMPLETED_GW",
+        "AUTO_REVIEW_GW",
         "REVIEW_GW",
+        "GW_REVIEW_STATUS",
+        "GW_REVIEW_FIXTURE_STATE",
         "GW_REVIEW",
         "GW_REVIEW_AVAILABLE",
         "GW_REVIEW_PACKAGE",
@@ -977,6 +980,48 @@ def fetch_fpl_data() -> dict[str, Any]:
     latest_completed_gw = max(review_ready_gws) if review_ready_gws else None
     events["vx_review_ready"] = pd.to_numeric(events["id"], errors="coerce").isin(review_ready_gws)
 
+    # ------------------------------------------------------------------
+    # AUTO REVIEW GAMEWEEK — FIRST VERIFIED RESULT, THEN FINAL
+    # ------------------------------------------------------------------
+    # The forward analysis follows FPL's official is_next pointer. The review
+    # follows the official is_current event as soon as ONE fixture has passed
+    # the same strict fixture-completion contract used above. Until that first
+    # result exists, retain the latest fully completed review. This never uses
+    # NEXT_GW - 1, a fixed Gameweek number, or calendar arithmetic.
+    current_review_gws_with_results = sorted(
+        int(gw)
+        for gw in event_current_gws
+        if int(
+            fixture_state_counts_by_gw.get(int(gw), {}).get("completed", 0)
+        ) >= 1
+    )
+    if len(current_review_gws_with_results) > 1:
+        raise RuntimeError(
+            "Official FPL payload contains multiple current events with completed "
+            "fixtures; refusing to guess REVIEW_GW."
+        )
+
+    current_review_gw = (
+        current_review_gws_with_results[0]
+        if current_review_gws_with_results
+        else None
+    )
+    review_gw = (
+        int(current_review_gw)
+        if current_review_gw is not None
+        else latest_completed_gw
+    )
+    if review_gw is None:
+        review_status = None
+        review_fixture_state: dict[str, int] = {}
+    else:
+        review_status = (
+            "FINAL" if int(review_gw) in set(review_ready_gws) else "LIVE/PARTIAL"
+        )
+        review_fixture_state = dict(
+            fixture_state_counts_by_gw.get(int(review_gw), {})
+        )
+
     completion_source_by_gw: dict[int, list[str]] = {}
     for gw in review_ready_gws:
         sources: list[str] = []
@@ -1037,6 +1082,9 @@ def fetch_fpl_data() -> dict[str, Any]:
         "next_gw": next_gw,
         "next_gw_source": next_gw_source,
         "latest_completed_gw": latest_completed_gw,
+        "review_gw": review_gw,
+        "review_status": review_status,
+        "review_fixture_state": review_fixture_state,
         "review_ready_gws": review_ready_gws,
         "completion_source_by_gw": completion_source_by_gw,
         "event_finished_gws": sorted(event_finished_gws),
@@ -1235,6 +1283,9 @@ data = fetch_fpl_data()
 
 _required_completion_contract = {
     "review_ready_gws",
+    "review_gw",
+    "review_status",
+    "review_fixture_state",
     "completion_source_by_gw",
     "fixture_finished_gws",
     "fixture_completion_by_gw",
@@ -1270,6 +1321,7 @@ events = data["events"]
 fixtures = data["fixtures"]
 NEXT_GW = data["next_gw"]
 LATEST_COMPLETED_GW = data.get("latest_completed_gw")
+AUTO_REVIEW_GW = data.get("review_gw")
 
 print("✅ OFFICIAL FPL DATA LOADED")
 print(f"✅ FRESH MODULE: {_loaded_module_file}")
@@ -1279,6 +1331,10 @@ print(f"PLAYERS:  {len(players)}")
 print(f"TEAMS:    {len(teams)}")
 print(f"FIXTURES: {len(fixtures)}")
 print(f"NEXT GW:  {NEXT_GW} ({data.get('next_gw_source', 'canonical')})")
+print(
+    f"AUTO REVIEW GW: {AUTO_REVIEW_GW if AUTO_REVIEW_GW is not None else 'none yet'} "
+    f"({data.get('review_status') or 'UNAVAILABLE'})"
+)
 print(f"LATEST REVIEW-READY GW: {LATEST_COMPLETED_GW if LATEST_COMPLETED_GW is not None else 'none yet'}")
 if LATEST_COMPLETED_GW is not None:
     _sources = data.get("completion_source_by_gw", {}).get(int(LATEST_COMPLETED_GW), [])
@@ -5472,10 +5528,13 @@ if TEAM_ID_LOCAL <= 0:
 
 # A reused Colab runtime can retain last week's globals. Clear only the old
 # review handoff, then rebuild it from THIS run's canonical FPL snapshot.
-for _stale_review_name in ("GW_REVIEW", "GW_REVIEW_PACKAGE", "review_package"):
+for _stale_review_name in (
+    "GW_REVIEW", "GW_REVIEW_PACKAGE", "review_package",
+    "GW_REVIEW_STATUS", "GW_REVIEW_FIXTURE_STATE", "GW_REVIEW_AVAILABLE",
+):
     globals().pop(_stale_review_name, None)
 
-_resolved_review_gw = data.get("latest_completed_gw")
+_resolved_review_gw = data.get("review_gw")
 if _resolved_review_gw is None:
     _events_diag = []
     _events_frame = data.get("events")
@@ -5488,7 +5547,7 @@ if _resolved_review_gw is None:
         ]
         _events_diag = _events_frame[_diag_cols].head(4).to_dict(orient="records")
     raise RuntimeError(
-        "Canonical FPL data could not resolve a completed review Gameweek. "
+        "Canonical FPL data could not resolve a current or completed review Gameweek. "
         "Run Cells 2 and 3 again to refresh the official API snapshot. "
         f"Event diagnostics: {_events_diag}"
     )
@@ -5496,6 +5555,11 @@ if _resolved_review_gw is None:
 REVIEW_GW = int(_resolved_review_gw)
 if not 1 <= REVIEW_GW <= 38:
     raise RuntimeError(f"Resolved invalid REVIEW_GW={REVIEW_GW}")
+
+GW_REVIEW_STATUS = str(data.get("review_status") or "FINAL").upper()
+if GW_REVIEW_STATUS not in {"FINAL", "LIVE/PARTIAL"}:
+    raise RuntimeError(f"Resolved invalid GW_REVIEW_STATUS={GW_REVIEW_STATUS!r}")
+GW_REVIEW_FIXTURE_STATE = dict(data.get("review_fixture_state") or {})
 
 _review_snapshot = fetch_gw_review_snapshot(
     entry_id=TEAM_ID_LOCAL,
@@ -5524,11 +5588,22 @@ if _history_events and REVIEW_GW not in _history_events:
         f"FPL entry history does not yet contain canonical review GW{REVIEW_GW}."
     )
 
+_review_snapshot["status"] = GW_REVIEW_STATUS
+_review_snapshot["fixture_state"] = GW_REVIEW_FIXTURE_STATE
 GW_REVIEW = _review_snapshot
 GW_REVIEW_AVAILABLE = True
 
 _sources = data.get("completion_source_by_gw", {}).get(REVIEW_GW, [])
+if GW_REVIEW_STATUS == "LIVE/PARTIAL":
+    _sources = ["event.is_current", "first_verified_fixture_complete"]
 print(f"✅ ONE GW Review snapshot: entry {TEAM_ID_LOCAL} • GW{REVIEW_GW}")
+print(f"✅ GW REVIEW STATUS: {GW_REVIEW_STATUS}")
+if GW_REVIEW_FIXTURE_STATE:
+    print(
+        "✅ GW REVIEW FIXTURES: "
+        f"{GW_REVIEW_FIXTURE_STATE.get('completed', 0)}/"
+        f"{GW_REVIEW_FIXTURE_STATE.get('fixtures', 0)} verified complete"
+    )
 print("✅ P9 + P10 reuse this exact snapshot")
 print(f"✅ Review GW source: {', '.join(_sources) if _sources else 'official FPL completion contract'}")
 print("✅ No hard-coded Gameweek • no NEXT_GW-1 guess • no duplicate bootstrap/fixtures fetch")
@@ -15330,6 +15405,11 @@ if int(GW_REVIEW["gw"]) != int(REVIEW_GW):
         f"GW_REVIEW snapshot GW{GW_REVIEW['gw']} does not match upstream REVIEW_GW{REVIEW_GW}."
     )
 
+GW_REVIEW_STATUS_LOCAL = str(
+    GW_REVIEW.get("status") or globals().get("GW_REVIEW_STATUS") or "FINAL"
+).upper()
+GW_REVIEW_PARTIAL = GW_REVIEW_STATUS_LOCAL == "LIVE/PARTIAL"
+
 boot  = GW_REVIEW["bootstrap"]
 picks = GW_REVIEW["picks"]
 hist  = GW_REVIEW["history"]
@@ -15358,6 +15438,23 @@ rank_dir="flat"
 if prev_rank and cur_rank:
     rank_dir="up" if cur_rank < prev_rank else "down" if cur_rank > prev_rank else "flat"
 
+def _review_fixture_state(f):
+    if not f:
+        return "PENDING"
+    started=bool(f.get("started"))
+    minutes=int(f.get("minutes") or 0)
+    status_complete=bool(f.get("finished") or f.get("finished_provisional"))
+    score_complete=(
+        f.get("team_h_score") is not None
+        and f.get("team_a_score") is not None
+    )
+    if started and minutes>=90 and status_complete and score_complete:
+        return "FINAL"
+    if started:
+        return "LIVE"
+    return "PENDING"
+
+
 def fixture_for(team_id):
     for f in review_fx:
         if f["team_h"]==team_id or f["team_a"]==team_id:
@@ -15367,9 +15464,10 @@ def fixture_for(team_id):
             return {
                 "opp":opp,
                 "ha":"H" if home else "A",
-                "score":score
+                "score":score,
+                "state":_review_fixture_state(f),
             }
-    return {"opp":"—","ha":"","score":"—"}
+    return {"opp":"—","ha":"","score":"—","state":"PENDING"}
 
 
 def next_fixture_for(team_id):
@@ -15511,6 +15609,7 @@ for pick in picks["picks"]:
         ),
 
         "fixture":fixture,
+        "review_state":str(fixture.get("state") or "PENDING").upper(),
         "next_fixture":next_fixture_for(e["team"]),
         "next_cs_pct":_review_next_cs_by_team.get(int(e["team"])),
         "model_projection":(
@@ -15715,9 +15814,23 @@ def vx_review_player_text(p, position_index=0, bench=False):
     team=vx_narration_team(p.get("team_name") or p.get("team"))
     matchup=vx_review_matchup(p)
     points=vx_review_points_phrase(p.get("points",0))
+    review_state=str(p.get("review_state") or "FINAL").upper()
+
+    decision=vx_review_decision_sentence(p, position_index)
+    if review_state=="PENDING":
+        text=(
+            f"{team}'s {name} is still waiting to face {matchup}, so there is "
+            f"no final Gameweek {REVIEW_GW} points verdict yet. {decision}"
+        )
+        return re.sub(r"\s+"," ",text).strip()
+    if review_state=="LIVE":
+        text=(
+            f"{team}'s {name} is currently facing {matchup} and has {points} "
+            f"provisionally. His match and points remain live. {decision}"
+        )
+        return re.sub(r"\s+"," ",text).strip()
 
     signal=vx_review_signal(p, position_index)
-    decision=vx_review_decision_sentence(p, position_index)
 
     if bench:
         openers=[
@@ -15775,8 +15888,15 @@ def vx_review_player_text(p, position_index=0, bench=False):
 segments=[{
     "id":"headline",
     "text":(
-        f"Gameweek {REVIEW_GW} review. "
-        "Let's audit the squad, player by player."
+        (
+            f"Gameweek {REVIEW_GW} live review. "
+            "The first result is in, so let's check the squad while the Gameweek continues."
+        )
+        if GW_REVIEW_PARTIAL else
+        (
+            f"Gameweek {REVIEW_GW} review. "
+            "Let's audit the squad, player by player."
+        )
     )
 }]
 
@@ -15794,7 +15914,11 @@ for p in review_starters:
 
 segments.append({
     "id":"bench_intro",
-    "text":"Let's pivot to the bench: assessing game time, points scored, and the reliability of our backup assets."
+    "text":(
+        "Let's check the bench, separating completed returns from players whose fixtures are still pending."
+        if GW_REVIEW_PARTIAL else
+        "Let's pivot to the bench: assessing game time, points scored, and the reliability of our backup assets."
+    )
 })
 
 for idx,p in enumerate(review_bench):
@@ -15865,15 +15989,29 @@ else:
 segments += [
     {
         "id":"metrics_intro",
-        "text":"With all fifteen players reviewed, here is the complete Gameweek Review table."
+        "text":(
+            "Here is the live Gameweek Review table; every unfinished return remains provisional."
+            if GW_REVIEW_PARTIAL else
+            "With all fifteen players reviewed, here is the complete Gameweek Review table."
+        )
     },
     {
         "id":"metric_points",
-        "text":f"The team scored {gw_points} points in Gameweek {REVIEW_GW}."
+        "text":(
+            f"The team currently has {gw_points} provisional points in Gameweek {REVIEW_GW}."
+            if GW_REVIEW_PARTIAL else
+            f"The team scored {gw_points} points in Gameweek {REVIEW_GW}."
+        )
     },
 ]
 
-if cur_rank:
+if GW_REVIEW_PARTIAL:
+    rank_text=(
+        f"The provisional overall rank is {cur_rank:,}, but it can still change as fixtures finish."
+        if cur_rank else
+        "The overall rank is still updating, so I will wait for the final number."
+    )
+elif cur_rank:
     if rank_dir=="up":
         rank_text=f"Overall rank improved to {cur_rank:,}, giving me a green arrow."
     elif rank_dir=="down":
@@ -15888,7 +16026,11 @@ segments += [
     {
         "id":"metric_gwrank",
         "text":(
-            f"My Gameweek rank was {gw_rank:,}; useful context, but not a transfer signal on its own."
+            (
+                f"My provisional Gameweek rank is {gw_rank:,}; it is not final while fixtures remain."
+                if GW_REVIEW_PARTIAL else
+                f"My Gameweek rank was {gw_rank:,}; useful context, but not a transfer signal on its own."
+            )
             if gw_rank else
             "The Gameweek rank is still updating, so I will not use an incomplete number."
         )
@@ -15896,12 +16038,20 @@ segments += [
     {
         "id":"metric_captain",
         "text":(
-            f"Captain {captain_player['name']} contributed {captain_return} points after the multiplier."
+            (
+                f"Captain {captain_player['name']} currently has {captain_return} provisional points after the multiplier."
+                if GW_REVIEW_PARTIAL else
+                f"Captain {captain_player['name']} contributed {captain_return} points after the multiplier."
+            )
         )
     },
     {
         "id":"metric_bench",
-        "text":f"The bench held {bench_points} points, which measures both squad depth and selection efficiency."
+        "text":(
+            f"The bench currently has {bench_points} provisional points while fixtures continue."
+            if GW_REVIEW_PARTIAL else
+            f"The bench held {bench_points} points, which measures both squad depth and selection efficiency."
+        )
     },
     {
         "id":"metric_hit",
@@ -15918,8 +16068,15 @@ segments += [
 segments.append({
     "id":"review_close",
     "text":(
-        f"The main lesson is clear: {lesson}. For the next deadline, {transfer_priority}, "
-        f"and I am monitoring {risk_text}. That is the review; now we move to the fixtures."
+        (
+            f"This live review is still developing. For the next deadline, {transfer_priority}, "
+            f"and I am monitoring {risk_text}. We will finalize the lesson after every fixture finishes."
+        )
+        if GW_REVIEW_PARTIAL else
+        (
+            f"The main lesson is clear: {lesson}. For the next deadline, {transfer_priority}, "
+            f"and I am monitoring {risk_text}. That is the review; now we move to the fixtures."
+        )
     )
 })
 
@@ -16117,6 +16274,8 @@ for seg in segments:
 
 review_package={
     "gw":REVIEW_GW,
+    "status":GW_REVIEW_STATUS_LOCAL,
+    "fixture_state":dict(GW_REVIEW.get("fixture_state") or {}),
     "players":review_players,
     "starters":review_starters,
     "bench":review_bench,

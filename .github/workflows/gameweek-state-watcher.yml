@@ -1,0 +1,229 @@
+name: Gameweek State Watcher
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: fpl-vortex-gameweek-state-watcher
+  cancel-in-progress: true
+
+jobs:
+  check-gameweek-state:
+    name: Check official FPL state
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Resolve dynamic review target
+        id: fpl
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from datetime import datetime, timezone
+
+          API = "https://fantasy.premierleague.com/api"
+
+          def get_json(path):
+              request = urllib.request.Request(
+                  f"{API}{path}",
+                  headers={
+                      "User-Agent": "FPL-VORTEX-GW-WATCHER/1.0",
+                      "Cache-Control": "no-cache, no-store",
+                      "Pragma": "no-cache",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+
+          def flag(value):
+              return bool(value)
+
+          def fixture_complete(row):
+              return (
+                  flag(row.get("started"))
+                  and int(row.get("minutes") or 0) >= 90
+                  and flag(row.get("finished") or row.get("finished_provisional"))
+                  and row.get("team_h_score") is not None
+                  and row.get("team_a_score") is not None
+              )
+
+          bootstrap = get_json("/bootstrap-static/")
+          fixtures = get_json("/fixtures/")
+          events = list(bootstrap.get("events") or [])
+
+          fixtures_by_gw = {}
+          for row in fixtures:
+              if row.get("event") is None:
+                  continue
+              fixtures_by_gw.setdefault(int(row["event"]), []).append(row)
+
+          state_by_gw = {}
+          for gw, rows in fixtures_by_gw.items():
+              complete = sum(1 for row in rows if fixture_complete(row))
+              state_by_gw[gw] = {
+                  "fixtures": len(rows),
+                  "completed": complete,
+                  "all_complete": bool(rows) and complete == len(rows),
+              }
+
+          current_rows = [row for row in events if flag(row.get("is_current"))]
+          if len(current_rows) > 1:
+              raise SystemExit("Official FPL returned multiple is_current events.")
+
+          now = datetime.now(timezone.utc)
+          review_ready = set()
+          for event in events:
+              gw = int(event["id"])
+              state = state_by_gw.get(gw, {})
+              if not state.get("all_complete"):
+                  continue
+
+              terminal = flag(
+                  event.get("finished")
+                  or event.get("data_checked")
+                  or event.get("is_previous")
+              )
+              deadline = event.get("deadline_time")
+              deadline_passed = False
+              if deadline:
+                  stamp = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
+                  deadline_passed = stamp <= now
+              transitional_current = flag(event.get("is_current")) and deadline_passed
+
+              if terminal or transitional_current:
+                  review_ready.add(gw)
+
+          current_review_gw = None
+          if current_rows:
+              candidate = int(current_rows[0]["id"])
+              if int(state_by_gw.get(candidate, {}).get("completed", 0)) >= 1:
+                  current_review_gw = candidate
+
+          review_gw = (
+              current_review_gw
+              if current_review_gw is not None
+              else (max(review_ready) if review_ready else None)
+          )
+
+          next_rows = [row for row in events if flag(row.get("is_next"))]
+          if len(next_rows) > 1:
+              raise SystemExit("Official FPL returned multiple is_next events.")
+          if next_rows:
+              next_gw = int(next_rows[0]["id"])
+          else:
+              future = []
+              for event in events:
+                  deadline = event.get("deadline_time")
+                  if not deadline:
+                      continue
+                  stamp = datetime.fromisoformat(str(deadline).replace("Z", "+00:00"))
+                  if stamp > now:
+                      future.append((stamp, int(event["id"])))
+              next_gw = min(future)[1] if future else None
+
+          if review_gw is None:
+              target_key = ""
+              review_status = "UNAVAILABLE"
+              fixture_state = {}
+          else:
+              review_status = (
+                  "FINAL" if int(review_gw) in review_ready else "LIVE/PARTIAL"
+              )
+              target_key = f"GW{int(review_gw)}:{review_status}"
+              fixture_state = state_by_gw.get(int(review_gw), {})
+
+          print(
+              "Official FPL state | "
+              f"review={review_gw} status={review_status} "
+              f"fixtures={fixture_state.get('completed', 0)}/"
+              f"{fixture_state.get('fixtures', 0)} next={next_gw}"
+          )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"target_key={target_key}\n")
+              output.write(f"review_gw={review_gw or ''}\n")
+              output.write(f"review_status={review_status}\n")
+              output.write(f"next_gw={next_gw or ''}\n")
+          PY
+
+      - name: Trigger Day 1 only when review state advances
+        if: steps.fpl.outputs.target_key != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_KEY: ${{ steps.fpl.outputs.target_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          active_count="$(
+            gh run list               --repo "${GITHUB_REPOSITORY}"               --workflow day-1.yml               --limit 20               --json status               --jq '[.[] | select(
+                .status == "queued"
+                or .status == "in_progress"
+                or .status == "waiting"
+                or .status == "requested"
+                or .status == "pending"
+              )] | length'
+          )"
+
+          if [[ "${active_count}" -gt 0 ]]; then
+            echo "Day 1 is already queued or running; watcher will check again later."
+            exit 0
+          fi
+
+          latest_success="$(
+            gh run list               --repo "${GITHUB_REPOSITORY}"               --workflow day-1.yml               --status success               --limit 1               --json databaseId               --jq '.[0].databaseId // empty'
+          )"
+
+          published_key=""
+          if [[ -n "${latest_success}" ]]; then
+            log_file="${RUNNER_TEMP}/latest-day-1.log"
+            gh run view "${latest_success}"               --repo "${GITHUB_REPOSITORY}"               --log > "${log_file}"
+
+            published_key="$(
+              python - "${log_file}" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          gameweeks = re.findall(
+              r"ONE GW Review snapshot:.*?GW(\d+)",
+              text,
+              flags=re.IGNORECASE,
+          )
+          statuses = re.findall(
+              r"GW REVIEW STATUS:\s*(FINAL|LIVE/PARTIAL)",
+              text,
+              flags=re.IGNORECASE,
+          )
+
+          if gameweeks:
+              status = statuses[-1].upper() if statuses else "FINAL"
+              print(f"GW{int(gameweeks[-1])}:{status}")
+          PY
+            )"
+          fi
+
+          echo "Published review state: ${published_key:-NONE}"
+          echo "Official target state:  ${TARGET_KEY}"
+
+          if [[ "${published_key}" == "${TARGET_KEY}" ]]; then
+            echo "Day 1 is already current; no render was started."
+            exit 0
+          fi
+
+          default_branch="$(
+            gh repo view "${GITHUB_REPOSITORY}"               --json defaultBranchRef               --jq '.defaultBranchRef.name'
+          )"
+          gh workflow run day-1.yml             --repo "${GITHUB_REPOSITORY}"             --ref "${default_branch}"
+
+          echo "Triggered Day 1 for ${TARGET_KEY}."
