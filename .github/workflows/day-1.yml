@@ -19,6 +19,10 @@ env:
   GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
   GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
   GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+  YOUTUBE_OAUTH_CLIENT_ID: ${{ secrets.YOUTUBE_OAUTH_CLIENT_ID }}
+  YOUTUBE_OAUTH_CLIENT_SECRET: ${{ secrets.YOUTUBE_OAUTH_CLIENT_SECRET }}
+  YOUTUBE_OAUTH_REFRESH_TOKEN: ${{ secrets.YOUTUBE_OAUTH_REFRESH_TOKEN }}
+  YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
   ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
 
 jobs:
@@ -65,6 +69,50 @@ jobs:
           print("Day 1 integrity and 33-cell syntax check: PASS")
           PY
 
+      - name: Verify private YouTube upload configuration
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+
+          client_id = (
+              os.environ.get("YOUTUBE_OAUTH_CLIENT_ID")
+              or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+              or ""
+          ).strip()
+          client_secret = (
+              os.environ.get("YOUTUBE_OAUTH_CLIENT_SECRET")
+              or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+              or ""
+          ).strip()
+          refresh_token = (os.environ.get("YOUTUBE_OAUTH_REFRESH_TOKEN") or "").strip()
+          channel_id = (os.environ.get("YOUTUBE_CHANNEL_ID") or "").strip()
+
+          missing = []
+          if not client_id:
+              missing.append("YOUTUBE_OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_ID")
+          if not client_secret:
+              missing.append(
+                  "YOUTUBE_OAUTH_CLIENT_SECRET or GOOGLE_OAUTH_CLIENT_SECRET"
+              )
+          if not refresh_token:
+              missing.append("YOUTUBE_OAUTH_REFRESH_TOKEN")
+          if not channel_id:
+              missing.append("YOUTUBE_CHANNEL_ID")
+          if missing:
+              raise SystemExit(
+                  "Missing required private YouTube upload secret(s): "
+                  + ", ".join(missing)
+              )
+          if not client_id.endswith(".apps.googleusercontent.com"):
+              raise SystemExit("YouTube OAuth client ID has an invalid format")
+          if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel_id):
+              raise SystemExit("YOUTUBE_CHANNEL_ID has an invalid format")
+          print("Private YouTube upload configuration: PASS")
+          print("Automatic Public/Unlisted/scheduled publishing: DISABLED")
+          PY
+
       - name: Install system dependencies
         shell: bash
         run: |
@@ -85,7 +133,10 @@ jobs:
             "matplotlib>=3.9,<4" \
             "ipython>=8.27,<10" \
             "playwright>=1.46,<2" \
-            "edge-tts>=6.1,<8"
+            "edge-tts>=6.1,<8" \
+            "google-api-python-client>=2.147,<3" \
+            "google-auth>=2.35,<3" \
+            "google-auth-httplib2>=0.2,<1"
 
       - name: Install Chromium runtime
         shell: bash
@@ -369,7 +420,7 @@ jobs:
         shell: bash
         run: python -m vortex.day1_media
 
-      - name: Build safe YouTube Studio package
+      - name: Build private YouTube upload package
         shell: bash
         run: python -m vortex.youtube_studio_package
 
@@ -424,10 +475,20 @@ jobs:
               raise SystemExit(f"YouTube Studio package is missing: {package_path}")
           package = json.loads(package_path.read_text(encoding="utf-8"))
           if (
-              package.get("manual_upload_only") is not True
-              or package.get("youtube_api_upload_enabled") is not False
+              package.get("manual_upload_only") is not False
+              or package.get("youtube_api_upload_enabled") is not True
+              or package.get("automatic_publication_enabled") is not False
           ):
-              raise SystemExit("YouTube package is not locked to safe manual upload")
+              raise SystemExit("YouTube package is not locked to private API upload")
+          expected_policy = {
+              "privacy_status": "private",
+              "notify_subscribers": False,
+              "automatic_publish": False,
+              "automatic_schedule": False,
+              "manual_publication_required": True,
+          }
+          if package.get("upload_policy") != expected_policy:
+              raise SystemExit("YouTube private-upload safety policy is invalid")
 
           metadata = package.get("metadata") or {}
           thumbnail = package.get("thumbnail") or {}
@@ -470,7 +531,7 @@ jobs:
           if "DAY 1" in visible_copy or "DAY 2" in visible_copy:
               raise SystemExit("YouTube thumbnail/title must not use Day numbering")
 
-          print("Day 1 output structure, final QA, and YouTube Studio package: PASS")
+          print("Day 1 output structure, final QA, and private YouTube package: PASS")
           PY
 
       - name: Publish outputs and persistent state to Google Drive
@@ -503,6 +564,24 @@ jobs:
           publish_if_present "FPL_VORTEX_DATA/06_SNAPSHOTS"
           publish_if_present "FPL_VORTEX_DATA/07_LOGS"
 
+      - name: Upload final 4K video privately to YouTube
+        shell: bash
+        run: python -m vortex.youtube_private_upload
+
+      - name: Save YouTube private-upload receipt to Google Drive
+        if: always()
+        shell: bash
+        run: |
+          receipt="/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO/DATA/youtube_private_upload.json"
+          if [[ -s "${receipt}" ]]; then
+            rclone copyto \
+              "${receipt}" \
+              "vortex-drive:FPL_VORTEX/FIRST VIDEO/DATA/youtube_private_upload.json"
+            echo "Saved YouTube private-upload receipt to Google Drive"
+          else
+            echo "No YouTube private-upload receipt was created"
+          fi
+
       - name: Upload Day 1 output artifact
         if: always()
         uses: actions/upload-artifact@v7
@@ -521,4 +600,3 @@ jobs:
           path: ${{ runner.temp }}/day-1.log
           if-no-files-found: warn
           retention-days: 14
-

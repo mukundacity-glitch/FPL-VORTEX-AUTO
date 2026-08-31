@@ -873,10 +873,18 @@ def build_youtube_studio_package(output_root):
     metadata = _vx23_metadata(preview_gw, review_gw, review_status, qa)
 
     package = {
-        "version": "FPL-VORTEX-YOUTUBE-STUDIO-MANUAL-V2",
+        "version": "FPL-VORTEX-YOUTUBE-PRIVATE-AUTO-V3",
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "manual_upload_only": True,
-        "youtube_api_upload_enabled": False,
+        "manual_upload_only": False,
+        "youtube_api_upload_enabled": True,
+        "automatic_publication_enabled": False,
+        "upload_policy": {
+            "privacy_status": "private",
+            "notify_subscribers": False,
+            "automatic_publish": False,
+            "automatic_schedule": False,
+            "manual_publication_required": True,
+        },
         "video": {
             "file": str(final_video),
             "resolution": [video_probe["width"], video_probe["height"]],
@@ -887,20 +895,19 @@ def build_youtube_studio_package(output_root):
         "thumbnail": thumbnail,
         "metadata": metadata,
         "studio_checklist": [
-            "Open YouTube Studio and choose Create > Upload videos.",
-            "Select the packaged 4K MP4.",
-            "Copy the generated title and description from this JSON package.",
-            "Upload the generated 4K JPEG as the custom thumbnail.",
-            "Keep Visibility set to Private, save, then make it public manually when ready.",
+            "GitHub uploads the packaged 4K MP4 to the verified channel as Private.",
+            "GitHub applies this generated title, description, tags, and thumbnail.",
+            "Open the video in YouTube Studio and review every field.",
+            "Only change Visibility to Public manually when the video is ready.",
         ],
     }
     package_path = data_dir / "youtube_video_1_of_3_package.json"
     _vx23_atomic_json(package_path, package)
 
     print("\n" + "=" * 74)
-    print("✅ SAFE YOUTUBE STUDIO PACKAGE — VIDEO 1/3")
+    print("✅ PRIVATE YOUTUBE UPLOAD PACKAGE — VIDEO 1/3")
     print("=" * 74)
-    print("✅ Manual upload only — no YouTube API call and no automatic publishing")
+    print("✅ YouTube API upload enabled: Private only; automatic publishing disabled")
     print(f"✅ Dynamic preview/review: GW{preview_gw} / GW{review_gw} ({review_status})")
     print(
         f"✅ Thumbnail variation: {thumbnail['theme']} • "
@@ -931,4 +938,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
