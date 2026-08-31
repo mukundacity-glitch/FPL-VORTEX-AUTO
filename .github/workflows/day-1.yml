@@ -420,7 +420,7 @@ jobs:
         shell: bash
         run: python -m vortex.day1_media
 
-      - name: Build private YouTube upload package
+      - name: Build private YouTube metadata package
         shell: bash
         run: python -m vortex.youtube_studio_package
 
@@ -491,7 +491,6 @@ jobs:
               raise SystemExit("YouTube private-upload safety policy is invalid")
 
           metadata = package.get("metadata") or {}
-          thumbnail = package.get("thumbnail") or {}
           preview_gw = int(metadata.get("preview_gw") or 0)
           review_gw = int(metadata.get("review_gw") or 0)
           if not 1 <= preview_gw <= 38 or not 1 <= review_gw <= 38:
@@ -502,34 +501,9 @@ jobs:
               raise SystemExit("YouTube title does not match its dynamic preview GW")
           if metadata.get("recommended_visibility") != "Private":
               raise SystemExit("YouTube Studio visibility must default to Private")
-          if thumbnail.get("series_badge") != "VIDEO 1/3":
-              raise SystemExit("Thumbnail is missing the required VIDEO 1/3 badge")
-
-          thumbnail_path = Path(str(thumbnail.get("file") or "")).resolve()
-          if thumbnail_path.parent != (root / "SLIDE").resolve():
-              raise SystemExit(
-                  f"Thumbnail points outside the SLIDE directory: {thumbnail_path}"
-              )
-          if not thumbnail_path.is_file():
-              raise SystemExit(f"Thumbnail file is missing: {thumbnail_path}")
-          if thumbnail_path.stat().st_size > 1_950_000:
-              raise SystemExit("Thumbnail exceeds the safe 1.95 MB upload limit")
-          from PIL import Image
-          with Image.open(thumbnail_path) as image:
-              if image.size != (3840, 2160) or image.format != "JPEG":
-                  raise SystemExit(
-                      f"Thumbnail format invalid: {image.size} {image.format}"
-                  )
-
-          visible_copy = " ".join(
-              [
-                  str(thumbnail.get("series_badge") or ""),
-                  str(thumbnail.get("headline") or ""),
-                  str(metadata.get("title") or ""),
-              ]
-          ).upper()
-          if "DAY 1" in visible_copy or "DAY 2" in visible_copy:
-              raise SystemExit("YouTube thumbnail/title must not use Day numbering")
+          visible_title = str(metadata.get("title") or "").upper()
+          if "DAY 1" in visible_title or "DAY 2" in visible_title:
+              raise SystemExit("YouTube title must not use Day numbering")
 
           print("Day 1 output structure, final QA, and private YouTube package: PASS")
           PY
@@ -600,3 +574,4 @@ jobs:
           path: ${{ runner.temp }}/day-1.log
           if-no-files-found: warn
           retention-days: 14
+

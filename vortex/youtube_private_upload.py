@@ -15,7 +15,6 @@ REPORT_NAME = "youtube_private_upload.json"
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 YOUTUBE_READ_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
 YOUTUBE_PRIVACY_STATUS = "private"
-YOUTUBE_THUMBNAIL_MAX_BYTES = 2_000_000
 
 
 def _utc_now() -> str:
@@ -100,11 +99,10 @@ def _validate_package(output_root: Path) -> dict[str, Any]:
 
     metadata = package.get("metadata")
     video = package.get("video")
-    thumbnail = package.get("thumbnail")
     if not isinstance(metadata, dict):
         raise RuntimeError("YouTube package metadata is missing")
-    if not isinstance(video, dict) or not isinstance(thumbnail, dict):
-        raise RuntimeError("YouTube package video or thumbnail data is missing")
+    if not isinstance(video, dict):
+        raise RuntimeError("YouTube package video data is missing")
 
     preview_gw = int(metadata.get("preview_gw") or 0)
     review_gw = int(metadata.get("review_gw") or 0)
@@ -144,31 +142,16 @@ def _validate_package(output_root: Path) -> dict[str, Any]:
     if sum(len(tag) for tag in upload_tags) + len(upload_tags) - 1 > 500:
         raise RuntimeError("YouTube tags exceed the 500-character limit")
 
-    visible_copy = " ".join(
-        [title, str(thumbnail.get("series_badge") or ""), str(thumbnail.get("headline") or "")]
-    )
-    if re.search(r"\bDAY\s*\d", visible_copy, flags=re.IGNORECASE):
-        raise RuntimeError("YouTube title or thumbnail must not use Day numbering")
-    if thumbnail.get("series_badge") != "VIDEO 1/3":
-        raise RuntimeError("YouTube thumbnail is missing the VIDEO 1/3 badge")
+    if re.search(r"\bDAY\s*\d", title, flags=re.IGNORECASE):
+        raise RuntimeError("YouTube title must not use Day numbering")
 
     video_path = _safe_child(str(video.get("file") or ""), output_root / "MP4", "4K MP4")
-    thumbnail_path = _safe_child(
-        str(thumbnail.get("file") or ""),
-        output_root / "SLIDE",
-        "4K thumbnail",
-    )
     if list(video.get("resolution") or []) != [3840, 2160]:
         raise RuntimeError("YouTube upload package is not true 4K")
-    if list(thumbnail.get("resolution") or []) != [3840, 2160]:
-        raise RuntimeError("YouTube thumbnail package is not true 4K")
-    if thumbnail_path.stat().st_size > YOUTUBE_THUMBNAIL_MAX_BYTES:
-        raise RuntimeError("YouTube thumbnail exceeds the official 2 MB limit")
 
     return {
         "package_path": package_path,
         "video_path": video_path,
-        "thumbnail_path": thumbnail_path,
         "metadata": metadata,
         "upload_tags": upload_tags,
         "marker": marker,
@@ -331,18 +314,6 @@ def _insert_private_video(youtube, package: dict[str, Any]) -> str:
     return video_id
 
 
-def _set_thumbnail(youtube, *, video_id: str, thumbnail_path: Path) -> None:
-    from googleapiclient.http import MediaFileUpload
-
-    youtube.thumbnails().set(
-        videoId=video_id,
-        media_body=MediaFileUpload(
-            str(thumbnail_path),
-            mimetype="image/jpeg",
-            resumable=False,
-        ),
-    ).execute(num_retries=5)
-
 
 def _confirm_private(youtube, video_id: str) -> None:
     response = youtube.videos().list(
@@ -421,30 +392,23 @@ def upload_private(output_root: Path) -> dict[str, Any]:
         video_id = _insert_private_video(youtube, package)
         report.update(
             {
-                "status": "private_video_uploaded_thumbnail_pending",
+                "status": "private_video_uploaded_verification_pending",
                 "youtube": {
                     "video_id": video_id,
                     "privacy_status": YOUTUBE_PRIVACY_STATUS,
                     "studio_url": f"https://studio.youtube.com/video/{video_id}/edit",
                     "watch_url": f"https://www.youtube.com/watch?v={video_id}",
-                    "thumbnail_set": False,
                 },
             }
         )
         _write_json_atomic(report_path, report)
 
-        _set_thumbnail(
-            youtube,
-            video_id=video_id,
-            thumbnail_path=package["thumbnail_path"],
-        )
         _confirm_private(youtube, video_id)
-        report["youtube"]["thumbnail_set"] = True
         report["status"] = "private_upload_complete"
         report["completed_at"] = _utc_now()
         report["duplicate_prevented"] = False
         _write_json_atomic(report_path, report)
-        print("[YOUTUBE] PRIVATE upload and dynamic thumbnail: PASS")
+        print("[YOUTUBE] PRIVATE 4K upload: PASS")
         print(f"[YOUTUBE] Studio: {report['youtube']['studio_url']}")
         print("[YOUTUBE] Automatic Public/Unlisted/scheduled publishing: DISABLED")
         return report
@@ -475,3 +439,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
