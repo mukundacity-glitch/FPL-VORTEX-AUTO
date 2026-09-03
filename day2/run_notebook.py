@@ -79,7 +79,7 @@ def _audit_notebook(payload: dict) -> None:
         raise RuntimeError("Day 2 final MP4 contract is missing from the notebook")
 
 
-def _patch_quality(payload: dict, quality: str) -> None:
+def _patch_quality(payload: dict, quality: str, notebook_path: Path) -> None:
     quality = quality.upper()
     if quality not in {"DRAFT", "FINAL"}:
         raise ValueError(f"Unsupported render quality: {quality}")
@@ -94,6 +94,19 @@ def _patch_quality(payload: dict, quality: str) -> None:
     if count != 1:
         raise RuntimeError(
             "Could not apply the isolated GitHub Actions MP4_QUALITY override"
+        )
+    notebook_pattern = re.compile(
+        r"(?m)^NOTEBOOK_JSON_PATH\\s*=\\s*['\"][^'\"]+['\"](?P<suffix>[^\\n]*)$"
+    )
+    notebook_replacement = (
+        f"NOTEBOOK_JSON_PATH = {str(notebook_path)!r}\\g<suffix>"
+    )
+    patched, notebook_count = notebook_pattern.subn(
+        notebook_replacement, patched, count=1
+    )
+    if notebook_count != 1:
+        raise RuntimeError(
+            "Could not point the Day 2 self-audit at the ephemeral GitHub Actions notebook"
         )
     _set_cell_source(cells[0], patched)
 
@@ -137,7 +150,7 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
 
     payload = json.loads(notebook_path.read_text(encoding="utf-8"))
     _audit_notebook(payload)
-    _patch_quality(payload, quality)
+    _patch_quality(payload, quality, notebook_path)
 
     # The saved local copy is intentionally ephemeral. It is never synced back to
     # My Drive; writing it lets the notebook's own final audit inspect the same

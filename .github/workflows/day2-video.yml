@@ -104,7 +104,10 @@ jobs:
 
       - name: Restore isolated Day 2 inputs and shared media
         shell: bash
-        run: python -m day2.drive_io restore
+        run: |
+          sudo mkdir -p /content/drive/MyDrive
+          sudo chown -R "$(id -u):$(id -g)" /content
+          python -m day2.drive_io restore
 
       - name: Execute Day 2 notebook
         shell: bash
