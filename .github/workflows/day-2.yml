@@ -24,6 +24,11 @@ on:
         required: true
         options: [FINAL, DRAFT]
         default: FINAL
+      watcher_target_key:
+        description: Internal watcher state; leave blank for manual runs
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -54,6 +59,11 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Record Day 2 automation target
+        if: ${{ inputs.watcher_target_key != '' }}
+        shell: bash
+        run: echo "[DAY 2 WATCHER] Target state: ${{ inputs.watcher_target_key }}"
 
       - name: Prove Day 1 is untouched
         shell: bash

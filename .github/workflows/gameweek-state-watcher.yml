@@ -2,7 +2,7 @@ name: Gameweek State Watcher
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "7 6 */2 * *"
   workflow_dispatch:
 
 permissions:
@@ -165,7 +165,12 @@ jobs:
           set -euo pipefail
 
           active_count="$(
-            gh run list               --repo "${GITHUB_REPOSITORY}"               --workflow day-1.yml               --limit 20               --json status               --jq '[.[] | select(
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow day-1.yml \
+              --limit 20 \
+              --json status \
+              --jq '[.[] | select(
                 .status == "queued"
                 or .status == "in_progress"
                 or .status == "waiting"
@@ -179,17 +184,32 @@ jobs:
             exit 0
           fi
 
-          latest_success="$(
-            gh run list               --repo "${GITHUB_REPOSITORY}"               --workflow day-1.yml               --status success               --limit 1               --json databaseId               --jq '.[0].databaseId // empty'
+          latest_json="$(
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow day-1.yml \
+              --limit 1 \
+              --json databaseId,conclusion
           )"
+          latest_id="$(jq -r '.[0].databaseId // empty' <<<"${latest_json}")"
+          latest_conclusion="$(jq -r '.[0].conclusion // empty' <<<"${latest_json}")"
 
           published_key=""
-          if [[ -n "${latest_success}" ]]; then
+          if [[ -n "${latest_id}" ]]; then
             log_file="${RUNNER_TEMP}/latest-day-1.log"
-            gh run view "${latest_success}"               --repo "${GITHUB_REPOSITORY}"               --log > "${log_file}"
+            gh run view "${latest_id}" --repo "${GITHUB_REPOSITORY}" --log > "${log_file}"
 
-            published_key="$(
-              python - "${log_file}" <<'PY'
+            delivered="false"
+            if [[ "${latest_conclusion}" == "success" ]]; then
+              delivered="true"
+            elif grep -Fq               "A matching YouTube video already exists and is not Private. No duplicate was uploaded and the existing video was not changed."               "${log_file}"; then
+              delivered="true"
+              echo "Latest Day 1 stopped only because the matching posted/scheduled YouTube video already exists."
+            fi
+
+            if [[ "${delivered}" == "true" ]]; then
+              published_key="$(
+                python - "${log_file}" <<'PY'
           import re
           import sys
           from pathlib import Path
@@ -205,12 +225,12 @@ jobs:
               text,
               flags=re.IGNORECASE,
           )
-
           if gameweeks:
               status = statuses[-1].upper() if statuses else "FINAL"
               print(f"GW{int(gameweeks[-1])}:{status}")
           PY
-            )"
+              )"
+            fi
           fi
 
           echo "Published review state: ${published_key:-NONE}"
@@ -222,8 +242,98 @@ jobs:
           fi
 
           default_branch="$(
-            gh repo view "${GITHUB_REPOSITORY}"               --json defaultBranchRef               --jq '.defaultBranchRef.name'
+            gh repo view "${GITHUB_REPOSITORY}" \
+              --json defaultBranchRef \
+              --jq '.defaultBranchRef.name'
           )"
-          gh workflow run day-1.yml             --repo "${GITHUB_REPOSITORY}"             --ref "${default_branch}"
+          gh workflow run day-1.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${default_branch}"
 
           echo "Triggered Day 1 for ${TARGET_KEY}."
+
+      - name: Trigger Day 2 separately when review state advances
+        if: steps.fpl.outputs.target_key != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_KEY: ${{ steps.fpl.outputs.target_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          active_count="$(
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow day-2.yml \
+              --limit 20 \
+              --json status \
+              --jq '[.[] | select(
+                .status == "queued"
+                or .status == "in_progress"
+                or .status == "waiting"
+                or .status == "requested"
+                or .status == "pending"
+              )] | length'
+          )"
+
+          if [[ "${active_count}" -gt 0 ]]; then
+            echo "Day 2 is already queued or running; watcher will check again later."
+            exit 0
+          fi
+
+          latest_success="$(
+            gh run list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --workflow day-2.yml \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty'
+          )"
+
+          completed_key=""
+          if [[ -n "${latest_success}" ]]; then
+            log_file="${RUNNER_TEMP}/latest-day-2.log"
+            gh run view "${latest_success}" --repo "${GITHUB_REPOSITORY}" --log > "${log_file}"
+            completed_key="$(
+              python - "${log_file}" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          matches = re.findall(
+              r"\[DAY 2 WATCHER\] Target state:\s*(GW\d+:(?:FINAL|LIVE/PARTIAL))",
+              text,
+              flags=re.IGNORECASE,
+          )
+          if matches:
+              print(matches[-1].upper())
+          PY
+            )"
+          fi
+
+          echo "Completed Day 2 state: ${completed_key:-NONE}"
+          echo "Official target state: ${TARGET_KEY}"
+
+          if [[ "${completed_key}" == "${TARGET_KEY}" ]]; then
+            echo "Day 2 is already current; no render was started."
+            exit 0
+          fi
+
+          default_branch="$(
+            gh repo view "${GITHUB_REPOSITORY}" \
+              --json defaultBranchRef \
+              --jq '.defaultBranchRef.name'
+          )"
+          video_date="$(TZ=America/New_York date +%F)"
+          gh workflow run day-2.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${default_branch}" \
+            -f upload_to_youtube=true \
+            -f dry_run=false \
+            -f video_date="${video_date}" \
+            -f render_quality=FINAL \
+            -f watcher_target_key="${TARGET_KEY}"
+
+          echo "Triggered Day 2 for ${TARGET_KEY} as a separate Private-only run."

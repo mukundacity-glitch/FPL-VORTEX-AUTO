@@ -79,3 +79,8 @@ Day 2 reuses the existing repository secret names established by Day 1:
 The YouTube client ID/secret may fall back to the Google OAuth client ID/secret exactly as Day 1 does. `YOUTUBE_OAUTH_REFRESH_TOKEN` must authorize YouTube upload/read access for the same channel identified by `YOUTUBE_CHANNEL_ID`.
 
 No credential value is written to logs, source, artifacts, or metadata files.
+
+
+### Automatic watcher
+
+`Gameweek State Watcher` checks official FPL state every two days (approximately 48 hours). Day 1 and Day 2 remain separate workflows. When the review state advances, the watcher can trigger each workflow independently; Day 2 remains Private-only on YouTube and keeps its own Drive output root.

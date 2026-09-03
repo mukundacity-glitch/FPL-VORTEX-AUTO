@@ -29,6 +29,89 @@ def _set_cell_source(cell: dict, source: str) -> None:
     cell["source"] = source.splitlines(keepends=True)
 
 
+def _repair_python311_fstrings(payload: dict) -> bool:
+    """Repair the one legacy nested f-string that Python 3.11 cannot parse."""
+    cells = payload.get("cells") or []
+    if len(cells) <= 13 or cells[13].get("cell_type") != "code":
+        raise RuntimeError("Day 2 scene cell 13 is missing")
+
+    source = _cell_source(cells[13])
+    if "_badge_html =" in source and "_hero_html =" in source:
+        return False
+
+    warning_line = (
+        '    _warning = _s5e(str(player.get("warning") or "").upper())\n'
+    )
+    if warning_line not in source:
+        return False
+
+    helper_block = warning_line + """    _badge_html = f'<img src="{_badge}" alt="{_club}">' if _badge else _club
+    _hero_html = (
+        '<img class="vxPlayerVisual {}" src="{}" alt="{}" '
+        'onerror="if(this.dataset.fallback!==\\'1\\'){{this.dataset.fallback=\\'1\\';'
+        'this.src=\\'{}\\';this.classList.add(\\'jerseyFallback\\')}}'
+        'else{{this.style.display=\\'none\\'}}">'
+    ).format(_img_kind, _img, _name, _img_fallback) if _img else (
+        f'<div class="heroInitials">{_name[:2]}</div>'
+    )
+    _variance_html = (
+        '<div class="varianceTag">HIGHER VARIANCE</div>' if rank == 3 else ""
+    )
+"""
+    source = source.replace(warning_line, helper_block, 1)
+
+    replacements = {
+        '      <div class="teamBadge">{f\'<img src="{_badge}" alt="{_club}">\' if _badge else _club}</div>':
+            '      <div class="teamBadge">{_badge_html}</div>',
+        '      {f\'<div class="varianceTag">HIGHER VARIANCE</div>\' if rank == 3 else ""}':
+            '      {_variance_html}',
+    }
+    for old, new in replacements.items():
+        if old not in source:
+            raise RuntimeError("Expected legacy Day 2 HTML expression was not found")
+        source = source.replace(old, new, 1)
+
+    hero_lines = source.splitlines()
+    hero_replaced = False
+    for index, line in enumerate(hero_lines):
+        if '<div class="heroVisual">{f\'<img class="vxPlayerVisual' in line:
+            hero_lines[index] = '      <div class="heroVisual">{_hero_html}</div>'
+            hero_replaced = True
+            break
+    if not hero_replaced:
+        raise RuntimeError("Expected legacy Day 2 hero f-string was not found")
+
+    _set_cell_source(cells[13], "\n".join(hero_lines) + "\n")
+    print("[DAY 2] Repaired Python 3.11-safe Scene 5 HTML f-string")
+    return True
+
+
+def _sync_repaired_notebook(payload: dict, notebook_path: Path) -> None:
+    """Persist only the source repair back to the same Drive notebook."""
+    if not os.environ.get("RCLONE_CONFIG"):
+        print("[DAY 2] Drive sync skipped outside GitHub Actions")
+        return
+
+    cfg = read_json(CONFIG_PATH, "Day 2 config")
+    drive_path = str(cfg["notebook"]["drive_path"])
+    notebook_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            "rclone",
+            "copyto",
+            str(notebook_path),
+            f"vortex-drive:{drive_path}",
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    print(f"[DAY 2] Repaired source synced to My Drive/{drive_path}")
+
+
 def _audit_notebook(payload: dict) -> None:
     cells = payload.get("cells") or []
     code_cells = [
@@ -149,12 +232,14 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
         raise FileNotFoundError(f"Day 2 notebook is missing: {notebook_path}")
 
     payload = json.loads(notebook_path.read_text(encoding="utf-8"))
+    repaired = _repair_python311_fstrings(payload)
     _audit_notebook(payload)
+    if repaired:
+        _sync_repaired_notebook(payload, notebook_path)
     _patch_quality(payload, quality, notebook_path)
 
-    # The saved local copy is intentionally ephemeral. It is never synced back to
-    # My Drive; writing it lets the notebook's own final audit inspect the same
-    # quality override that GitHub Actions executes.
+    # The execution copy is ephemeral. Only the Python 3.11 source repair above
+    # is synced back to Drive; workflow-only quality/path overrides stay local.
     notebook_path.write_text(
         json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
