@@ -96,7 +96,7 @@ def _patch_quality(payload: dict, quality: str, notebook_path: Path) -> None:
             "Could not apply the isolated GitHub Actions MP4_QUALITY override"
         )
     notebook_pattern = re.compile(
-        r"(?m)^NOTEBOOK_JSON_PATH\\s*=\\s*['\"][^'\"]+['\"](?P<suffix>[^\\n]*)$"
+        r"(?m)^NOTEBOOK_JSON_PATH\s*=\s*['\"][^'\"]+['\"](?P<suffix>[^\n]*)$"
     )
     notebook_replacement = (
         f"NOTEBOOK_JSON_PATH = {str(notebook_path)!r}\\g<suffix>"
