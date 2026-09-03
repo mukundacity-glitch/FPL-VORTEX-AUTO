@@ -12,7 +12,7 @@ Day 1 remains the existing implementation on `main`:
 
 Day 2 is isolated from Day 1:
 
-- Workflow: `.github/workflows/day2-video.yml`
+- Workflow: `.github/workflows/day-2.yml`
 - Day 2 automation code/config: `day2/`
 - Colab source: Drive file `DAY2_FINAL.ipynb` (configured by file/path in `day2/config.json`)
 - Output root: `My Drive/FPL_VORTEX/Day_2`
@@ -34,7 +34,7 @@ No Day 2 input or file is required for Day 1.
 GitHub only exposes a `workflow_dispatch` workflow from the repository's default branch. After reviewing and manually merging `feature/day2-video-workflow` into `main`:
 
 1. Open **Actions**.
-2. Select **Day 2 Video — Build and Upload Draft**.
+2. Select **Day 2**.
 3. Choose **Run workflow**.
 4. Set:
    - `upload_to_youtube`: `true` to allow a Private upload, or `false` to build only.

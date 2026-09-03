@@ -1,4 +1,4 @@
-name: Day 2 Video — Build and Upload Draft
+name: Day 2
 
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ concurrency:
 env:
   PYTHONUNBUFFERED: "1"
   DAY2_OUTPUT_ROOT: /content/drive/MyDrive/FPL_VORTEX/Day_2
-  DAY2_ASSET_DIR: ${{ runner.temp }}/day2-assets
+  DAY2_ASSET_DIR: /tmp/day2-assets
   GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
   GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
   GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
@@ -60,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin main:refs/remotes/origin/main
-          unexpected="$(git diff --name-only origin/main...HEAD | grep -Ev '^(\.github/workflows/day2-video\.yml|day2/|README\.md)$' || true)"
+          unexpected="$(git diff --name-only origin/main...HEAD | grep -Ev '^(\.github/workflows/day-2\.yml|day2/|README\.md)$' || true)"
           if [[ -n "${unexpected}" ]]; then
             echo "Unexpected non-Day-2 changes:" >&2
             echo "${unexpected}" >&2
