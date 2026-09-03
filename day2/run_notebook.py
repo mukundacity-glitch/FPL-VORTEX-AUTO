@@ -7,14 +7,18 @@ import hashlib
 import json
 import re
 import os
+import subprocess
 import sys
 import types
 from pathlib import Path
 
 from IPython.core.interactiveshell import InteractiveShell
 
+from .common import read_json
+
 
 DAY2_OUTPUT_ROOT = "/content/drive/MyDrive/FPL_VORTEX/Day_2"
+CONFIG_PATH = Path(__file__).with_name("config.json")
 QUALITY_PATTERN = re.compile(
     r'(?m)^MP4_QUALITY\s*=\s*["\'](?:DRAFT|FINAL)["\'](?P<suffix>[^\n]*)$'
 )
