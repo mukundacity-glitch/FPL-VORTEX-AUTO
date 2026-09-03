@@ -129,6 +129,12 @@ jobs:
             --quality "${{ inputs.render_quality }}" \
             2>&1 | tee "${RUNNER_TEMP}/day2.log"
 
+      - name: Checkpoint rendered Day 2 master to Google Drive
+        shell: bash
+        run: |
+          python -m day2.drive_io publish
+          echo "[DAY 2] Render checkpoint saved before external media integration"
+
       - name: Apply Day 1 media timing to Day 2 only
         shell: bash
         run: python -m day2.media --output-root "${DAY2_OUTPUT_ROOT}" --asset-dir "${DAY2_ASSET_DIR}"
