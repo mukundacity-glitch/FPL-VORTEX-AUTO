@@ -381,8 +381,11 @@ def _integrate_media_stream_copy(
                 "-i", str(staged_mp4),
                 "-map", "0:a:0",
                 "-vn",
-                "-af", "apad",
-                "-t", f"{staged_duration:.6f}",
+                "-af",
+                (
+                    "asetpts=N/SR/TB,apad,"
+                    f"atrim=duration={staged_duration:.6f}"
+                ),
                 "-c:a", "libmp3lame",
                 "-b:a", "192k",
                 str(staged_mp3),
@@ -394,11 +397,9 @@ def _integrate_media_stream_copy(
         if mp3_duration <= 0:
             raise RuntimeError("Integrated Day 2 MP3 is empty")
         if abs(mp3_duration - staged_duration) > 0.20:
-            print(
-                "[DAY 2 MEDIA] MP3 container duration differs from the MP4 "
-                f"(video={staged_duration:.3f}s, mp3={mp3_duration:.3f}s). "
-                "This is metadata/encoder padding only; playback audio was "
-                "explicitly padded/trimmed to the final MP4 duration."
+            raise RuntimeError(
+                "Integrated Day 2 MP3 duration does not match the final video: "
+                f"video={staged_duration:.3f}s mp3={mp3_duration:.3f}s"
             )
 
         os.replace(staged_mp4, final_mp4)
@@ -413,7 +414,7 @@ def _integrate_media_stream_copy(
 
     background_end = opening_duration + program_duration - OUTRO_SECONDS
     report: dict[str, Any] = {
-        "version": "FPL-VORTEX-DAY2-ASSET-MIX-V3",
+        "version": "FPL-VORTEX-DAY2-ASSET-MIX-V4",
         "passed": True,
         "isolation": {
             "day": 2,
