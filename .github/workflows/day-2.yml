@@ -63,7 +63,8 @@ jobs:
       - name: Record Day 2 automation target
         if: ${{ inputs.watcher_target_key != '' }}
         shell: bash
-        run: echo "[DAY 2 WATCHER] Target state: ${{ inputs.watcher_target_key }}"
+        run: |
+          echo "[DAY 2 WATCHER] Target state: ${{ inputs.watcher_target_key }}"
 
       - name: Prove Day 1 is untouched
         shell: bash
