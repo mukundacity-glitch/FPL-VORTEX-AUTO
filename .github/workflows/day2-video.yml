@@ -1,0 +1,197 @@
+name: Day 2 Video — Build and Upload Draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_youtube:
+        description: Upload the finished Day 2 video to YouTube as Private
+        type: boolean
+        required: true
+        default: true
+      dry_run:
+        description: Build and validate Day 2 but skip YouTube upload
+        type: boolean
+        required: true
+        default: false
+      video_date:
+        description: Date used in the Day 2 YouTube title (YYYY-MM-DD)
+        type: string
+        required: true
+        default: "2026-09-03"
+      render_quality:
+        description: FINAL is required for YouTube; DRAFT is fast validation
+        type: choice
+        required: true
+        options: [FINAL, DRAFT]
+        default: FINAL
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fpl-vortex-day-2
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  DAY2_OUTPUT_ROOT: /content/drive/MyDrive/FPL_VORTEX/Day_2
+  DAY2_ASSET_DIR: ${{ runner.temp }}/day2-assets
+  GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+  GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+  YOUTUBE_OAUTH_CLIENT_ID: ${{ secrets.YOUTUBE_OAUTH_CLIENT_ID }}
+  YOUTUBE_OAUTH_CLIENT_SECRET: ${{ secrets.YOUTUBE_OAUTH_CLIENT_SECRET }}
+  YOUTUBE_OAUTH_REFRESH_TOKEN: ${{ secrets.YOUTUBE_OAUTH_REFRESH_TOKEN }}
+  YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+
+jobs:
+  day2:
+    name: Run isolated Day 2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Prove Day 1 is untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          unexpected="$(git diff --name-only origin/main...HEAD | grep -Ev '^(\.github/workflows/day2-video\.yml|day2/|README\.md)$' || true)"
+          if [[ -n "${unexpected}" ]]; then
+            echo "Unexpected non-Day-2 changes:" >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+          for file in \
+            .github/workflows/day-1.yml \
+            .github/workflows/gameweek-state-watcher.yml \
+            1_final_day1.py \
+            vortex/day1_media.py \
+            vortex/youtube_private_upload.py \
+            vortex/youtube_studio_package.py; do
+            [[ "$(git rev-parse HEAD:${file})" == "$(git rev-parse origin/main:${file})" ]] || {
+              echo "Protected Day 1 file changed: ${file}" >&2; exit 1;
+            }
+          done
+          echo "[DAY 2] Day 1 protected files: byte-identical to main"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg rclone
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "requests>=2.32,<3" "pandas>=2.2,<3" "numpy>=2.0,<3" \
+            "Pillow>=10.4,<12" "scipy>=1.14,<2" "matplotlib>=3.9,<4" \
+            "ipython>=8.27,<10" "nest-asyncio>=1.6,<2" "playwright>=1.46,<2" \
+            "edge-tts>=6.1,<8" "google-api-python-client>=2.147,<3" \
+            "google-auth>=2.35,<3" "google-auth-httplib2>=0.2,<1"
+          python -m playwright install --with-deps chromium
+
+      - name: Configure private Google Drive connection
+        shell: bash
+        run: python -m day2.drive_io configure
+
+      - name: Restore isolated Day 2 inputs and shared media
+        shell: bash
+        run: python -m day2.drive_io restore
+
+      - name: Execute Day 2 notebook
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m day2.run_notebook \
+            --notebook /content/drive/MyDrive/Colab\ Notebooks/DAY2_FINAL.ipynb \
+            --quality "${{ inputs.render_quality }}" \
+            2>&1 | tee "${RUNNER_TEMP}/day2.log"
+
+      - name: Apply Day 1 media timing to Day 2 only
+        shell: bash
+        run: python -m day2.media --output-root "${DAY2_OUTPUT_ROOT}" --asset-dir "${DAY2_ASSET_DIR}"
+
+      - name: Build and validate private Day 2 metadata
+        shell: bash
+        run: |
+          python -m day2.youtube build \
+            --output-root "${DAY2_OUTPUT_ROOT}" \
+            --config day2/metadata.json \
+            --video-date "${{ inputs.video_date }}"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["DAY2_OUTPUT_ROOT"]).resolve()
+          expected = Path("/content/drive/MyDrive/FPL_VORTEX/Day_2")
+          if root != expected:
+              raise SystemExit(f"Unsafe output root: {root}")
+          media = json.loads((root / "Data/day2_media_qa.json").read_text())
+          package = json.loads((root / "Data/day2_youtube_package.json").read_text())
+          policy = {
+              "privacy_status": "private", "notify_subscribers": False,
+              "automatic_publish": False, "automatic_schedule": False,
+              "manual_publication_required": True,
+          }
+          if media.get("passed") is not True or media.get("mix") != {
+              "narration_level": 255, "music_level": 12, "music_gain": 12 / 255
+          }:
+              raise SystemExit("Day 2 media contract validation failed")
+          if float(media.get("outro_music", {}).get("excerpt_duration") or 0) != 6.0:
+              raise SystemExit("Day 2 outro is not the Day 1 six-second contract")
+          if package.get("upload_policy") != policy:
+              raise SystemExit("Day 2 YouTube policy is not locked to private")
+          print(f"[DAY 2] Output saved at: {root}")
+          print("[DAY 2] Private-only metadata and Day 1 media timing: PASS")
+          PY
+
+      - name: Refuse non-FINAL YouTube upload
+        if: ${{ inputs.upload_to_youtube && !inputs.dry_run && inputs.render_quality != 'FINAL' }}
+        shell: bash
+        run: |
+          echo "YouTube upload requires render_quality=FINAL (3840x2160)." >&2
+          exit 1
+
+      - name: Upload Day 2 privately to YouTube
+        if: ${{ inputs.upload_to_youtube && !inputs.dry_run && inputs.render_quality == 'FINAL' }}
+        shell: bash
+        run: |
+          python -m day2.youtube upload --output-root "${DAY2_OUTPUT_ROOT}"
+          echo "[DAY 2] YouTube upload completed and verified Private"
+
+      - name: Log skipped YouTube upload
+        if: ${{ inputs.dry_run || !inputs.upload_to_youtube }}
+        shell: bash
+        run: |
+          echo "[DAY 2] YouTube upload skipped (dry_run=${{ inputs.dry_run }}, upload_to_youtube=${{ inputs.upload_to_youtube }})"
+
+      - name: Publish Day 2 outputs to Google Drive
+        if: always()
+        shell: bash
+        run: python -m day2.drive_io publish
+
+      - name: Upload Day 2 build artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: day2-video-output-${{ github.run_number }}
+          path: /content/drive/MyDrive/FPL_VORTEX/Day_2
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload Day 2 execution log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: day2-video-log-${{ github.run_number }}
+          path: ${{ runner.temp }}/day2.log
+          if-no-files-found: warn
+          retention-days: 14
