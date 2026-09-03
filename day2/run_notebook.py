@@ -34,61 +34,111 @@ def _set_cell_source(cell: dict, source: str) -> None:
 
 
 def _repair_python311_fstrings(payload: dict) -> bool:
-    """Repair the one legacy nested f-string that Python 3.11 cannot parse."""
+    """Repair every legacy Scene 5 nested f-string unsupported by Python 3.11."""
     cells = payload.get("cells") or []
     if len(cells) <= 13 or cells[13].get("cell_type") != "code":
         raise RuntimeError("Day 2 scene cell 13 is missing")
 
     source = _cell_source(cells[13])
-    if "_badge_html =" in source and "_hero_html =" in source:
+    if (
+        "_badge_html =" in source
+        and "_hero_html =" in source
+        and "_summary_visual_html =" in source
+        and "_summary_badge_html =" in source
+    ):
         return False
 
-    warning_line = (
-        '    _warning = _s5e(str(player.get("warning") or "").upper())\n'
-    )
-    if warning_line not in source:
-        return False
+    lines = source.splitlines()
 
-    helper_block = warning_line + """    _badge_html = f'<img src="{_badge}" alt="{_club}">' if _badge else _club
-    _hero_html = (
-        '<img class="vxPlayerVisual {}" src="{}" alt="{}" '
-        'onerror="if(this.dataset.fallback!==\\'1\\'){{this.dataset.fallback=\\'1\\';'
-        'this.src=\\'{}\\';this.classList.add(\\'jerseyFallback\\')}}'
-        'else{{this.style.display=\\'none\\'}}">'
-    ).format(_img_kind, _img, _name, _img_fallback) if _img else (
-        f'<div class="heroInitials">{_name[:2]}</div>'
-    )
-    _variance_html = (
-        '<div class="varianceTag">HIGHER VARIANCE</div>' if rank == 3 else ""
-    )
-"""
-    source = source.replace(warning_line, helper_block, 1)
+    try:
+        featured_anchor = next(
+            index
+            for index, line in enumerate(lines)
+            if line.strip()
+            == '_warning = _s5e(str(player.get("warning") or "").upper())'
+        )
+    except StopIteration as exc:
+        raise RuntimeError("Scene 5 featured-card repair anchor is missing") from exc
 
-    replacements = {
-        '      <div class="teamBadge">{f\'<img src="{_badge}" alt="{_club}">\' if _badge else _club}</div>':
-            '      <div class="teamBadge">{_badge_html}</div>',
-        '      {f\'<div class="varianceTag">HIGHER VARIANCE</div>\' if rank == 3 else ""}':
-            '      {_variance_html}',
+    featured_helpers = [
+        '    _badge_html = f\'<img src="{_badge}" alt="{_club}">\' if _badge else _club',
+        '    _hero_html = (',
+        '        \'<img class="vxPlayerVisual {}" src="{}" alt="{}" \'',
+        '        \'onerror="if(this.dataset.fallback!==\\\'1\\\'){{this.dataset.fallback=\\\'1\\\';\'',
+        '        \'this.src=\\\'{}\\\';this.classList.add(\\\'jerseyFallback\\\')}}\'',
+        '        \'else{{this.style.display=\\\'none\\\'}}">\'',
+        '    ).format(_img_kind, _img, _name, _img_fallback) if _img else (',
+        '        f\'<div class="heroInitials">{_name[:2]}</div>\'',
+        '    )',
+        '    _variance_html = (',
+        '        \'<div class="varianceTag">HIGHER VARIANCE</div>\' if rank == 3 else ""',
+        '    )',
+    ]
+    lines[featured_anchor + 1:featured_anchor + 1] = featured_helpers
+
+    try:
+        summary_start = next(
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("def _s5_summary_row")
+        )
+        summary_anchor = next(
+            index
+            for index in range(summary_start, len(lines))
+            if lines[index].strip()
+            == '_purpose = _s5e(str(player.get("purpose") or "DIFFERENTIAL").upper())'
+        )
+    except StopIteration as exc:
+        raise RuntimeError("Scene 5 summary-card repair anchor is missing") from exc
+
+    summary_helpers = [
+        '    _summary_visual_html = (',
+        '        \'<img class="photo vxPlayerVisual {}" src="{}" alt="{}" \'',
+        '        \'onerror="if(this.dataset.fallback!==\\\'1\\\'){{this.dataset.fallback=\\\'1\\\';\'',
+        '        \'this.src=\\\'{}\\\';this.classList.add(\\\'jerseyFallback\\\')}}\'',
+        '        \'else{{this.style.display=\\\'none\\\'}}">\'',
+        '    ).format(_img_kind, _img, _name, _img_fallback) if _img else (',
+        '        f\'<div class="initials">{_name[:2]}</div>\'',
+        '    )',
+        '    _summary_badge_html = f\'<img src="{_badge}" alt="{_club}">\' if _badge else _club',
+    ]
+    lines[summary_anchor + 1:summary_anchor + 1] = summary_helpers
+
+    replaced = {
+        "featured_badge": False,
+        "featured_visual": False,
+        "variance": False,
+        "summary_visual": False,
+        "summary_badge": False,
     }
-    for old, new in replacements.items():
-        if old not in source:
-            raise RuntimeError("Expected legacy Day 2 HTML expression was not found")
-        source = source.replace(old, new, 1)
+    for index, line in enumerate(lines):
+        if '<div class="teamBadge">{f\'<img src=' in line:
+            lines[index] = '      <div class="teamBadge">{_badge_html}</div>'
+            replaced["featured_badge"] = True
+        elif '<div class="heroVisual">{f\'<img class=' in line:
+            lines[index] = '      <div class="heroVisual">{_hero_html}</div>'
+            replaced["featured_visual"] = True
+        elif '{f\'<div class="varianceTag">HIGHER VARIANCE</div>\'' in line:
+            lines[index] = '      {_variance_html}'
+            replaced["variance"] = True
+        elif '<div class="visual">{f\'<img class="photo' in line:
+            lines[index] = '      <div class="visual">{_summary_visual_html}</div>'
+            replaced["summary_visual"] = True
+        elif '<div class="summaryBadge">{f\'<img src=' in line:
+            lines[index] = '      <div class="summaryBadge">{_summary_badge_html}</div>'
+            replaced["summary_badge"] = True
 
-    hero_lines = source.splitlines()
-    hero_replaced = False
-    for index, line in enumerate(hero_lines):
-        if '<div class="heroVisual">{f\'<img class="vxPlayerVisual' in line:
-            hero_lines[index] = '      <div class="heroVisual">{_hero_html}</div>'
-            hero_replaced = True
-            break
-    if not hero_replaced:
-        raise RuntimeError("Expected legacy Day 2 hero f-string was not found")
+    missing = [name for name, ok in replaced.items() if not ok]
+    if missing:
+        raise RuntimeError(
+            "Scene 5 Python 3.11 repair did not replace: " + ", ".join(missing)
+        )
 
-    _set_cell_source(cells[13], "\n".join(hero_lines) + "\n")
-    print("[DAY 2] Repaired Python 3.11-safe Scene 5 HTML f-string")
+    repaired_source = "\n".join(lines) + "\n"
+    compile(repaired_source, "DAY2_FINAL.ipynb::cell-13", "exec")
+    _set_cell_source(cells[13], repaired_source)
+    print("[DAY 2] Repaired all five Python 3.11-safe Scene 5 HTML expressions")
     return True
-
 
 def _sync_repaired_notebook(payload: dict, notebook_path: Path) -> None:
     """Persist only the source repair back to the same Drive notebook."""
