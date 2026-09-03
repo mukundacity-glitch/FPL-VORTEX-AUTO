@@ -1,0 +1,23 @@
+{
+  "version": "FPL-VORTEX-DAY2-CONFIG-V1",
+  "notebook": {
+    "drive_file_id": "1cNYInUMu8Cr870a6Qgn047HCVdxuuSZ8",
+    "drive_path": "Colab Notebooks/DAY2_FINAL.ipynb",
+    "local_path": "/content/drive/MyDrive/Colab Notebooks/DAY2_FINAL.ipynb"
+  },
+  "output": {
+    "local_root": "/content/drive/MyDrive/FPL_VORTEX/Day_2",
+    "drive_path": "FPL_VORTEX/Day_2",
+    "program_filename": "FPL_VORTEX_DAY2_FINAL.mp4",
+    "review_filename": "FPL_VORTEX_DAY2_PRIVATE_REVIEW.mp4",
+    "review_audio_filename": "FPL_VORTEX_DAY2_PRIVATE_REVIEW.mp3"
+  },
+  "shared_assets": {
+    "drive_folder_id": "1h3Loznr5RnsMyh-kUd-zMxEgOf98uFSt",
+    "files": [
+      "opening.mp4",
+      "Background_music.mp3",
+      "outro.mp3"
+    ]
+  }
+}

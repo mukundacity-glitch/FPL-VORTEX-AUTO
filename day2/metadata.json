@@ -1,0 +1,22 @@
+{
+  "version": "FPL-VORTEX-DAY2-YOUTUBE-METADATA-V1",
+  "video_date": "2026-09-03",
+  "topic": "Expected Minutes, Rank Pressure & Differentials",
+  "summary": "Expected minutes, ownership pressure, rank gain and loss, differential picks, and model exposure traps for the current Fantasy Premier League Gameweek.",
+  "title_template": "{month_name} {day_2digit} | Day 2 | {topic} #FPL #FantasyPremierLeague",
+  "description_template": "Day 2 of my Fantasy Premier League video series.\n\n{summary}\n\n#FPL #FantasyPremierLeague #PremierLeague",
+  "hashtags": [
+    "#FPL",
+    "#FantasyPremierLeague",
+    "#PremierLeague"
+  ],
+  "tags": [
+    "FPL",
+    "Fantasy Premier League",
+    "Premier League",
+    "FPL VORTEX",
+    "Day 2"
+  ],
+  "category_id": "17",
+  "language": "en-GB"
+}
