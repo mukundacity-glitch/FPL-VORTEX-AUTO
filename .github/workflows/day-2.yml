@@ -120,7 +120,27 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" /content
           python -m day2.drive_io restore
 
+      - name: Restore verified same-day render checkpoint for manual retry
+        id: checkpoint
+        if: ${{ inputs.watcher_target_key == '' }}
+        shell: bash
+        run: |
+          set +e
+          python -m day2.drive_io checkpoint --video-date "${{ inputs.video_date }}"
+          status=$?
+          set -e
+          if [[ "${status}" -eq 0 ]]; then
+            echo "reused=true" >> "${GITHUB_OUTPUT}"
+            echo "[DAY 2] Verified render checkpoint will be reused."
+          elif [[ "${status}" -eq 2 ]]; then
+            echo "reused=false" >> "${GITHUB_OUTPUT}"
+            echo "[DAY 2] No same-date checkpoint; notebook will render fresh."
+          else
+            exit "${status}"
+          fi
+
       - name: Execute Day 2 notebook
+        if: ${{ steps.checkpoint.outputs.reused != 'true' }}
         shell: bash
         run: |
           set -o pipefail
@@ -130,12 +150,13 @@ jobs:
             2>&1 | tee "${RUNNER_TEMP}/day2.log"
 
       - name: Checkpoint rendered Day 2 master to Google Drive
+        if: ${{ steps.checkpoint.outputs.reused != 'true' }}
         shell: bash
         run: |
           python -m day2.drive_io publish
           echo "[DAY 2] Render checkpoint saved before external media integration"
 
-      - name: Apply Day 1 media timing to Day 2 only
+      - name: Apply proven Day 1 media method to Day 2 only
         shell: bash
         run: python -m day2.media --output-root "${DAY2_OUTPUT_ROOT}" --asset-dir "${DAY2_ASSET_DIR}"
 
