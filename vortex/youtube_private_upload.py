@@ -154,7 +154,6 @@ def _validate_package(output_root: Path) -> dict[str, Any]:
         "video_path": video_path,
         "metadata": metadata,
         "upload_tags": upload_tags,
-        "marker": marker,
     }
 
 
@@ -199,9 +198,9 @@ def _verify_channel(youtube) -> dict[str, str]:
         raise RuntimeError("YOUTUBE_CHANNEL_ID has an invalid format")
 
     response = youtube.channels().list(
-        part="id,snippet,contentDetails",
+        part="id,snippet",
         mine=True,
-        fields="items(id,snippet/title,contentDetails/relatedPlaylists/uploads)",
+        fields="items(id,snippet/title)",
     ).execute(num_retries=5)
     items = response.get("items") or []
     if len(items) != 1:
@@ -211,20 +210,14 @@ def _verify_channel(youtube) -> dict[str, str]:
     item = items[0]
     channel_id = str(item.get("id") or "")
     channel_title = str(item.get("snippet", {}).get("title") or "")
-    uploads_playlist = str(
-        item.get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads") or ""
-    )
     if channel_id != expected_channel_id:
         raise RuntimeError(
             "YouTube OAuth channel mismatch; refusing to upload. "
             f"expected={expected_channel_id}, authenticated={channel_id}"
         )
-    if not uploads_playlist:
-        raise RuntimeError("Authenticated YouTube channel has no uploads playlist")
     return {
         "id": channel_id,
         "title": channel_title,
-        "uploads_playlist": uploads_playlist,
     }
 
 
