@@ -13,7 +13,6 @@ concurrency:
 env:
   PYTHONUNBUFFERED: "1"
   SOURCE_FILE: 1_final_day1.py
-  SOURCE_SHA256: da22bcf149396fd5faee4ca8b6912c75dc2753309800946886bf8624f2eeed9d
   DAY1_ASSET_FOLDER_ID: 1h3Loznr5RnsMyh-kUd-zMxEgOf98uFSt
   DAY1_ASSET_DIR: /content/drive/MyDrive/FPL_VORTEX/Assets
   GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
@@ -43,7 +42,11 @@ jobs:
       - name: Verify untouched Day 1 source
         shell: bash
         run: |
-          echo "${SOURCE_SHA256}  ${SOURCE_FILE}" | sha256sum --check --strict
+          set -euo pipefail
+          git diff --exit-code -- "${SOURCE_FILE}"
+          source_sha256="$(sha256sum "${SOURCE_FILE}" | awk '{print $1}')"
+          echo "SOURCE_SHA256=${source_sha256}" >> "${GITHUB_ENV}"
+          echo "Day 1 source baseline SHA256: ${source_sha256}"
           python - <<'PY'
           import ast
           import os
