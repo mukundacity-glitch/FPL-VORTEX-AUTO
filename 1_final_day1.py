@@ -1143,34 +1143,38 @@ def fetch_gw_review_snapshot(
     }
 
 
-def fetch_event_live(event_id: int, *, cache_path: str | None = None) -> dict[str, Any]:
-    """Fetch one official FPL event-live payload through the canonical retry session.
+def fetch_event_live(event_id: int, *, snapshot_path: str | None = None) -> dict[str, Any]:
+    """Fetch one fresh official FPL event-live payload through the canonical retry session.
 
-    If cache_path is supplied, completed historical payloads can be reused without
-    another network call. This is the canonical event-live fetch helper for descriptive historical data.
+    Persistent files are write-through historical snapshots only. They are never
+    read as a substitute for the live FPL endpoint, so a manual Day 1 run cannot
+    inherit a partially-settled Gameweek from an earlier run.
     """
     event_id = int(event_id)
     if not 1 <= event_id <= 38:
         raise ValueError("event_id must be in 1..38")
 
-    cache = None
-    if cache_path:
-        from pathlib import Path
-        cache = Path(cache_path)
-        if cache.exists():
-            try:
-                import json
-                return json.loads(cache.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-
     session = _vx_http_session()
-    payload = _vx_get_json(session, f"/event/{event_id}/live/")
+    api_path = f"/event/{event_id}/live/"
 
-    if cache is not None:
+    # A previous caller in THIS run may already have read event-live while FPL
+    # was still settling. Remove only this endpoint from the run cache, then
+    # force a new no-cache HTTP request via _vx_get_json.
+    _VX_RUN_JSON_CACHE.pop(api_path, None)
+    payload = _vx_get_json(session, api_path)
+
+    if snapshot_path:
+        from pathlib import Path
         import json
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        snapshot = Path(snapshot_path)
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        temporary = snapshot.with_name(f".{snapshot.name}.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temporary.replace(snapshot)
 
     return payload
 
@@ -1179,11 +1183,12 @@ def fetch_recent_player_match_snapshot(
     events,
     *,
     lookback_gws: int = 6,
-    cache_dir: str | None = None,
+    snapshot_dir: str | None = None,
 ) -> pd.DataFrame:
-    """Return completed historical player-Gameweek raw statistics from official event-live.
+    """Return completed historical player-Gameweek raw statistics from fresh official event-live.
 
-    Only FINISHED gameweeks are used. This is raw descriptive evidence only; no forecast is produced.
+    Only review-ready gameweeks are used. Optional persistent files are refreshed
+    from the API on every call and are never used as an input cache.
     """
     frame = events.copy() if isinstance(events, pd.DataFrame) else pd.DataFrame(events)
     if frame.empty or "id" not in frame.columns:
@@ -1204,15 +1209,19 @@ def fetch_recent_player_match_snapshot(
     gws = completed["id"].astype(int).tolist()[-max(1, int(lookback_gws)):]
 
     rows: list[dict[str, Any]] = []
-    cache_root = None
-    if cache_dir:
+    snapshot_root = None
+    if snapshot_dir:
         from pathlib import Path
-        cache_root = Path(cache_dir)
-        cache_root.mkdir(parents=True, exist_ok=True)
+        snapshot_root = Path(snapshot_dir)
+        snapshot_root.mkdir(parents=True, exist_ok=True)
 
     for gw in gws:
-        cache_path = str(cache_root / f"gw_{gw:02d}_live.json") if cache_root else None
-        payload = fetch_event_live(gw, cache_path=cache_path)
+        snapshot_path = (
+            str(snapshot_root / f"gw_{gw:02d}_live.json")
+            if snapshot_root
+            else None
+        )
+        payload = fetch_event_live(gw, snapshot_path=snapshot_path)
         for element in payload.get("elements", []):
             stats = dict(element.get("stats") or {})
             rows.append({
@@ -5579,8 +5588,8 @@ _review_all_fixtures_complete = (
 
 
 def _vx_review_clear_entry_cache():
-    _cache = getattr(_fpl_module, "_VX_RUN_JSON_CACHE", None)
-    if not isinstance(_cache, dict):
+    _run_cache = getattr(_fpl_module, "_VX_RUN_JSON_CACHE", None)
+    if not isinstance(_run_cache, dict):
         return
     for _path in (
         f"/entry/{TEAM_ID_LOCAL}/",
@@ -5588,7 +5597,7 @@ def _vx_review_clear_entry_cache():
         f"/entry/{TEAM_ID_LOCAL}/event/{REVIEW_GW}/picks/",
         f"/event/{REVIEW_GW}/live/",
     ):
-        _cache.pop(_path, None)
+        _run_cache.pop(_path, None)
 
 
 def _vx_review_fetch_snapshot(*, fresh=False):
@@ -5759,7 +5768,10 @@ if _review_all_fixtures_complete:
         or _event_row.get("data_checked")
         or _event_row.get("is_previous")
     )
-    _required_stable_polls = 1 if _official_terminal else 2
+    # Even when FPL marks the event terminal, require two matching fresh
+    # entry/live signatures. Terminal flags can precede the last propagation
+    # step on individual entry feeds; two equal polls prevent that race.
+    _required_stable_polls = 2
 
     while (
         _review_finalisation_errors
@@ -13884,11 +13896,13 @@ def _vx_p12_fetch_player_actuals(gw):
     except Exception as exc:
         raise RuntimeError(f"Cannot import canonical FPL event-live loader: {exc}") from exc
 
-    cache_dir = PHASE12_LOG_DIR / "event_live_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    # This folder is an audit snapshot, not a read cache. Every Day 1 run
+    # refreshes the file from the official event-live endpoint before using it.
+    actuals_dir = PHASE12_LOG_DIR / "event_live_actuals"
+    actuals_dir.mkdir(parents=True, exist_ok=True)
     payload = fetch_event_live(
         int(gw),
-        cache_path=str(cache_dir / f"gw_{int(gw):02d}_live.json"),
+        snapshot_path=str(actuals_dir / f"gw_{int(gw):02d}_live.json"),
     )
     rows = []
     for item in payload.get("elements", []):
