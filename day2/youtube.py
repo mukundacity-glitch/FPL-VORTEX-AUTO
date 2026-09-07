@@ -5,7 +5,8 @@ import json
 import os
 import re
 import subprocess
-from datetime import date, datetime, timezone
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -147,9 +148,9 @@ def build_package(
 ) -> dict[str, Any]:
     output_root = output_root.resolve()
     config = read_json(config_path.resolve(), "Day 2 metadata config")
-    configured_date = str(video_date_override or config.get("video_date") or "").strip()
+    configured_date = str(video_date_override or "").strip()
     if not configured_date:
-        raise RuntimeError("Day 2 video_date is missing")
+        configured_date = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
 
     video = required_file(output_root / "MP4" / VIDEO_NAME, "Day 2 review MP4")
     media_report = read_json(
@@ -229,12 +230,7 @@ def _validate_package(output_root: Path) -> dict[str, Any]:
     if list(video.get("resolution") or []) != [3840, 2160]:
         raise RuntimeError("Day 2 YouTube package is not true 4K")
 
-    marker = "fpl-vortex-auto-day2-" + re.sub(
-        r"[^0-9]", "", str(metadata.get("video_date") or "")
-    )
     upload_tags = [str(tag).strip() for tag in metadata.get("tags") or []]
-    if marker not in upload_tags:
-        upload_tags.append(marker)
     if sum(len(tag) for tag in upload_tags) + max(0, len(upload_tags) - 1) > 500:
         raise RuntimeError("YouTube tags exceed the 500-character limit")
 
@@ -243,7 +239,6 @@ def _validate_package(output_root: Path) -> dict[str, Any]:
         "video_path": video_path,
         "metadata": metadata,
         "upload_tags": upload_tags,
-        "marker": marker,
     }
 
 
@@ -288,9 +283,9 @@ def _verify_channel(youtube) -> dict[str, str]:
         raise RuntimeError("YOUTUBE_CHANNEL_ID has an invalid format")
 
     response = youtube.channels().list(
-        part="id,snippet,contentDetails",
+        part="id,snippet",
         mine=True,
-        fields="items(id,snippet/title,contentDetails/relatedPlaylists/uploads)",
+        fields="items(id,snippet/title)",
     ).execute(num_retries=5)
     items = response.get("items") or []
     if len(items) != 1:
@@ -299,64 +294,15 @@ def _verify_channel(youtube) -> dict[str, str]:
         )
     item = items[0]
     channel_id = str(item.get("id") or "")
-    uploads_playlist = str(
-        item.get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads") or ""
-    )
     if channel_id != expected_channel_id:
         raise RuntimeError(
             "YouTube OAuth channel mismatch; refusing Day 2 upload. "
             f"expected={expected_channel_id}, authenticated={channel_id}"
         )
-    if not uploads_playlist:
-        raise RuntimeError("Authenticated YouTube channel has no uploads playlist")
     return {
         "id": channel_id,
         "title": str(item.get("snippet", {}).get("title") or ""),
-        "uploads_playlist": uploads_playlist,
     }
-
-
-def _find_existing_upload(
-    youtube,
-    *,
-    uploads_playlist: str,
-    marker: str,
-    title: str,
-) -> dict[str, str] | None:
-    playlist = youtube.playlistItems().list(
-        part="contentDetails",
-        playlistId=uploads_playlist,
-        maxResults=50,
-        fields="items/contentDetails/videoId",
-    ).execute(num_retries=5)
-    video_ids = [
-        str(item.get("contentDetails", {}).get("videoId") or "")
-        for item in playlist.get("items") or []
-    ]
-    video_ids = [video_id for video_id in video_ids if video_id]
-    if not video_ids:
-        return None
-
-    response = youtube.videos().list(
-        part="snippet,status",
-        id=",".join(video_ids),
-        maxResults=50,
-        fields="items(id,snippet(title,tags),status/privacyStatus)",
-    ).execute(num_retries=5)
-    for item in response.get("items") or []:
-        snippet = item.get("snippet") or {}
-        item_title = str(snippet.get("title") or "")
-        item_tags = [str(tag) for tag in snippet.get("tags") or []]
-        if marker in item_tags or item_title == title:
-            return {
-                "video_id": str(item.get("id") or ""),
-                "title": item_title,
-                "privacy_status": str(
-                    (item.get("status") or {}).get("privacyStatus") or "unknown"
-                ),
-                "match": "marker" if marker in item_tags else "exact_title",
-            }
-    return None
 
 
 def _insert_private_video(youtube, package: dict[str, Any]) -> str:
@@ -441,45 +387,6 @@ def upload_private(output_root: Path) -> dict[str, Any]:
         report["status"] = "channel_verified"
         write_json_atomic(report_path, report)
 
-        existing = _find_existing_upload(
-            youtube,
-            uploads_playlist=channel["uploads_playlist"],
-            marker=package["marker"],
-            title=package["metadata"]["title"],
-        )
-        if existing:
-            is_private = existing["privacy_status"] == YOUTUBE_PRIVACY_STATUS
-            report.update(
-                {
-                    "status": (
-                        "existing_private_upload_found"
-                        if is_private
-                        else "existing_non_private_video_preserved"
-                    ),
-                    "completed_at": utc_now(),
-                    "duplicate_prevented": True,
-                    "existing_video_preserved": True,
-                    "youtube": {
-                        **existing,
-                        "studio_url": (
-                            f"https://studio.youtube.com/video/"
-                            f"{existing['video_id']}/edit"
-                        ),
-                    },
-                }
-            )
-            write_json_atomic(report_path, report)
-
-            if is_private:
-                print("[DAY 2 YOUTUBE] Existing Private Day 2 upload found; duplicate prevented")
-            else:
-                print(
-                    "[DAY 2 YOUTUBE] Matching Day 2 video already exists as "
-                    f"{existing['privacy_status']}; preserved unchanged and duplicate prevented"
-                )
-            print(f"[DAY 2 YOUTUBE] Studio: {report['youtube']['studio_url']}")
-            return report
-
         video_id = _insert_private_video(youtube, package)
         report.update(
             {
@@ -496,7 +403,7 @@ def upload_private(output_root: Path) -> dict[str, Any]:
         _confirm_private(youtube, video_id)
         report["status"] = "private_upload_complete"
         report["completed_at"] = utc_now()
-        report["duplicate_prevented"] = False
+        report["fresh_upload"] = True
         write_json_atomic(report_path, report)
 
         print("[DAY 2 YOUTUBE] PRIVATE upload: PASS")
@@ -504,8 +411,7 @@ def upload_private(output_root: Path) -> dict[str, Any]:
         print("[DAY 2 YOUTUBE] Public/Unlisted/scheduled publishing: DISABLED")
         return report
     except Exception as exc:
-        if report.get("status") != "existing_non_private_video_found":
-            report["status"] = "failed"
+        report["status"] = "failed"
         report["failed_at"] = utc_now()
         report["error"] = f"{type(exc).__name__}: {exc}"
         write_json_atomic(report_path, report)

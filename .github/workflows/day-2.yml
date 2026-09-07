@@ -2,33 +2,6 @@ name: Day 2
 
 on:
   workflow_dispatch:
-    inputs:
-      upload_to_youtube:
-        description: Upload the finished Day 2 video to YouTube as Private
-        type: boolean
-        required: true
-        default: true
-      dry_run:
-        description: Build and validate Day 2 but skip YouTube upload
-        type: boolean
-        required: true
-        default: false
-      video_date:
-        description: Date used in the Day 2 YouTube title (YYYY-MM-DD)
-        type: string
-        required: true
-        default: "2026-09-03"
-      render_quality:
-        description: FINAL is required for YouTube; DRAFT is fast validation
-        type: choice
-        required: true
-        options: [FINAL, DRAFT]
-        default: FINAL
-      watcher_target_key:
-        description: Internal watcher state; leave blank for manual runs
-        type: string
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -59,12 +32,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Record Day 2 automation target
-        if: ${{ inputs.watcher_target_key != '' }}
-        shell: bash
-        run: |
-          echo "[DAY 2 WATCHER] Target state: ${{ inputs.watcher_target_key }}"
 
       - name: Prove Day 1 is untouched
         shell: bash
@@ -112,27 +79,7 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" /content
           python -m day2.drive_io restore
 
-      - name: Restore verified same-day render checkpoint for manual retry
-        id: checkpoint
-        if: ${{ inputs.watcher_target_key == '' }}
-        shell: bash
-        run: |
-          set +e
-          python -m day2.drive_io checkpoint --video-date "${{ inputs.video_date }}"
-          status=$?
-          set -e
-          if [[ "${status}" -eq 0 ]]; then
-            echo "reused=true" >> "${GITHUB_OUTPUT}"
-            echo "[DAY 2] Verified render checkpoint will be reused."
-          elif [[ "${status}" -eq 2 ]]; then
-            echo "reused=false" >> "${GITHUB_OUTPUT}"
-            echo "[DAY 2] No same-date checkpoint; notebook will render fresh."
-          else
-            exit "${status}"
-          fi
-
-      - name: Install fresh-render dependencies only when needed
-        if: ${{ steps.checkpoint.outputs.reused != 'true' }}
+      - name: Install fresh Day 2 render dependencies
         shell: bash
         run: |
           python -m pip install --upgrade pip
@@ -143,22 +90,14 @@ jobs:
             "edge-tts>=6.1,<8"
           python -m playwright install --with-deps chromium
 
-      - name: Execute Day 2 notebook
-        if: ${{ steps.checkpoint.outputs.reused != 'true' }}
+      - name: Execute fresh Day 2 notebook
         shell: bash
         run: |
           set -o pipefail
           python -m day2.run_notebook \
             --notebook /content/drive/MyDrive/Colab\ Notebooks/DAY2_FINAL.ipynb \
-            --quality "${{ inputs.render_quality }}" \
+            --quality FINAL \
             2>&1 | tee "${RUNNER_TEMP}/day2.log"
-
-      - name: Checkpoint rendered Day 2 master to Google Drive
-        if: ${{ steps.checkpoint.outputs.reused != 'true' }}
-        shell: bash
-        run: |
-          python -m day2.drive_io publish
-          echo "[DAY 2] Render checkpoint saved before external media integration"
 
       - name: Mix shared opening background and outro into Day 2
         shell: bash
@@ -169,8 +108,7 @@ jobs:
         run: |
           python -m day2.youtube build \
             --output-root "${DAY2_OUTPUT_ROOT}" \
-            --config day2/metadata.json \
-            --video-date "${{ inputs.video_date }}"
+            --config day2/metadata.json
           python - <<'PY'
           import json, os
           from pathlib import Path
@@ -197,15 +135,7 @@ jobs:
           print("[DAY 2] Private-only metadata and Day 1 media timing: PASS")
           PY
 
-      - name: Refuse non-FINAL YouTube upload
-        if: ${{ inputs.upload_to_youtube && !inputs.dry_run && inputs.render_quality != 'FINAL' }}
-        shell: bash
-        run: |
-          echo "YouTube upload requires render_quality=FINAL (3840x2160)." >&2
-          exit 1
-
       - name: Install YouTube dependencies
-        if: ${{ inputs.upload_to_youtube && !inputs.dry_run && inputs.render_quality == 'FINAL' }}
         shell: bash
         run: |
           python -m pip install --upgrade pip
@@ -215,18 +145,27 @@ jobs:
             "google-auth>=2.35,<3" \
             "google-auth-httplib2>=0.2,<1"
 
-      - name: Upload Day 2 privately to YouTube
-        if: ${{ inputs.upload_to_youtube && !inputs.dry_run && inputs.render_quality == 'FINAL' }}
+      - name: Upload fresh Day 2 privately to YouTube
         shell: bash
         run: |
           python -m day2.youtube upload --output-root "${DAY2_OUTPUT_ROOT}"
-          echo "[DAY 2] YouTube upload step completed; new uploads are Private and matching existing videos are preserved without duplication"
+          echo "[DAY 2] Fresh YouTube upload completed and verified as Private"
 
-      - name: Log skipped YouTube upload
-        if: ${{ inputs.dry_run || !inputs.upload_to_youtube }}
+      - name: Require a new verified Private YouTube video
         shell: bash
         run: |
-          echo "[DAY 2] YouTube upload skipped (dry_run=${{ inputs.dry_run }}, upload_to_youtube=${{ inputs.upload_to_youtube }})"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["DAY2_OUTPUT_ROOT"])
+          report = json.loads((root / "Data/day2_youtube_private_upload.json").read_text())
+          if report.get("status") != "private_upload_complete":
+              raise SystemExit(f"Day 2 YouTube upload did not complete: {report.get('status')}")
+          youtube = report.get("youtube") or {}
+          if youtube.get("privacy_status") != "private" or not youtube.get("video_id"):
+              raise SystemExit("Day 2 YouTube upload is missing a verified Private video ID")
+          print(f"[DAY 2] Verified new Private YouTube video: {youtube['video_id']}")
+          PY
 
       - name: Publish Day 2 outputs to Google Drive
         if: always()
