@@ -5566,9 +5566,10 @@ if GW_REVIEW_STATUS not in {"FINAL", "LIVE/PARTIAL"}:
     raise RuntimeError(f"Resolved invalid GW_REVIEW_STATUS={GW_REVIEW_STATUS!r}")
 GW_REVIEW_FIXTURE_STATE = dict(data.get("review_fixture_state") or {})
 
-# When every fixture is complete but FPL still reports the event as current,
-# wait for the official event finalisation flags instead of crashing immediately.
-# No points, rank or chip value is hard-coded here.
+# Once every fixture is complete, the review is finalized from the entry feeds
+# themselves: picks/history/live/player totals/ranks must agree and, while FPL
+# still labels the event current, the same valid result must remain stable
+# across two fresh polls. No score, rank, Gameweek or chip is hard-coded.
 _review_fixture_total = int(GW_REVIEW_FIXTURE_STATE.get("fixtures", 0) or 0)
 _review_fixture_completed = int(GW_REVIEW_FIXTURE_STATE.get("completed", 0) or 0)
 _review_all_fixtures_complete = (
@@ -5576,181 +5577,254 @@ _review_all_fixtures_complete = (
     and _review_fixture_completed == _review_fixture_total
 )
 
-if GW_REVIEW_STATUS == "LIVE/PARTIAL" and _review_all_fixtures_complete:
-    import time as _vx_review_time
 
-    _finalisation_wait_seconds = 15 * 60
-    _finalisation_poll_seconds = 30
-    _finalisation_deadline = _vx_review_time.monotonic() + _finalisation_wait_seconds
-    _fresh_bootstrap = data["bootstrap"]
+def _vx_review_clear_entry_cache():
+    _cache = getattr(_fpl_module, "_VX_RUN_JSON_CACHE", None)
+    if not isinstance(_cache, dict):
+        return
+    for _path in (
+        f"/entry/{TEAM_ID_LOCAL}/",
+        f"/entry/{TEAM_ID_LOCAL}/history/",
+        f"/entry/{TEAM_ID_LOCAL}/event/{REVIEW_GW}/picks/",
+        f"/event/{REVIEW_GW}/live/",
+    ):
+        _cache.pop(_path, None)
 
-    while True:
-        _fresh_bootstrap = _vx_get_json(_vx_http_session(), "/bootstrap-static/")
-        _fresh_event = next(
-            (
-                row for row in _fresh_bootstrap.get("events", [])
-                if int(row.get("id") or 0) == REVIEW_GW
-            ),
-            None,
-        )
-        if _fresh_event is None:
-            raise RuntimeError(
-                f"Official FPL bootstrap no longer contains GW{REVIEW_GW}; refusing to guess."
-            )
 
-        _official_event_final = bool(
-            _fresh_event.get("finished")
-            or _fresh_event.get("data_checked")
-            or _fresh_event.get("is_previous")
-        )
-        if _official_event_final:
-            data["bootstrap"] = _fresh_bootstrap
-            GW_REVIEW_STATUS = "FINAL"
-            print(
-                f"✅ GW{REVIEW_GW} official FPL finalisation confirmed "
-                f"(finished={bool(_fresh_event.get('finished'))}, "
-                f"data_checked={bool(_fresh_event.get('data_checked'))}, "
-                f"is_previous={bool(_fresh_event.get('is_previous'))})"
-            )
-            break
-
-        _remaining = _finalisation_deadline - _vx_review_time.monotonic()
-        if _remaining <= 0:
-            raise RuntimeError(
-                f"GW{REVIEW_GW} fixtures are complete, but official FPL finalisation "
-                "did not arrive within the automatic wait window. "
-                "Refusing to render or publish stale points/rank data."
-            )
-
-        print(
-            f"⏳ GW{REVIEW_GW} fixtures complete; waiting for official FPL "
-            f"finalisation before locking points/rank "
-            f"({int(max(0, _remaining))}s remaining)"
-        )
-        _vx_review_time.sleep(min(_finalisation_poll_seconds, max(1, _remaining)))
-
-_review_snapshot = fetch_gw_review_snapshot(
-    entry_id=TEAM_ID_LOCAL,
-    review_gw=REVIEW_GW,
-    bootstrap=data["bootstrap"],
-    fixtures=data["fixtures"].to_dict(orient="records"),
-)
-
-# Entry-specific validation protects against a provider refresh returning a
-# mismatched picks/history payload. It never chooses another GW and never
-# mutates the user's slide selection.
-_review_picks_payload = _review_snapshot.get("picks") or {}
-_review_history_payload = _review_snapshot.get("history") or {}
-_review_entry_payload = _review_snapshot.get("entry") or {}
-_review_live_payload = _review_snapshot.get("live") or {}
-_review_entry_history = _review_picks_payload.get("entry_history") or {}
-_review_entry_event = _review_entry_history.get("event")
-_review_history_rows = list(_review_history_payload.get("current") or [])
-_history_events = {
-    int(row.get("event"))
-    for row in _review_history_rows
-    if row.get("event") is not None
-}
-
-if _review_entry_event is not None and int(_review_entry_event) != REVIEW_GW:
-    raise RuntimeError(
-        f"FPL picks endpoint returned GW{_review_entry_event}, but canonical review GW is GW{REVIEW_GW}."
-    )
-if _history_events and REVIEW_GW not in _history_events:
-    raise RuntimeError(
-        f"FPL entry history does not yet contain canonical review GW{REVIEW_GW}."
+def _vx_review_fetch_snapshot(*, fresh=False):
+    if fresh:
+        _vx_review_clear_entry_cache()
+    return fetch_gw_review_snapshot(
+        entry_id=TEAM_ID_LOCAL,
+        review_gw=REVIEW_GW,
+        bootstrap=data["bootstrap"],
+        fixtures=data["fixtures"].to_dict(orient="records"),
     )
 
-if GW_REVIEW_STATUS == "FINAL" or _review_all_fixtures_complete:
-    _review_history_row = next(
+
+def _vx_review_validate_snapshot(_snapshot):
+    _picks_payload = _snapshot.get("picks") or {}
+    _history_payload = _snapshot.get("history") or {}
+    _entry_payload = _snapshot.get("entry") or {}
+    _live_payload = _snapshot.get("live") or {}
+    _entry_history = _picks_payload.get("entry_history") or {}
+    _entry_event = _entry_history.get("event")
+    _history_rows = list(_history_payload.get("current") or [])
+    _history_events_local = {
+        int(row.get("event"))
+        for row in _history_rows
+        if row.get("event") is not None
+    }
+    _errors = []
+
+    if _entry_event is not None and int(_entry_event) != REVIEW_GW:
+        _errors.append(
+            f"picks endpoint returned GW{_entry_event}, expected GW{REVIEW_GW}"
+        )
+    if _history_events_local and REVIEW_GW not in _history_events_local:
+        _errors.append(f"entry history does not yet contain GW{REVIEW_GW}")
+
+    _history_row = next(
         (
-            row for row in _review_history_rows
+            row for row in _history_rows
             if int(row.get("event") or 0) == REVIEW_GW
         ),
         None,
     )
-    if _review_history_row is None:
-        raise RuntimeError(
-            f"FPL finalisation check failed: GW{REVIEW_GW} is missing from entry history."
-        )
+    if _history_row is None:
+        _errors.append(f"GW{REVIEW_GW} is missing from entry history")
+        return _errors, None, {}
 
-    _review_live_by_id = {
+    _live_by_id = {
         int(row.get("id")): (row.get("stats") or {})
-        for row in (_review_live_payload.get("elements") or [])
+        for row in (_live_payload.get("elements") or [])
         if row.get("id") is not None
     }
-    _review_applied_points = 0
-    _review_missing_live_ids = []
-    for _pick in (_review_picks_payload.get("picks") or []):
+    _applied_points = 0
+    _missing_live_ids = []
+    for _pick in (_picks_payload.get("picks") or []):
         _pid = int(_pick.get("element") or 0)
-        if _pid not in _review_live_by_id:
-            _review_missing_live_ids.append(_pid)
+        if _pid not in _live_by_id:
+            _missing_live_ids.append(_pid)
             continue
-        _review_applied_points += (
-            int(_review_live_by_id[_pid].get("total_points", 0) or 0)
+        _applied_points += (
+            int(_live_by_id[_pid].get("total_points", 0) or 0)
             * int(_pick.get("multiplier", 0) or 0)
         )
 
-    if _review_missing_live_ids:
-        raise RuntimeError(
-            "FPL finalisation check failed: event-live is missing picked player IDs "
-            f"{sorted(_review_missing_live_ids)}."
+    if _missing_live_ids:
+        _errors.append(
+            "event-live is missing picked player IDs "
+            + str(sorted(_missing_live_ids))
         )
 
-    _review_pick_points = _review_entry_history.get("points")
-    _review_hist_points = _review_history_row.get("points")
-    _review_transfer_cost = int(
-        _review_entry_history.get("event_transfers_cost")
-        or _review_history_row.get("event_transfers_cost")
+    _pick_points = _entry_history.get("points")
+    _hist_points = _history_row.get("points")
+    _transfer_cost = int(
+        _entry_history.get("event_transfers_cost")
+        or _history_row.get("event_transfers_cost")
         or 0
     )
-    _review_valid_applied_totals = {
-        int(_review_applied_points),
-        int(_review_applied_points) - int(_review_transfer_cost),
+    _valid_applied_totals = {
+        int(_applied_points),
+        int(_applied_points) - int(_transfer_cost),
     }
 
-    _review_finalisation_errors = []
-    if _review_pick_points is None or _review_hist_points is None:
-        _review_finalisation_errors.append("entry points are missing")
-    elif int(_review_pick_points) != int(_review_hist_points):
-        _review_finalisation_errors.append(
-            f"picks points {_review_pick_points} != history points {_review_hist_points}"
+    if _pick_points is None or _hist_points is None:
+        _errors.append("entry points are missing")
+    elif int(_pick_points) != int(_hist_points):
+        _errors.append(
+            f"picks points {_pick_points} != history points {_hist_points}"
         )
-    elif int(_review_pick_points) not in _review_valid_applied_totals:
-        _review_finalisation_errors.append(
-            f"entry points {_review_pick_points} do not match applied player total "
-            f"{_review_applied_points} with transfer cost {_review_transfer_cost}"
+    elif int(_pick_points) not in _valid_applied_totals:
+        _errors.append(
+            f"entry points {_pick_points} do not match applied player total "
+            f"{_applied_points} with transfer cost {_transfer_cost}"
         )
 
     for _rank_field in ("rank", "overall_rank"):
-        _pick_rank = _review_entry_history.get(_rank_field)
-        _hist_rank = _review_history_row.get(_rank_field)
+        _pick_rank = _entry_history.get(_rank_field)
+        _hist_rank = _history_row.get(_rank_field)
         if _pick_rank is None or _hist_rank is None:
-            _review_finalisation_errors.append(f"{_rank_field} is missing")
+            _errors.append(f"{_rank_field} is missing")
         elif int(_pick_rank) != int(_hist_rank):
-            _review_finalisation_errors.append(
+            _errors.append(
                 f"picks {_rank_field} {_pick_rank} != history {_rank_field} {_hist_rank}"
             )
 
-    _latest_history_event = max(_history_events) if _history_events else None
-    _summary_rank = _review_entry_payload.get("summary_overall_rank")
+    _latest_history_event = max(_history_events_local) if _history_events_local else None
+    _summary_rank = _entry_payload.get("summary_overall_rank")
     if (
         _latest_history_event == REVIEW_GW
         and _summary_rank is not None
-        and _review_history_row.get("overall_rank") is not None
-        and int(_summary_rank) != int(_review_history_row.get("overall_rank"))
+        and _history_row.get("overall_rank") is not None
+        and int(_summary_rank) != int(_history_row.get("overall_rank"))
     ):
-        _review_finalisation_errors.append(
+        _errors.append(
             f"entry summary overall rank {_summary_rank} != "
-            f"GW history overall rank {_review_history_row.get('overall_rank')}"
+            f"GW history overall rank {_history_row.get('overall_rank')}"
         )
 
-    if _review_finalisation_errors:
-        raise RuntimeError(
-            f"GW{REVIEW_GW} official FPL finalisation is still propagating: "
-            + "; ".join(_review_finalisation_errors)
-            + ". Refusing to render or publish stale points/rank data."
+    _signature = None
+    if not _errors:
+        _signature = (
+            int(_hist_points),
+            int(_history_row.get("rank")),
+            int(_history_row.get("overall_rank")),
+            int(_applied_points),
+            int(_transfer_cost),
         )
+
+    _parts = {
+        "picks": _picks_payload,
+        "history": _history_payload,
+        "entry": _entry_payload,
+        "live": _live_payload,
+        "entry_history": _entry_history,
+        "history_rows": _history_rows,
+        "history_events": _history_events_local,
+        "history_row": _history_row,
+        "applied_points": _applied_points,
+        "transfer_cost": _transfer_cost,
+    }
+    return _errors, _signature, _parts
+
+
+_review_snapshot = _vx_review_fetch_snapshot(fresh=False)
+_review_finalisation_errors, _review_signature, _review_parts = _vx_review_validate_snapshot(
+    _review_snapshot
+)
+
+if _review_all_fixtures_complete:
+    import time as _vx_review_time
+
+    _settlement_wait_seconds = 15 * 60
+    _settlement_poll_seconds = 30
+    _settlement_deadline = _vx_review_time.monotonic() + _settlement_wait_seconds
+    _last_valid_signature = _review_signature if not _review_finalisation_errors else None
+    _stable_valid_polls = 1 if _last_valid_signature is not None else 0
+
+    # If FPL already exposes an official terminal event, one internally
+    # consistent snapshot is enough. Otherwise require two identical fresh
+    # valid snapshots so an intermediate rank/points state cannot be published.
+    _event_row = next(
+        (
+            row for row in data["bootstrap"].get("events", [])
+            if int(row.get("id") or 0) == REVIEW_GW
+        ),
+        {},
+    )
+    _official_terminal = bool(
+        _event_row.get("finished")
+        or _event_row.get("data_checked")
+        or _event_row.get("is_previous")
+    )
+    _required_stable_polls = 1 if _official_terminal else 2
+
+    while (
+        _review_finalisation_errors
+        or _stable_valid_polls < _required_stable_polls
+    ):
+        _remaining = _settlement_deadline - _vx_review_time.monotonic()
+        if _remaining <= 0:
+            _detail = "; ".join(_review_finalisation_errors) or (
+                "valid entry feeds did not remain stable across consecutive polls"
+            )
+            raise RuntimeError(
+                f"GW{REVIEW_GW} official FPL settlement did not stabilize within "
+                f"the automatic wait window: {_detail}. "
+                "Refusing to render or publish stale points/rank data."
+            )
+
+        print(
+            f"⏳ GW{REVIEW_GW} fixtures complete; waiting for official entry "
+            f"points/rank feeds to settle ({int(max(0, _remaining))}s remaining)"
+        )
+        _vx_review_time.sleep(
+            min(_settlement_poll_seconds, max(1, _remaining))
+        )
+
+        _candidate_snapshot = _vx_review_fetch_snapshot(fresh=True)
+        _candidate_errors, _candidate_signature, _candidate_parts = (
+            _vx_review_validate_snapshot(_candidate_snapshot)
+        )
+
+        if _candidate_errors:
+            _review_finalisation_errors = _candidate_errors
+            _last_valid_signature = None
+            _stable_valid_polls = 0
+            continue
+
+        if _candidate_signature == _last_valid_signature:
+            _stable_valid_polls += 1
+        else:
+            _last_valid_signature = _candidate_signature
+            _stable_valid_polls = 1
+
+        _review_snapshot = _candidate_snapshot
+        _review_finalisation_errors = []
+        _review_signature = _candidate_signature
+        _review_parts = _candidate_parts
+
+    GW_REVIEW_STATUS = "FINAL"
+    print(
+        f"✅ GW{REVIEW_GW} entry settlement confirmed from matching official "
+        "points/rank/player feeds"
+    )
+elif GW_REVIEW_STATUS == "FINAL" and _review_finalisation_errors:
+    raise RuntimeError(
+        f"GW{REVIEW_GW} official FPL finalisation is inconsistent: "
+        + "; ".join(_review_finalisation_errors)
+        + ". Refusing to render or publish stale points/rank data."
+    )
+
+_review_picks_payload = _review_parts.get("picks") or {}
+_review_history_payload = _review_parts.get("history") or {}
+_review_entry_payload = _review_parts.get("entry") or {}
+_review_live_payload = _review_parts.get("live") or {}
+_review_entry_history = _review_parts.get("entry_history") or {}
+_review_history_rows = list(_review_parts.get("history_rows") or [])
+_history_events = set(_review_parts.get("history_events") or set())
 
 _review_snapshot["status"] = GW_REVIEW_STATUS
 _review_snapshot["fixture_state"] = GW_REVIEW_FIXTURE_STATE
