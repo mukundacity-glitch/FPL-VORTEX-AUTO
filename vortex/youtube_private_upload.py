@@ -228,49 +228,6 @@ def _verify_channel(youtube) -> dict[str, str]:
     }
 
 
-def _find_existing_upload(
-    youtube,
-    *,
-    uploads_playlist: str,
-    marker: str,
-    title: str,
-) -> dict[str, str] | None:
-    playlist = youtube.playlistItems().list(
-        part="contentDetails",
-        playlistId=uploads_playlist,
-        maxResults=50,
-        fields="items/contentDetails/videoId",
-    ).execute(num_retries=5)
-    video_ids = [
-        str(item.get("contentDetails", {}).get("videoId") or "")
-        for item in playlist.get("items") or []
-    ]
-    video_ids = [video_id for video_id in video_ids if video_id]
-    if not video_ids:
-        return None
-
-    response = youtube.videos().list(
-        part="snippet,status",
-        id=",".join(video_ids),
-        maxResults=50,
-        fields="items(id,snippet(title,tags),status/privacyStatus)",
-    ).execute(num_retries=5)
-    for item in response.get("items") or []:
-        snippet = item.get("snippet") or {}
-        item_title = str(snippet.get("title") or "")
-        item_tags = [str(tag) for tag in snippet.get("tags") or []]
-        if marker in item_tags or item_title == title:
-            return {
-                "video_id": str(item.get("id") or ""),
-                "title": item_title,
-                "privacy_status": str(
-                    (item.get("status") or {}).get("privacyStatus") or "unknown"
-                ),
-                "match": "marker" if marker in item_tags else "exact_title",
-            }
-    return None
-
-
 def _insert_private_video(youtube, package: dict[str, Any]) -> str:
     try:
         from googleapiclient.http import MediaFileUpload
@@ -336,7 +293,7 @@ def upload_private(output_root: Path) -> dict[str, Any]:
     package = _validate_package(output_root)
     report_path = output_root / "DATA" / REPORT_NAME
     report: dict[str, Any] = {
-        "version": "FPL-VORTEX-YOUTUBE-PRIVATE-UPLOAD-V1",
+        "version": "FPL-VORTEX-YOUTUBE-PRIVATE-UPLOAD-V2",
         "started_at": _utc_now(),
         "status": "starting",
         "package_file": str(package["package_path"]),
@@ -346,6 +303,7 @@ def upload_private(output_root: Path) -> dict[str, Any]:
             "automatic_publish": False,
             "automatic_schedule": False,
             "manual_publication_required": True,
+            "new_private_upload_on_every_manual_run": True,
         },
     }
     _write_json_atomic(report_path, report)
@@ -357,38 +315,9 @@ def upload_private(output_root: Path) -> dict[str, Any]:
         report["status"] = "channel_verified"
         _write_json_atomic(report_path, report)
 
-        existing = _find_existing_upload(
-            youtube,
-            uploads_playlist=channel["uploads_playlist"],
-            marker=package["marker"],
-            title=package["metadata"]["title"],
-        )
-        if existing:
-            report.update(
-                {
-                    "status": "existing_private_upload_found",
-                    "completed_at": _utc_now(),
-                    "duplicate_prevented": True,
-                    "youtube": {
-                        **existing,
-                        "studio_url": (
-                            f"https://studio.youtube.com/video/{existing['video_id']}/edit"
-                        ),
-                    },
-                }
-            )
-            _write_json_atomic(report_path, report)
-            if existing["privacy_status"] != YOUTUBE_PRIVACY_STATUS:
-                report["status"] = "existing_non_private_video_found"
-                _write_json_atomic(report_path, report)
-                raise RuntimeError(
-                    "A matching YouTube video already exists and is not Private. "
-                    "No duplicate was uploaded and the existing video was not changed."
-                )
-            print("[YOUTUBE] Existing Private VIDEO 1/3 found; duplicate upload prevented")
-            print(f"[YOUTUBE] Studio: {report['youtube']['studio_url']}")
-            return report
-
+        # A Day 1 workflow can only be started manually. Every successful manual
+        # run intentionally creates a new Private YouTube draft/review upload.
+        # We do not search for or reuse a previous upload from the same Gameweek.
         video_id = _insert_private_video(youtube, package)
         report.update(
             {
@@ -413,8 +342,7 @@ def upload_private(output_root: Path) -> dict[str, Any]:
         print("[YOUTUBE] Automatic Public/Unlisted/scheduled publishing: DISABLED")
         return report
     except Exception as exc:
-        if report.get("status") != "existing_non_private_video_found":
-            report["status"] = "failed"
+        report["status"] = "failed"
         report["failed_at"] = _utc_now()
         report["error"] = f"{type(exc).__name__}: {exc}"
         _write_json_atomic(report_path, report)
