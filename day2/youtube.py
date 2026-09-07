@@ -448,11 +448,17 @@ def upload_private(output_root: Path) -> dict[str, Any]:
             title=package["metadata"]["title"],
         )
         if existing:
+            is_private = existing["privacy_status"] == YOUTUBE_PRIVACY_STATUS
             report.update(
                 {
-                    "status": "existing_private_upload_found",
+                    "status": (
+                        "existing_private_upload_found"
+                        if is_private
+                        else "existing_non_private_video_preserved"
+                    ),
                     "completed_at": utc_now(),
                     "duplicate_prevented": True,
+                    "existing_video_preserved": True,
                     "youtube": {
                         **existing,
                         "studio_url": (
@@ -463,14 +469,14 @@ def upload_private(output_root: Path) -> dict[str, Any]:
                 }
             )
             write_json_atomic(report_path, report)
-            if existing["privacy_status"] != YOUTUBE_PRIVACY_STATUS:
-                report["status"] = "existing_non_private_video_found"
-                write_json_atomic(report_path, report)
-                raise RuntimeError(
-                    "A matching Day 2 YouTube video already exists and is not Private. "
-                    "No duplicate was uploaded and the existing video was not changed."
+
+            if is_private:
+                print("[DAY 2 YOUTUBE] Existing Private Day 2 upload found; duplicate prevented")
+            else:
+                print(
+                    "[DAY 2 YOUTUBE] Matching Day 2 video already exists as "
+                    f"{existing['privacy_status']}; preserved unchanged and duplicate prevented"
                 )
-            print("[DAY 2 YOUTUBE] Existing Private Day 2 upload found; duplicate prevented")
             print(f"[DAY 2 YOUTUBE] Studio: {report['youtube']['studio_url']}")
             return report
 
