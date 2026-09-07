@@ -123,16 +123,40 @@ jobs:
               "automatic_publish": False, "automatic_schedule": False,
               "manual_publication_required": True,
           }
-          if media.get("passed") is not True or media.get("mix") != {
-              "narration_level": 255, "music_level": 12, "music_gain": 12 / 255
-          }:
-              raise SystemExit("Day 2 media contract validation failed")
+          if media.get("passed") is not True:
+              raise SystemExit("Day 2 media QA did not pass")
+          mix = media.get("mix") or {}
+          expected = {
+              "mode": "voice_anchored_dynamic_ducking",
+              "narration_target_lufs": -18.0,
+              "music_base_target_lufs": -27.5,
+              "music_nominal_speech_target_lufs": -33.0,
+              "nominal_duck_db": 5.5,
+              "attack_ms": 30.0,
+              "release_ms": 350.0,
+              "presence_dip_db": -2.0,
+              "final_true_peak_ceiling_dbtp": -1.0,
+          }
+          for key, value in expected.items():
+              if mix.get(key) != value:
+                  raise SystemExit(
+                      f"Day 2 voice-first mix contract mismatch: {key}={mix.get(key)!r}"
+                  )
+          narration = media.get("program", {}).get("narration_loudness", {})
+          music = media.get("background_music", {}).get("loudness", {})
+          final_audio = media.get("final", {}).get("loudness", {})
+          if abs(float(narration.get("normalized_lufs") or 0) - (-18.0)) > 0.8:
+              raise SystemExit("Day 2 Ryan narration missed the -18 LUFS target")
+          if abs(float(music.get("normalized_lufs") or 0) - (-27.5)) > 1.5:
+              raise SystemExit("Day 2 background music missed its base loudness target")
+          if float(final_audio.get("true_peak_dbtp") or 99) > -1.0:
+              raise SystemExit("Day 2 final master exceeds -1 dBTP")
           if float(media.get("outro_music", {}).get("excerpt_duration") or 0) != 6.0:
-              raise SystemExit("Day 2 outro is not the Day 1 six-second contract")
+              raise SystemExit("Day 2 outro is not the six-second contract")
           if package.get("upload_policy") != policy:
               raise SystemExit("Day 2 YouTube policy is not locked to private")
           print(f"[DAY 2] Output saved at: {root}")
-          print("[DAY 2] Private-only metadata and Day 1 media timing: PASS")
+          print("[DAY 2] Private-only metadata + measured voice-first ducking: PASS")
           PY
 
       - name: Install YouTube dependencies
