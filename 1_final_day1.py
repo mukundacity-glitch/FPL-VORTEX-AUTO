@@ -972,9 +972,13 @@ def fetch_fpl_data() -> dict[str, Any]:
 
     review_eligible_gws = event_terminal_gws | transitional_current_gws
 
+    # FINAL means FPL itself has moved the event into an official terminal
+    # state AND every fixture has passed the strict completion contract.
+    # A fully-played event that is still is_current remains eligible for a
+    # LIVE/PARTIAL review only; entry points and ranks can still be settling.
     review_ready_gws = sorted(
         int(gw)
-        for gw in review_eligible_gws
+        for gw in event_terminal_gws
         if fixture_completion_by_gw.get(int(gw), False)
     )
     latest_completed_gw = max(review_ready_gws) if review_ready_gws else None
@@ -5561,6 +5565,22 @@ if GW_REVIEW_STATUS not in {"FINAL", "LIVE/PARTIAL"}:
     raise RuntimeError(f"Resolved invalid GW_REVIEW_STATUS={GW_REVIEW_STATUS!r}")
 GW_REVIEW_FIXTURE_STATE = dict(data.get("review_fixture_state") or {})
 
+# Do not publish a stale "final" review during the short FPL processing window
+# after the last fixture. When every match is complete but the event is still
+# officially current, points/ranks can continue to change.
+_review_fixture_total = int(GW_REVIEW_FIXTURE_STATE.get("fixtures", 0) or 0)
+_review_fixture_completed = int(GW_REVIEW_FIXTURE_STATE.get("completed", 0) or 0)
+if (
+    GW_REVIEW_STATUS == "LIVE/PARTIAL"
+    and _review_fixture_total > 0
+    and _review_fixture_completed == _review_fixture_total
+):
+    raise RuntimeError(
+        f"GW{REVIEW_GW} fixtures are complete, but FPL has not finalized the event yet. "
+        "Entry points and ranks may still be settling; refusing to render or publish a stale review. "
+        "Rerun Day 1 after the official FPL event reaches a terminal state."
+    )
+
 _review_snapshot = fetch_gw_review_snapshot(
     entry_id=TEAM_ID_LOCAL,
     review_gw=REVIEW_GW,
@@ -5571,11 +5591,16 @@ _review_snapshot = fetch_gw_review_snapshot(
 # Entry-specific validation protects against a provider refresh returning a
 # mismatched picks/history payload. It never chooses another GW and never
 # mutates the user's slide selection.
-_review_entry_history = (_review_snapshot.get("picks") or {}).get("entry_history") or {}
+_review_picks_payload = _review_snapshot.get("picks") or {}
+_review_history_payload = _review_snapshot.get("history") or {}
+_review_entry_payload = _review_snapshot.get("entry") or {}
+_review_live_payload = _review_snapshot.get("live") or {}
+_review_entry_history = _review_picks_payload.get("entry_history") or {}
 _review_entry_event = _review_entry_history.get("event")
+_review_history_rows = list(_review_history_payload.get("current") or [])
 _history_events = {
     int(row.get("event"))
-    for row in (_review_snapshot.get("history") or {}).get("current", [])
+    for row in _review_history_rows
     if row.get("event") is not None
 }
 
@@ -5587,6 +5612,97 @@ if _history_events and REVIEW_GW not in _history_events:
     raise RuntimeError(
         f"FPL entry history does not yet contain canonical review GW{REVIEW_GW}."
     )
+
+if GW_REVIEW_STATUS == "FINAL":
+    _review_history_row = next(
+        (
+            row for row in _review_history_rows
+            if int(row.get("event") or 0) == REVIEW_GW
+        ),
+        None,
+    )
+    if _review_history_row is None:
+        raise RuntimeError(
+            f"FPL finalisation check failed: GW{REVIEW_GW} is missing from entry history."
+        )
+
+    _review_live_by_id = {
+        int(row.get("id")): (row.get("stats") or {})
+        for row in (_review_live_payload.get("elements") or [])
+        if row.get("id") is not None
+    }
+    _review_applied_points = 0
+    _review_missing_live_ids = []
+    for _pick in (_review_picks_payload.get("picks") or []):
+        _pid = int(_pick.get("element") or 0)
+        if _pid not in _review_live_by_id:
+            _review_missing_live_ids.append(_pid)
+            continue
+        _review_applied_points += (
+            int(_review_live_by_id[_pid].get("total_points", 0) or 0)
+            * int(_pick.get("multiplier", 0) or 0)
+        )
+
+    if _review_missing_live_ids:
+        raise RuntimeError(
+            "FPL finalisation check failed: event-live is missing picked player IDs "
+            f"{sorted(_review_missing_live_ids)}."
+        )
+
+    _review_pick_points = _review_entry_history.get("points")
+    _review_hist_points = _review_history_row.get("points")
+    _review_transfer_cost = int(
+        _review_entry_history.get("event_transfers_cost")
+        or _review_history_row.get("event_transfers_cost")
+        or 0
+    )
+    _review_valid_applied_totals = {
+        int(_review_applied_points),
+        int(_review_applied_points) - int(_review_transfer_cost),
+    }
+
+    _review_finalisation_errors = []
+    if _review_pick_points is None or _review_hist_points is None:
+        _review_finalisation_errors.append("entry points are missing")
+    elif int(_review_pick_points) != int(_review_hist_points):
+        _review_finalisation_errors.append(
+            f"picks points {_review_pick_points} != history points {_review_hist_points}"
+        )
+    elif int(_review_pick_points) not in _review_valid_applied_totals:
+        _review_finalisation_errors.append(
+            f"entry points {_review_pick_points} do not match applied player total "
+            f"{_review_applied_points} with transfer cost {_review_transfer_cost}"
+        )
+
+    for _rank_field in ("rank", "overall_rank"):
+        _pick_rank = _review_entry_history.get(_rank_field)
+        _hist_rank = _review_history_row.get(_rank_field)
+        if _pick_rank is None or _hist_rank is None:
+            _review_finalisation_errors.append(f"{_rank_field} is missing")
+        elif int(_pick_rank) != int(_hist_rank):
+            _review_finalisation_errors.append(
+                f"picks {_rank_field} {_pick_rank} != history {_rank_field} {_hist_rank}"
+            )
+
+    _latest_history_event = max(_history_events) if _history_events else None
+    _summary_rank = _review_entry_payload.get("summary_overall_rank")
+    if (
+        _latest_history_event == REVIEW_GW
+        and _summary_rank is not None
+        and _review_history_row.get("overall_rank") is not None
+        and int(_summary_rank) != int(_review_history_row.get("overall_rank"))
+    ):
+        _review_finalisation_errors.append(
+            f"entry summary overall rank {_summary_rank} != "
+            f"GW history overall rank {_review_history_row.get('overall_rank')}"
+        )
+
+    if _review_finalisation_errors:
+        raise RuntimeError(
+            f"GW{REVIEW_GW} official FPL finalisation is still propagating: "
+            + "; ".join(_review_finalisation_errors)
+            + ". Refusing to render or publish stale points/rank data."
+        )
 
 _review_snapshot["status"] = GW_REVIEW_STATUS
 _review_snapshot["fixture_state"] = GW_REVIEW_FIXTURE_STATE
@@ -14965,6 +15081,22 @@ else:
 
         _current = next((x for x in _hist.get("current", []) if int(x.get("event", 0)) == REVIEW_GW), {})
         _prev = next((x for x in _hist.get("current", []) if int(x.get("event", 0)) == REVIEW_GW - 1), None)
+
+        _current_overall_rank = _current.get("overall_rank")
+        _previous_overall_rank = (_prev or {}).get("overall_rank")
+        _rank_colour = "#070b0f"
+        if _current_overall_rank is not None and _previous_overall_rank is not None:
+            if int(_current_overall_rank) < int(_previous_overall_rank):
+                _rank_colour = "#086e2d"
+            elif int(_current_overall_rank) > int(_previous_overall_rank):
+                _rank_colour = "#9d1616"
+        _rank_direction_style = (
+            "<style id=\"vx-dynamic-rank-direction\">"
+            f"#overallRank,#rankDelta{{color:{_rank_colour}!important;}}"
+            "</style>"
+        )
+        html = html.replace("</head>", _rank_direction_style + "\n</head>", 1)
+
         LIVE_REVIEW_DATA = {
             "entry": _entry,
             "event": {
@@ -15652,6 +15784,30 @@ gw_points=int(current_hist.get("points",0) or 0)
 gw_rank=current_hist.get("rank")
 transfer_cost=int(current_hist.get("event_transfers_cost",0) or 0)
 
+_REVIEW_CHIP_NAMES={
+    "freehit":"Free Hit",
+    "wildcard":"Wildcard",
+    "bboost":"Bench Boost",
+    "3xc":"Triple Captain",
+}
+_review_chip_codes={
+    str(row.get("name") or "").strip()
+    for row in hist.get("chips",[])
+    if int(row.get("event") or 0)==REVIEW_GW and str(row.get("name") or "").strip()
+}
+_review_active_chip=str(picks.get("active_chip") or "").strip()
+if _review_active_chip:
+    _review_chip_codes.add(_review_active_chip)
+if len(_review_chip_codes)>1:
+    raise RuntimeError(
+        f"Conflicting official chip signals for GW{REVIEW_GW}: {sorted(_review_chip_codes)}"
+    )
+review_chip_code=next(iter(_review_chip_codes),"")
+review_chip_name=_REVIEW_CHIP_NAMES.get(
+    review_chip_code,
+    review_chip_code.replace("_"," ").title() if review_chip_code else ""
+)
+
 
 def vx_review_join(items):
     items=[str(item).strip() for item in items if str(item).strip()]
@@ -15995,6 +16151,15 @@ segments += [
             "With all fifteen players reviewed, here is the complete Gameweek Review table."
         )
     },
+]
+
+if review_chip_name:
+    segments.append({
+        "id":"metric_chip",
+        "text":f"I played my {review_chip_name} in Gameweek {REVIEW_GW}."
+    })
+
+segments += [
     {
         "id":"metric_points",
         "text":(
@@ -16155,7 +16320,7 @@ def review_tts_mood(seg):
         return "intro"
 
     if sid in {
-        "metric_points", "metric_orank", "metric_gwrank",
+        "metric_chip", "metric_points", "metric_orank", "metric_gwrank",
         "metric_captain", "metric_bench",
     }:
         return "key_stat"
