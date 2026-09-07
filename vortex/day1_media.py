@@ -20,9 +20,16 @@ OPENING_NAME = "opening.mp4"
 BACKGROUND_NAME = "Background_music.mp3"
 OUTRO_NAME = "outro.mp3"
 
-NARRATION_LEVEL = 255
-MUSIC_LEVEL = 12
-MUSIC_GAIN = MUSIC_LEVEL / NARRATION_LEVEL
+VOICE_TARGET_LUFS = -18.0
+VOICE_TRUE_PEAK_DBTP = -1.5
+MUSIC_BASE_LUFS = -28.0
+MUSIC_TRUE_PEAK_DBTP = -2.0
+
+DUCK_THRESHOLD = 0.04
+DUCK_RATIO = 2.5
+DUCK_ATTACK_MS = 30.0
+DUCK_RELEASE_MS = 350.0
+DUCK_KNEE = 4.0
 OUTRO_SECONDS = 6.0
 
 
@@ -184,7 +191,6 @@ def _filter_graph(
     opening_text = f"{opening_duration:.6f}"
     program_text = f"{program_duration:.6f}"
     background_text = f"{background_duration:.6f}"
-    gain_text = f"{MUSIC_GAIN:.15f}"
     outro_delay_ms = int(round(background_duration * 1000.0))
 
     background_fade = min(0.25, background_duration / 2.0)
@@ -213,20 +219,38 @@ def _filter_graph(
             f"[1:v]trim=duration={program_text},setpts=PTS-STARTPTS,"
             f"{video_chain}[program_video]",
             f"[1:a]{audio_format},apad=pad_dur={program_text},"
-            f"atrim=duration={program_text},asetpts=PTS-STARTPTS[narration]",
+            f"atrim=duration={program_text},asetpts=PTS-STARTPTS,"
+            f"loudnorm=I={VOICE_TARGET_LUFS:.1f}:LRA=7:"
+            f"TP={VOICE_TRUE_PEAK_DBTP:.1f},"
+            "asplit=3[narration_mix][narration_sc_bg][narration_sc_out]",
             f"[2:a]{audio_format},atrim=duration={background_text},"
             "asetpts=PTS-STARTPTS,"
-            f"volume={gain_text},"
+            f"loudnorm=I={MUSIC_BASE_LUFS:.1f}:LRA=7:"
+            f"TP={MUSIC_TRUE_PEAK_DBTP:.1f},"
             f"afade=t=out:st={background_fade_start:.6f}:d={background_fade:.6f}"
-            "[background]",
+            "[background_base]",
+            "[background_base][narration_sc_bg]"
+            f"sidechaincompress=threshold={DUCK_THRESHOLD:.6f}:"
+            f"ratio={DUCK_RATIO:.3f}:attack={DUCK_ATTACK_MS:.1f}:"
+            f"release={DUCK_RELEASE_MS:.1f}:knee={DUCK_KNEE:.1f}:"
+            "detection=rms:link=maximum:makeup=1:mix=1"
+            "[background_ducked]",
             f"[3:a]{audio_format},atrim=duration={OUTRO_SECONDS:.6f},"
             "asetpts=PTS-STARTPTS,"
-            f"volume={gain_text},afade=t=in:st=0:d={outro_fade_in:.6f},"
+            f"loudnorm=I={MUSIC_BASE_LUFS:.1f}:LRA=7:"
+            f"TP={MUSIC_TRUE_PEAK_DBTP:.1f},"
+            f"afade=t=in:st=0:d={outro_fade_in:.6f},"
             f"afade=t=out:st={outro_fade_out_start:.6f}:d={outro_fade_out:.6f},"
-            f"adelay={outro_delay_ms}|{outro_delay_ms}[outro_music]",
-            "[narration][background][outro_music]"
+            f"adelay={outro_delay_ms}|{outro_delay_ms}[outro_base]",
+            "[outro_base][narration_sc_out]"
+            f"sidechaincompress=threshold={DUCK_THRESHOLD:.6f}:"
+            f"ratio={DUCK_RATIO:.3f}:attack={DUCK_ATTACK_MS:.1f}:"
+            f"release={DUCK_RELEASE_MS:.1f}:knee={DUCK_KNEE:.1f}:"
+            "detection=rms:link=maximum:makeup=1:mix=1"
+            "[outro_ducked]",
+            "[narration_mix][background_ducked][outro_ducked]"
             "amix=inputs=3:duration=first:dropout_transition=0:normalize=0,"
-            "alimiter=limit=0.99:level=0[program_audio]",
+            "alimiter=limit=0.891251:level=0[program_audio]",
             "[opening_video][opening_audio][program_video][program_audio]"
             "concat=n=2:v=1:a=1[final_video][final_audio]",
         )
@@ -313,6 +337,13 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
         raise RuntimeError(
             f"outro.mp3 must be at least {OUTRO_SECONDS:g} seconds; "
             f"found {outro_source_duration:.3f}"
+        )
+    background_sha256 = _sha256(background)
+    outro_sha256 = _sha256(outro)
+    if background_sha256 == outro_sha256:
+        raise RuntimeError(
+            "Background_music.mp3 and outro.mp3 are identical. "
+            "Day 1 refuses to publish with duplicated music assets."
         )
 
     width = int(program_video.get("width") or 0)
@@ -435,7 +466,7 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
     background_end = opening_duration + program_duration - OUTRO_SECONDS
     report: dict[str, Any] = {
         "applied": True,
-        "version": "DAY1-EXTERNAL-MEDIA-V1",
+        "version": "DAY1-EXTERNAL-MEDIA-V2",
         "asset_folder_id": os.environ.get("DAY1_ASSET_FOLDER_ID"),
         "logo_used": False,
         "opening": {
@@ -448,7 +479,7 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
         },
         "background_music": {
             "name": background.name,
-            "sha256": _sha256(background),
+            "sha256": background_sha256,
             "source_duration": background_source_duration,
             "looped_as_needed": True,
             "timeline_start": opening_duration,
@@ -456,7 +487,7 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
         },
         "outro_music": {
             "name": outro.name,
-            "sha256": _sha256(outro),
+            "sha256": outro_sha256,
             "source_duration": outro_source_duration,
             "excerpt_start": 0.0,
             "excerpt_duration": OUTRO_SECONDS,
@@ -464,9 +495,22 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
             "timeline_end": final_duration,
         },
         "mix": {
-            "narration_level": NARRATION_LEVEL,
-            "music_level": MUSIC_LEVEL,
-            "music_gain": MUSIC_GAIN,
+            "strategy": "voice_anchored_loudness_plus_sidechain_ducking",
+            "opening_audio_untouched": True,
+            "voice_target_lufs": VOICE_TARGET_LUFS,
+            "voice_true_peak_dbtp": VOICE_TRUE_PEAK_DBTP,
+            "music_base_lufs": MUSIC_BASE_LUFS,
+            "music_true_peak_dbtp": MUSIC_TRUE_PEAK_DBTP,
+            "ducking": {
+                "threshold": DUCK_THRESHOLD,
+                "ratio": DUCK_RATIO,
+                "attack_ms": DUCK_ATTACK_MS,
+                "release_ms": DUCK_RELEASE_MS,
+                "knee": DUCK_KNEE,
+                "detection": "rms",
+                "link": "maximum",
+            },
+            "final_limiter_dbtp": -1.0,
         },
         "original_program_duration": program_duration,
         "original_program_sha256": original_program_sha256,
@@ -516,10 +560,13 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
     print("[DAY 1 MEDIA] PASS")
     print(f"[DAY 1 MEDIA] Opening: {opening.name} ({opening_duration:.3f}s)")
     print(
-        "[DAY 1 MEDIA] Background: "
-        f"narration {NARRATION_LEVEL} / music {MUSIC_LEVEL} "
-        f"(gain {MUSIC_GAIN:.8f})"
+        "[DAY 1 MEDIA] Voice-first mix: "
+        f"Ryan {VOICE_TARGET_LUFS:.1f} LUFS / "
+        f"music base {MUSIC_BASE_LUFS:.1f} LUFS / "
+        f"duck {DUCK_RATIO:.1f}:1, "
+        f"{DUCK_ATTACK_MS:.0f}ms attack, {DUCK_RELEASE_MS:.0f}ms release"
     )
+    print("[DAY 1 MEDIA] opening.mp4 audio preserved and excluded from music bed")
     print(f"[DAY 1 MEDIA] Outro music: final {OUTRO_SECONDS:.3f}s only")
     print(f"[DAY 1 MEDIA] Final video: {final_mp4}")
     return report
