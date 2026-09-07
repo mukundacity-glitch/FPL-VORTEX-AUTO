@@ -220,7 +220,7 @@ jobs:
         shell: bash
         run: |
           python -m day2.youtube upload --output-root "${DAY2_OUTPUT_ROOT}"
-          echo "[DAY 2] YouTube upload completed and verified Private"
+          echo "[DAY 2] YouTube upload step completed; new uploads are Private and matching existing videos are preserved without duplication"
 
       - name: Log skipped YouTube upload
         if: ${{ inputs.dry_run || !inputs.upload_to_youtube }}
