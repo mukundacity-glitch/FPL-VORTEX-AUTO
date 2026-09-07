@@ -148,9 +148,15 @@ def _measure_loudness(
     label: str,
     *,
     prefilter: str = "",
+    target_lufs: float = NARRATION_TARGET_LUFS,
+    target_lra: float = LOUDNESS_LRA_TARGET,
+    target_true_peak_dbtp: float = FINAL_TRUE_PEAK_CEILING_DBTP,
 ) -> dict[str, float]:
-    """Measure ITU/EBU-style integrated loudness and true peak with FFmpeg loudnorm."""
-    analysis = "loudnorm=I=-18:LRA=11:TP=-1:print_format=json"
+    """Measure one stable audio stream with target-consistent FFmpeg loudnorm."""
+    analysis = (
+        f"loudnorm=I={target_lufs:.2f}:LRA={target_lra:.2f}:"
+        f"TP={target_true_peak_dbtp:.2f}:print_format=json"
+    )
     if prefilter:
         analysis = f"{prefilter},{analysis}"
     result = _run(
@@ -172,6 +178,11 @@ def _measure_loudness(
     candidates = re.findall(r'\{\s*"input_i"[\s\S]*?\}', result.stderr)
     if not candidates:
         raise RuntimeError(f"Could not parse {label} loudness measurement")
+    if len(candidates) != 1:
+        raise RuntimeError(
+            f"{label} changed audio format during loudness measurement "
+            f"({len(candidates)} analyzer segments); stabilize it before measuring"
+        )
     try:
         payload = json.loads(candidates[-1])
     except json.JSONDecodeError as exc:
@@ -282,9 +293,54 @@ def _integrate_media_stream_copy(
     if width <= 0 or height <= 0:
         raise RuntimeError("Day 2 program resolution is invalid")
 
-    narration_input_loudness = _measure_loudness(program, "Day 2 narration")
-    music_input_loudness = _measure_loudness(background, "Day 2 background music")
-    outro_input_loudness = _measure_loudness(outro, "Day 2 outro music")
+    prep_root = Path(
+        os.environ.get("RUNNER_TEMP", tempfile.gettempdir())
+    ) / "day2-audio-prep"
+    shutil.rmtree(prep_root, ignore_errors=True)
+    prep_root.mkdir(parents=True, exist_ok=True)
+    narration_pcm = prep_root / "day2_narration_stereo_48k.wav"
+    _run(
+        [
+            "ffmpeg", "-y", "-v", "error",
+            "-i", str(program),
+            "-map", "0:a:0",
+            "-vn",
+            "-ar", "48000",
+            "-ac", "2",
+            "-c:a", "pcm_s24le",
+            str(narration_pcm),
+        ]
+    )
+    narration_pcm_probe = _probe(narration_pcm)
+    _stream(narration_pcm_probe, "audio")
+    narration_pcm_duration = _duration(narration_pcm_probe)
+    if abs(narration_pcm_duration - program_duration) > 0.50:
+        raise RuntimeError(
+            "Day 2 stabilized narration duration mismatch: "
+            f"program={program_duration:.3f}s narration={narration_pcm_duration:.3f}s"
+        )
+
+    narration_input_loudness = _measure_loudness(
+        narration_pcm,
+        "Day 2 narration",
+        target_lufs=NARRATION_TARGET_LUFS,
+        target_lra=LOUDNESS_LRA_TARGET,
+        target_true_peak_dbtp=NARRATION_TARGET_TRUE_PEAK_DBTP,
+    )
+    music_input_loudness = _measure_loudness(
+        background,
+        "Day 2 background music",
+        target_lufs=MUSIC_BASE_TARGET_LUFS,
+        target_lra=LOUDNESS_LRA_TARGET,
+        target_true_peak_dbtp=MUSIC_TARGET_TRUE_PEAK_DBTP,
+    )
+    outro_input_loudness = _measure_loudness(
+        outro,
+        "Day 2 outro music",
+        target_lufs=OUTRO_TARGET_LUFS,
+        target_lra=LOUDNESS_LRA_TARGET,
+        target_true_peak_dbtp=OUTRO_TARGET_TRUE_PEAK_DBTP,
+    )
 
     narration_loudnorm = _loudnorm_filter(
         narration_input_loudness,
@@ -307,14 +363,20 @@ def _integrate_media_stream_copy(
         f"g={PRESENCE_DIP_DB:.2f}"
     )
     narration_post_loudness = _measure_loudness(
-        program,
+        narration_pcm,
         "normalized Day 2 narration",
         prefilter=f"{narration_loudnorm},aresample=48000",
+        target_lufs=NARRATION_TARGET_LUFS,
+        target_lra=LOUDNESS_LRA_TARGET,
+        target_true_peak_dbtp=NARRATION_TARGET_TRUE_PEAK_DBTP,
     )
     music_post_loudness = _measure_loudness(
         background,
         "normalized Day 2 background music",
         prefilter=f"{music_loudnorm},aresample=48000,{presence_filter}",
+        target_lufs=MUSIC_BASE_TARGET_LUFS,
+        target_lra=LOUDNESS_LRA_TARGET,
+        target_true_peak_dbtp=MUSIC_TARGET_TRUE_PEAK_DBTP,
     )
     _assert_loudness_target(
         actual=narration_post_loudness["integrated_lufs"],
@@ -343,18 +405,18 @@ def _integrate_media_stream_copy(
     )
     audio_graph = ";".join(
         (
-            f"[0:a]apad=pad_dur={program_duration:.6f},"
+            f"[1:a]apad=pad_dur={program_duration:.6f},"
             f"atrim=duration={program_duration:.6f},"
             "asetpts=PTS-STARTPTS,"
             f"{narration_loudnorm},aresample=48000,{audio_format},"
             "asplit=3[narration_mix][narration_sc_bg][narration_sc_outro]",
-            f"[1:a]atrim=duration={background_duration:.6f},"
+            f"[2:a]atrim=duration={background_duration:.6f},"
             "asetpts=PTS-STARTPTS,"
             f"{music_loudnorm},aresample=48000,{presence_filter},{audio_format},"
             f"afade=t=out:st={background_fade_start:.6f}:"
             f"d={background_fade:.6f}[music_base]",
             f"[music_base][narration_sc_bg]{duck_filter}[background]",
-            f"[2:a]atrim=duration={OUTRO_SECONDS:.6f},"
+            f"[3:a]atrim=duration={OUTRO_SECONDS:.6f},"
             "asetpts=PTS-STARTPTS,"
             f"{outro_loudnorm},aresample=48000,{audio_format},"
             "afade=t=in:st=0:d=0.250000,"
@@ -417,6 +479,7 @@ def _integrate_media_stream_copy(
             [
                 "ffmpeg", "-y", "-v", "error",
                 "-i", str(program),
+                "-i", str(narration_pcm),
                 "-stream_loop", "-1",
                 "-i", str(background),
                 "-i", str(outro),
@@ -574,6 +637,7 @@ def _integrate_media_stream_copy(
                 "target_lufs": NARRATION_TARGET_LUFS,
                 "normalized_lufs": narration_post_loudness["integrated_lufs"],
                 "target_true_peak_dbtp": NARRATION_TARGET_TRUE_PEAK_DBTP,
+                "stabilized_to_stereo_48k": True,
             },
         },
         "opening": {
@@ -658,7 +722,7 @@ def _integrate_media_stream_copy(
     print("[DAY 2 MEDIA] PASS — voice-anchored dynamic ducking + 4K stream copy")
     print(
         f"[DAY 2 MEDIA] Ryan: {narration_post_loudness['integrated_lufs']:.2f} LUFS "
-        f"(target {NARRATION_TARGET_LUFS:.1f})"
+        f"(target {NARRATION_TARGET_LUFS:.1f}; stabilized stereo 48 kHz)"
     )
     print(
         f"[DAY 2 MEDIA] Music base: {music_post_loudness['integrated_lufs']:.2f} LUFS; "
@@ -674,6 +738,7 @@ def _integrate_media_stream_copy(
     )
     print(f"[DAY 2 MEDIA] Outro music: final {OUTRO_SECONDS:.3f}s only")
     print(f"[DAY 2 MEDIA] Final private-review video: {final_mp4}")
+    shutil.rmtree(prep_root, ignore_errors=True)
     return report
 
 
