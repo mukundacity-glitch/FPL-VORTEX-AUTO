@@ -214,14 +214,18 @@ def _filter_graph(
         (
             f"[0:v]trim=duration={opening_text},setpts=PTS-STARTPTS,"
             f"{video_chain}[opening_video]",
-            f"[0:a]{audio_format},apad=pad_dur={opening_text},"
-            f"atrim=duration={opening_text},asetpts=PTS-STARTPTS[opening_audio]",
+            f"[0:a]{audio_format},asetpts=PTS-STARTPTS,"
+            f"apad=whole_dur={opening_text},atrim=duration={opening_text},"
+            "asetpts=PTS-STARTPTS[opening_audio]",
             f"[1:v]trim=duration={program_text},setpts=PTS-STARTPTS,"
             f"{video_chain}[program_video]",
-            f"[1:a]{audio_format},apad=pad_dur={program_text},"
-            f"atrim=duration={program_text},asetpts=PTS-STARTPTS,"
+            f"[1:a]{audio_format},asetpts=PTS-STARTPTS,"
+            f"apad=whole_dur={program_text},atrim=duration={program_text},"
             f"loudnorm=I={VOICE_TARGET_LUFS:.1f}:LRA=7:"
             f"TP={VOICE_TRUE_PEAK_DBTP:.1f},"
+            "aresample=48000:async=1:first_pts=0,"
+            f"apad=whole_dur={program_text},atrim=duration={program_text},"
+            "asetpts=PTS-STARTPTS,"
             "asplit=3[narration_mix][narration_sc_bg][narration_sc_out]",
             f"[2:a]{audio_format},atrim=duration={background_text},"
             "asetpts=PTS-STARTPTS,"
@@ -250,7 +254,10 @@ def _filter_graph(
             "[outro_ducked]",
             "[narration_mix][background_ducked][outro_ducked]"
             "amix=inputs=3:duration=first:dropout_transition=0:normalize=0,"
-            "alimiter=limit=0.891251:level=0[program_audio]",
+            "alimiter=limit=0.891251:level=0,"
+            "aresample=48000:async=1:first_pts=0,"
+            f"apad=whole_dur={program_text},atrim=duration={program_text},"
+            "asetpts=PTS-STARTPTS[program_audio]",
             "[opening_video][opening_audio][program_video][program_audio]"
             "concat=n=2:v=1:a=1[final_video][final_audio]",
         )
@@ -466,7 +473,7 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
     background_end = opening_duration + program_duration - OUTRO_SECONDS
     report: dict[str, Any] = {
         "applied": True,
-        "version": "DAY1-EXTERNAL-MEDIA-V2",
+        "version": "DAY1-EXTERNAL-MEDIA-V3",
         "asset_folder_id": os.environ.get("DAY1_ASSET_FOLDER_ID"),
         "logo_used": False,
         "opening": {
@@ -511,6 +518,11 @@ def integrate_media(output_root: Path, asset_dir: Path) -> dict[str, Any]:
                 "link": "maximum",
             },
             "final_limiter_dbtp": -1.0,
+            "duration_lock": {
+                "opening_audio": "whole_dur_then_trim",
+                "narration_after_loudnorm": "whole_dur_then_trim",
+                "final_program_mix": "whole_dur_then_trim",
+            },
         },
         "original_program_duration": program_duration,
         "original_program_sha256": original_program_sha256,
