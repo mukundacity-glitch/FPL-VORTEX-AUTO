@@ -972,13 +972,9 @@ def fetch_fpl_data() -> dict[str, Any]:
 
     review_eligible_gws = event_terminal_gws | transitional_current_gws
 
-    # FINAL means FPL itself has moved the event into an official terminal
-    # state AND every fixture has passed the strict completion contract.
-    # A fully-played event that is still is_current remains eligible for a
-    # LIVE/PARTIAL review only; entry points and ranks can still be settling.
     review_ready_gws = sorted(
         int(gw)
-        for gw in event_terminal_gws
+        for gw in review_eligible_gws
         if fixture_completion_by_gw.get(int(gw), False)
     )
     latest_completed_gw = max(review_ready_gws) if review_ready_gws else None
@@ -1020,7 +1016,12 @@ def fetch_fpl_data() -> dict[str, Any]:
         review_fixture_state: dict[str, int] = {}
     else:
         review_status = (
-            "FINAL" if int(review_gw) in set(review_ready_gws) else "LIVE/PARTIAL"
+            "FINAL"
+            if (
+                int(review_gw) in set(event_terminal_gws)
+                and fixture_completion_by_gw.get(int(review_gw), False)
+            )
+            else "LIVE/PARTIAL"
         )
         review_fixture_state = dict(
             fixture_state_counts_by_gw.get(int(review_gw), {})
@@ -5565,21 +5566,68 @@ if GW_REVIEW_STATUS not in {"FINAL", "LIVE/PARTIAL"}:
     raise RuntimeError(f"Resolved invalid GW_REVIEW_STATUS={GW_REVIEW_STATUS!r}")
 GW_REVIEW_FIXTURE_STATE = dict(data.get("review_fixture_state") or {})
 
-# Do not publish a stale "final" review during the short FPL processing window
-# after the last fixture. When every match is complete but the event is still
-# officially current, points/ranks can continue to change.
+# When every fixture is complete but FPL still reports the event as current,
+# wait for the official event finalisation flags instead of crashing immediately.
+# No points, rank or chip value is hard-coded here.
 _review_fixture_total = int(GW_REVIEW_FIXTURE_STATE.get("fixtures", 0) or 0)
 _review_fixture_completed = int(GW_REVIEW_FIXTURE_STATE.get("completed", 0) or 0)
-if (
-    GW_REVIEW_STATUS == "LIVE/PARTIAL"
-    and _review_fixture_total > 0
+_review_all_fixtures_complete = (
+    _review_fixture_total > 0
     and _review_fixture_completed == _review_fixture_total
-):
-    raise RuntimeError(
-        f"GW{REVIEW_GW} fixtures are complete, but FPL has not finalized the event yet. "
-        "Entry points and ranks may still be settling; refusing to render or publish a stale review. "
-        "Rerun Day 1 after the official FPL event reaches a terminal state."
-    )
+)
+
+if GW_REVIEW_STATUS == "LIVE/PARTIAL" and _review_all_fixtures_complete:
+    import time as _vx_review_time
+
+    _finalisation_wait_seconds = 15 * 60
+    _finalisation_poll_seconds = 30
+    _finalisation_deadline = _vx_review_time.monotonic() + _finalisation_wait_seconds
+    _fresh_bootstrap = data["bootstrap"]
+
+    while True:
+        _fresh_bootstrap = _vx_get_json(_vx_http_session(), "/bootstrap-static/")
+        _fresh_event = next(
+            (
+                row for row in _fresh_bootstrap.get("events", [])
+                if int(row.get("id") or 0) == REVIEW_GW
+            ),
+            None,
+        )
+        if _fresh_event is None:
+            raise RuntimeError(
+                f"Official FPL bootstrap no longer contains GW{REVIEW_GW}; refusing to guess."
+            )
+
+        _official_event_final = bool(
+            _fresh_event.get("finished")
+            or _fresh_event.get("data_checked")
+            or _fresh_event.get("is_previous")
+        )
+        if _official_event_final:
+            data["bootstrap"] = _fresh_bootstrap
+            GW_REVIEW_STATUS = "FINAL"
+            print(
+                f"✅ GW{REVIEW_GW} official FPL finalisation confirmed "
+                f"(finished={bool(_fresh_event.get('finished'))}, "
+                f"data_checked={bool(_fresh_event.get('data_checked'))}, "
+                f"is_previous={bool(_fresh_event.get('is_previous'))})"
+            )
+            break
+
+        _remaining = _finalisation_deadline - _vx_review_time.monotonic()
+        if _remaining <= 0:
+            raise RuntimeError(
+                f"GW{REVIEW_GW} fixtures are complete, but official FPL finalisation "
+                "did not arrive within the automatic wait window. "
+                "Refusing to render or publish stale points/rank data."
+            )
+
+        print(
+            f"⏳ GW{REVIEW_GW} fixtures complete; waiting for official FPL "
+            f"finalisation before locking points/rank "
+            f"({int(max(0, _remaining))}s remaining)"
+        )
+        _vx_review_time.sleep(min(_finalisation_poll_seconds, max(1, _remaining)))
 
 _review_snapshot = fetch_gw_review_snapshot(
     entry_id=TEAM_ID_LOCAL,
@@ -5613,7 +5661,7 @@ if _history_events and REVIEW_GW not in _history_events:
         f"FPL entry history does not yet contain canonical review GW{REVIEW_GW}."
     )
 
-if GW_REVIEW_STATUS == "FINAL":
+if GW_REVIEW_STATUS == "FINAL" or _review_all_fixtures_complete:
     _review_history_row = next(
         (
             row for row in _review_history_rows
