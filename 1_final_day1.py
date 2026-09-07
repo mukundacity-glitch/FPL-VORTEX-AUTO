@@ -3695,7 +3695,7 @@ def vx_phase2_current_weight(n):
 # The live model below does NOT assume this; it counts actual completed matches.
 _PHASE2_WEIGHT_CHECKS = {
     1: 1 / 9,   # GW2
-    2: 2 / 10,  # GW3
+    2: 2 / 10,  # weighting contract example
     3: 3 / 11,  # GW4
     4: 4 / 12,  # GW5
     5: 5 / 13,  # GW6
@@ -21550,7 +21550,7 @@ print(
 
 # ------------------------------------------------------------
 # REAL GAMEWEEK COLUMN LABELS
-# Example when MODEL_NEXT_GW == 2: GW2, GW3, GW4, GW5, GW6, GW7
+# Labels are generated from MODEL_NEXT_GW at runtime; no Gameweek is fixed here.
 # ------------------------------------------------------------
 GW_HEADERS = [
     f"GW{MODEL_NEXT_GW + offset}"
