@@ -1,12 +1,9 @@
-name: Gameweek State Watcher
+name: Gameweek State Check (Manual)
 
 on:
-  schedule:
-    - cron: "7 6 */2 * *"
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
@@ -154,100 +151,3 @@ jobs:
               output.write(f"review_status={review_status}\n")
               output.write(f"next_gw={next_gw or ''}\n")
           PY
-
-      - name: Trigger Day 1 only when review state advances
-        if: steps.fpl.outputs.target_key != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_KEY: ${{ steps.fpl.outputs.target_key }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          active_count="$(
-            gh run list \
-              --repo "${GITHUB_REPOSITORY}" \
-              --workflow day-1.yml \
-              --limit 20 \
-              --json status \
-              --jq '[.[] | select(
-                .status == "queued"
-                or .status == "in_progress"
-                or .status == "waiting"
-                or .status == "requested"
-                or .status == "pending"
-              )] | length'
-          )"
-
-          if [[ "${active_count}" -gt 0 ]]; then
-            echo "Day 1 is already queued or running; watcher will check again later."
-            exit 0
-          fi
-
-          latest_json="$(
-            gh run list \
-              --repo "${GITHUB_REPOSITORY}" \
-              --workflow day-1.yml \
-              --limit 1 \
-              --json databaseId,conclusion
-          )"
-          latest_id="$(jq -r '.[0].databaseId // empty' <<<"${latest_json}")"
-          latest_conclusion="$(jq -r '.[0].conclusion // empty' <<<"${latest_json}")"
-
-          published_key=""
-          if [[ -n "${latest_id}" ]]; then
-            log_file="${RUNNER_TEMP}/latest-day-1.log"
-            gh run view "${latest_id}" --repo "${GITHUB_REPOSITORY}" --log > "${log_file}"
-
-            delivered="false"
-            if [[ "${latest_conclusion}" == "success" ]]; then
-              delivered="true"
-            elif grep -Fq               "A matching YouTube video already exists and is not Private. No duplicate was uploaded and the existing video was not changed."               "${log_file}"; then
-              delivered="true"
-              echo "Latest Day 1 stopped only because the matching posted/scheduled YouTube video already exists."
-            fi
-
-            if [[ "${delivered}" == "true" ]]; then
-              published_key="$(
-                python - "${log_file}" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-
-          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
-          gameweeks = re.findall(
-              r"ONE GW Review snapshot:.*?GW(\d+)",
-              text,
-              flags=re.IGNORECASE,
-          )
-          statuses = re.findall(
-              r"GW REVIEW STATUS:\s*(FINAL|LIVE/PARTIAL)",
-              text,
-              flags=re.IGNORECASE,
-          )
-          if gameweeks:
-              status = statuses[-1].upper() if statuses else "FINAL"
-              print(f"GW{int(gameweeks[-1])}:{status}")
-          PY
-              )"
-            fi
-          fi
-
-          echo "Published review state: ${published_key:-NONE}"
-          echo "Official target state:  ${TARGET_KEY}"
-
-          if [[ "${published_key}" == "${TARGET_KEY}" ]]; then
-            echo "Day 1 is already current; no render was started."
-            exit 0
-          fi
-
-          default_branch="$(
-            gh repo view "${GITHUB_REPOSITORY}" \
-              --json defaultBranchRef \
-              --jq '.defaultBranchRef.name'
-          )"
-          gh workflow run day-1.yml \
-            --repo "${GITHUB_REPOSITORY}" \
-            --ref "${default_branch}"
-
-          echo "Triggered Day 1 for ${TARGET_KEY}."
