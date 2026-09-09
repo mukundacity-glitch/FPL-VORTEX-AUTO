@@ -176,9 +176,27 @@ jobs:
               end_through_line=True,
           )
           
-          # Preserve the original fixture-grid CSS/builder unchanged. Day 3_3
-          # changes only the visible centre agenda content; shared Slide 0
-          # branding/support code remains intact in the runtime clone.
+          # Remove the obsolete pre-agenda fixture board from the temporary
+          # Day 3_3 clone only. The visible original bottom review strip/footer
+          # remain preserved by the new intro template below.
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _intro_cell,
+              ".fxGrid{position:absolute;left:260px;right:260px;top:525px;bottom:305px;",
+              ".fxGridDate{",
+              "",
+              "Remove stale Day 1 intro fixture-grid CSS",
+              end_through_line=True,
+          )
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _intro_cell,
+              "def _vx_next_fixture_grid():",
+              "NEXT_FIXTURE_GRID_HTML = _vx_next_fixture_grid()",
+              'NEXT_FIXTURE_GRID_HTML = ""\n',
+              "Remove stale Day 1 intro fixture-grid builder",
+              end_through_line=True,
+          )
           
           _intro_start = "INTRO = Template(r'''<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><style>$style</style></head><body><div class=\"scene introScene\">"
           _new_intro = """INTRO = Template(r'''<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene introScene" data-vx-day3="intro-agenda-v3">
@@ -404,7 +422,15 @@ jobs:
               end_through_line=True,
           )
           
-          # Preserve the original shared animation JavaScript unchanged.
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '        /* pre-agenda fixture grid — plain show/hide window, no typewriter */',
+              '    }\n        /* row zoom-to-center: only the currently narrated team row */',
+              '        /* Day 3_3: legacy intro fixture-grid animation removed. */\n'
+              '        /* row zoom-to-center: only the currently narrated team row */',
+              "Remove stale Day 1 intro fixture-grid JavaScript",
+          )
           
           _new_prints = '''print("✅ Intro sequence: left Video 2 recap first → right Video 3/3 agenda second")
           print("✅ All 12 agenda cards pop exactly on Ryan WordBoundary timing")
