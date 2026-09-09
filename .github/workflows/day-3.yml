@@ -1257,7 +1257,7 @@ jobs:
           )
 
 
-          _day3_phase11_manual_anchor = 'def _vx_phase11_manual_squad():\\n    if not PHASE11_MANUAL_SQUAD_PATH.exists():\\n        return None'
+          _day3_phase11_manual_anchor = 'def _vx_phase11_manual_squad():\n    if not PHASE11_MANUAL_SQUAD_PATH.exists():\n        return None'
           _day3_phase11_manual_replacement = r'''def _vx_phase11_manual_squad():
               _plan_source = str(globals().get("MY_PLAN_TEAM_SOURCE_KEY", "MODEL_INPUT_FILE"))
 
@@ -6778,7 +6778,7 @@ jobs:
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _narr_cell,
-              '"04_clean_sheets":\\nf"""',
+              '"04_clean_sheets":\nf"""',
               '"05_outro":',
               _day3_chip_script,
               "Day 3 completely replace Clean Sheet narration with Slide 7 Chip Strategy",
