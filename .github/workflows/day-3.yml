@@ -7211,6 +7211,54 @@ OUT=TIMING'''
               "Day 3 completely replace old Clean Sheet animation with Slide 7 animation",
           )
 
+
+          _day3_elite_outro_events = r'''    # ELITE OUTRO — takeaways → CTA → original-logo finale.
+    if key=="05_outro":
+        open_at,_=_sync("Final takeaways for Gameweek",0.50)
+        first_at,first_dur=_sync("First",0.48)
+        second_at,second_dur=_sync("Second",0.48)
+        third_at,third_dur=_sync("Third",0.48)
+        fourth_at,fourth_dur=_sync("Fourth",0.48)
+        rule_at,rule_dur=_sync("The bigger lesson is consistency",0.58)
+        cta_at,cta_dur=_sync("Before you go",0.62)
+        logo_at,logo_dur=_sync("Thank you for watching",0.72)
+        ordered=[open_at,first_at,second_at,third_at,fourth_at,rule_at,cta_at,logo_at]
+        if ordered != sorted(ordered) or len(set(ordered)) != len(ordered):
+            raise RuntimeError(f"Elite outro animation anchors are invalid: {ordered}")
+        globals().setdefault("_VX_ELITE_OUTRO_MOTION",{})[key]={
+            "openStart":float(open_at),
+            "ctaStart":float(cta_at),
+            "logoStart":float(logo_at),
+        }
+        return [
+            {"sel":"#summaryStage .topHeader","at":open_at,"dur":0.62,"stagger":0.05,"fx":"left"},
+            {"sel":".eliteTakeTitle","at":open_at,"dur":0.72,"stagger":0,"fx":"zoom"},
+            {"sel":".take-1","at":first_at,"dur":first_dur,"stagger":0,"fx":"rise"},
+            {"sel":".take-2","at":second_at,"dur":second_dur,"stagger":0,"fx":"rise"},
+            {"sel":".take-3","at":third_at,"dur":third_dur,"stagger":0,"fx":"rise"},
+            {"sel":".take-4","at":fourth_at,"dur":fourth_dur,"stagger":0,"fx":"rise"},
+            {"sel":".eliteRule","at":rule_at,"dur":rule_dur,"stagger":0,"fx":"zoom"},
+            {"sel":".outroFooter","at":open_at,"dur":0.50,"stagger":0,"fx":"fade"},
+            {"sel":"#ctaStage","at":cta_at,"dur":0.70,"stagger":0,"fx":"fade"},
+            {"sel":".eliteCtaKicker,.eliteCtaMain,.eliteCtaSub","at":cta_at+0.15,"dur":cta_dur,"stagger":0.10,"fx":"rise"},
+            {"sel":".ctaAction","at":cta_at+0.55,"dur":0.48,"stagger":0.10,"fx":"zoom"},
+            {"sel":".eliteCtaSocial","at":cta_at+1.05,"dur":0.48,"stagger":0,"fx":"fade"},
+            {"sel":"#logoStage","at":logo_at,"dur":0.78,"stagger":0,"fx":"fade"},
+            {"sel":".eliteLogoHolder","at":logo_at,"dur":logo_dur,"stagger":0,"fx":"zoom"},
+            {"sel":".eliteThank,.eliteFinalLine,.eliteHandle","at":logo_at+0.35,"dur":0.62,"stagger":0.10,"fx":"rise"},
+        ]
+
+# ------------------------------------------------------------
+# COMMON 4K CSS'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    # OUTRO — every narrative transition is anchored to Ryan WordBoundary data.',
+              '# ------------------------------------------------------------\\n# COMMON 4K CSS',
+              _day3_elite_outro_events,
+              "Day 3 replace old outro animation events with elite staged animation",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _anim_cell,
@@ -7327,6 +7375,80 @@ OUT=TIMING'''
               "Day 3 Slide 7 cinematic deterministic JavaScript",
           )
 
+
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    "05_outro": [',
+              '}\\n\\n# ------------------------------------------------------------\\n# ORIGINAL CHANNEL LOGO',
+              '    "05_outro": [],\\n}\\n\\n# ------------------------------------------------------------\\n# ORIGINAL CHANNEL LOGO',
+              "Day 3 remove old outro dead-air facts",
+          )
+
+          _day3_elite_outro_js = r'''    /* ----------------------------------------------------
+       ELITE OUTRO STAGING
+       ---------------------------------------------------- */
+    if(VX.key==="05_outro" && VX.outro){
+        const summary=document.querySelector("#summaryStage");
+        const cta=document.querySelector("#ctaStage");
+        const logo=document.querySelector("#logoStage");
+        const bgFade=document.querySelector("#bgFade");
+        const ctaStart=Number(VX.outro.ctaStart||0);
+        const logoStart=Number(VX.outro.logoStart||0);
+        const summaryOut=ease((t-ctaStart)/0.62);
+        const ctaIn=ease((t-ctaStart)/0.65);
+        const ctaOut=ease((t-logoStart)/0.52);
+        const logoIn=ease((t-logoStart)/0.76);
+
+        if(summary){
+            summary.style.opacity=String(1-summaryOut);
+            summary.style.transform="translateY("+(summaryOut*18)+"px) scale("+(1-.012*summaryOut)+")";
+            summary.style.filter="blur("+(summaryOut*2)+"px)";
+        }
+        if(cta){
+            const vis=Math.max(0,ctaIn*(1-ctaOut));
+            cta.style.opacity=String(vis);
+            cta.style.transform="translateY("+((1-ctaIn)*28-ctaOut*12)+"px) scale("+(.985+.015*ctaIn)+")";
+        }
+        if(bgFade){ bgFade.style.opacity=String(.94*logoIn); }
+        if(logo){
+            logo.style.opacity=String(logoIn);
+            logo.style.transform="scale("+(.93+.07*logoIn)+")";
+        }
+
+        document.querySelectorAll(".eliteParticle").forEach((el,i)=>{
+            const dx=Math.sin(t*.35+i*1.61)*22;
+            const dy=Math.cos(t*.27+i*.93)*15;
+            el.style.transform="translate("+dx+"px,"+dy+"px)";
+            el.style.opacity=String(.08+.14*(.5+.5*Math.sin(t*.23+i)));
+        });
+
+        const bell=document.querySelector(".eliteBell");
+        if(bell){
+            const age=t-ctaStart;
+            const active=age>1.0 && age<2.5;
+            const ring=active ? Math.sin((age-1.0)*20)*14*(1-(age-1.0)/1.5) : 0;
+            bell.style.transform="rotate("+ring+"deg)";
+        }
+
+        const logoHolder=document.querySelector(".eliteLogoHolder");
+        if(logoHolder && t>=logoStart){
+            const age=Math.max(0,t-logoStart);
+            const pulseAmt=Math.max(0,1-age/2.2);
+            logoHolder.style.transform="scale("+(1+0.045*pulseAmt*Math.sin(age*5.6))+")";
+        }
+    }
+
+    document.documentElement.dataset.vortexTime='''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    /* ----------------------------------------------------\\n       OUTRO STAGING\\n       ---------------------------------------------------- */',
+              '    document.documentElement.dataset.vortexTime=',
+              _day3_elite_outro_js,
+              "Day 3 replace old outro staging JavaScript with elite motion",
+          )
+
           _day3_vx_anchor = '''    vx={
         "key":key,
         "duration":duration,
@@ -7365,6 +7487,23 @@ OUT=TIMING'''
               "Day 3 Transfer Desk animation payload",
           )
 
+
+          _day3_elite_outro_payload = r'''    if key=="05_outro":
+        vx["outro"]=globals().get("_VX_ELITE_OUTRO_MOTION",{}).get(key,{})
+        if not {"openStart","ctaStart","logoStart"}.issubset(vx["outro"]):
+            raise RuntimeError(f"Elite outro animation payload is incomplete: {vx['outro']}")
+        highlights=[]
+
+    page=src.read_text('''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    if key=="05_outro":\\n        today_1=vx_phrase_time',
+              '    page=src.read_text(',
+              _day3_elite_outro_payload,
+              "Day 3 replace old outro animation payload/highlights",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _render_cell,
@@ -7380,7 +7519,10 @@ CACHE.pop("02_fdr", None)
 (PREVIEWS / f"02_fdr_{H}p.png").unlink(missing_ok=True)
 CACHE.pop("04_clean_sheets", None)
 (SECTIONS / "04_clean_sheets.mp4").unlink(missing_ok=True)
-(PREVIEWS / f"04_clean_sheets_{H}p.png").unlink(missing_ok=True)''',
+(PREVIEWS / f"04_clean_sheets_{H}p.png").unlink(missing_ok=True)
+CACHE.pop("05_outro", None)
+(SECTIONS / "05_outro.mp4").unlink(missing_ok=True)
+(PREVIEWS / f"05_outro_{H}p.png").unlink(missing_ok=True)''',
               1,
               "Day 3 Slide 6 force clean rerender without stale 02_fdr cache",
           )
@@ -7520,6 +7662,12 @@ CACHE.pop("04_clean_sheets", None)
               'chip_strategy.json',
               'clean_sheet_scene_4k.png = Slide 7 • CHIP STRATEGY',
               '"04_clean_sheets": SLIDE_07_CHIP_STRATEGY',
+              'D3_ELITE_OUTRO_DATA',
+              'ELITE TAKEAWAYS',
+              'CALL TO ACTION',
+              'Elite Outro duration locked:',
+              '_VX_ELITE_OUTRO_MOTION',
+              'CACHE.pop("05_outro", None)',
           )
           _day3_section_missing = [
               marker for marker in _day3_section_required
@@ -7552,6 +7700,25 @@ CACHE.pop("04_clean_sheets", None)
           if runtime_source_text.count('DAY 3_3 — SLIDE 7 • CHIP STRATEGY') != 1:
               raise SystemExit("Day 3_3 must contain exactly one Slide 7 builder")
           print("Day 3_3 Slide 7 legacy clean-sheet code/cache removal: PASS")
+          _day3_outro_forbidden = (
+              'SUBSCRIBE FOR DAY 2',
+              'TOMORROW VIDEO',
+              'Today, we found the teams with the best fixture runs',
+              'Outro duration must land between 20 and 25 seconds',
+              'Outro Ryan pacing correction:',
+          )
+          _day3_outro_stale = [
+              marker for marker in _day3_outro_forbidden
+              if marker in runtime_source_text
+          ]
+          if _day3_outro_stale:
+              raise SystemExit(
+                  "Day 3_3 legacy outro survived elite replacement: "
+                  + " | ".join(_day3_outro_stale)
+              )
+          if runtime_source_text.count('data-vx-day3="elite-outro-v1"') != 1:
+              raise SystemExit("Day 3_3 must contain exactly one elite outro design")
+          print("Day 3_3 elite outro old-design/narration/animation removal: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
@@ -8501,6 +8668,29 @@ CACHE.pop("04_clean_sheets", None)
                       f"{expected_label} renderer did not assert GW Review preservation"
                   )
 
+          elite_outro_info = section_narr.get("05_outro") or {}
+          elite_outro_duration = float(elite_outro_info.get("duration") or 0.0)
+          if not 55.0 <= elite_outro_duration <= 65.0:
+              raise SystemExit(
+                  f"Elite Day 3 outro must be 55–65 seconds, found {elite_outro_duration:.2f}s"
+              )
+          elite_outro_files = (
+              root / "SLIDE" / "outro_scene_4k.png",
+              root / "MP3" / "05_outro.mp3",
+              root / "MP4" / "05_outro.mp4",
+          )
+          for elite_outro_file in elite_outro_files:
+              if not elite_outro_file.is_file() or elite_outro_file.stat().st_size <= 0:
+                  raise SystemExit(f"Elite Day 3 outro output is missing: {elite_outro_file}")
+          elite_script = str(elite_outro_info.get("script") or "").lower()
+          for elite_phrase in (
+              "final takeaways", "the bigger lesson", "before you go",
+              "subscribe", "comment", "share", "follow", "thank you for watching",
+          ):
+              if elite_phrase not in elite_script:
+                  raise SystemExit(f"Elite outro narration missing CTA/takeaway phrase: {elite_phrase}")
+          print(f"Day 3_3 Elite 60-second outro PNG/MP3/MP4/narration contract: PASS ({elite_outro_duration:.2f}s)")
+
           day3_slide5_review_files = (
               root / "SLIDE" / "gw_review_scene_4k.png",
               root / "MP3" / "gw_review.mp3",
@@ -8534,6 +8724,10 @@ CACHE.pop("04_clean_sheets", None)
           if positions != sorted(positions):
               raise SystemExit(
                   f"Day 3 combined master scene order is wrong: {positions}"
+              )
+          if not scene_keys or scene_keys[-1] != "05_outro":
+              raise SystemExit(
+                  f"Elite Day 3 outro must be the final combined-master scene: {scene_keys[-3:]}"
               )
           print(
               "Day 3_3 Projected Goals + DEFCON + Final Shortlists + Transfer Decision Desk + "
