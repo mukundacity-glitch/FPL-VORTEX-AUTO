@@ -1347,7 +1347,6 @@ def _d3_desk_narr(action, index):
     )
 
 def _d3_desk_photo(r, css):
-def _d3_desk_photo(r, css):
     src = _d3_escape(str(r.get("photo", "") or ""))
     if src:
         return f'<img class="{css}" src="{src}" alt="">'
@@ -1754,7 +1753,6 @@ That is the desk. Three buys, three holds, three sells. Use the information, tru
 """.strip(),
 
 "04_clean_sheets":
-f""""04_clean_sheets":
 f"""'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
