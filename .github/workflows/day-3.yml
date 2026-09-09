@@ -510,54 +510,65 @@ jobs:
 
           _day3_plan_controls = r'''
 # @markdown ---
-# @markdown ### 🧠 DAY 3_3 — MY PLAN
-# @markdown **Scenario video mode**
-MY_PLAN_VIDEO_MODE = "SELECTED_ONLY"  # @param ["SELECTED_ONLY", "ALL_8"]
+# @markdown ### 🧠 MY PLAN
+# @markdown **Choose one Gameweek plan. ALL 8 will unlock after 5B–5H are built.**
+MY_PLAN_VIDEO_MODE = "SELECTED ONLY"  # @param ["SELECTED ONLY", "ALL 8 SCENARIOS"]
 
-# @markdown **MY PLAN — choose one scenario**
-MY_PLAN_SCENARIO = "A_ROLL"  # @param ["A_ROLL", "B_TRANSFER_1_TO_5", "C_FREE_HIT", "D_WILDCARD_5GW", "E_ROLL_BENCH_BOOST", "F_ROLL_TRIPLE_CAPTAIN", "G_TRANSFER_1_TO_5_BENCH_BOOST", "H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN"]
+# @markdown **MY PLAN — scenario**
+MY_PLAN_SCENARIO = "A • ROLL"  # @param ["A • ROLL", "B • TRANSFER 1–5", "C • FREE HIT", "D • WILDCARD • 5 GW", "E • ROLL + BENCH BOOST", "F • ROLL + TRIPLE CAPTAIN", "G • TRANSFER 1–5 + BENCH BOOST", "H • TRANSFER 1–5 + TRIPLE CAPTAIN"]
+
+MY_PLAN_SCENARIO_MAP = {
+    "A • ROLL": "A_ROLL",
+    "B • TRANSFER 1–5": "B_TRANSFER_1_TO_5",
+    "C • FREE HIT": "C_FREE_HIT",
+    "D • WILDCARD • 5 GW": "D_WILDCARD_5GW",
+    "E • ROLL + BENCH BOOST": "E_ROLL_BENCH_BOOST",
+    "F • ROLL + TRIPLE CAPTAIN": "F_ROLL_TRIPLE_CAPTAIN",
+    "G • TRANSFER 1–5 + BENCH BOOST": "G_TRANSFER_1_TO_5_BENCH_BOOST",
+    "H • TRANSFER 1–5 + TRIPLE CAPTAIN": "H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN",
+}
+MY_PLAN_SCENARIO_KEY = MY_PLAN_SCENARIO_MAP.get(MY_PLAN_SCENARIO)
+if MY_PLAN_SCENARIO_KEY is None:
+    raise ValueError(f"Unknown MY PLAN scenario: {MY_PLAN_SCENARIO!r}")
 
 # @markdown **Current-team source for MY PLAN**
-MY_PLAN_TEAM_SOURCE = "MODEL_INPUT_FILE"  # @param ["MODEL_INPUT_FILE", "FPL_ENTRY_VISIBLE", "MANUAL_15_PLAYER_IDS"]
+MY_PLAN_TEAM_SOURCE = "MODEL INPUT FILE"  # @param ["MODEL INPUT FILE", "FPL ENTRY VISIBLE", "MANUAL 15 PLAYER IDS"]
+MY_PLAN_TEAM_SOURCE_MAP = {
+    "MODEL INPUT FILE": "MODEL_INPUT_FILE",
+    "FPL ENTRY VISIBLE": "FPL_ENTRY_VISIBLE",
+    "MANUAL 15 PLAYER IDS": "MANUAL_15_PLAYER_IDS",
+}
+MY_PLAN_TEAM_SOURCE_KEY = MY_PLAN_TEAM_SOURCE_MAP.get(MY_PLAN_TEAM_SOURCE)
+if MY_PLAN_TEAM_SOURCE_KEY is None:
+    raise ValueError(f"Unknown MY PLAN team source: {MY_PLAN_TEAM_SOURCE!r}")
 
 # @markdown **Manual current team — exactly 15 comma-separated official FPL player IDs**
 MY_PLAN_MANUAL_PLAYER_IDS = ""  # @param {type:"string"}
 MY_PLAN_MANUAL_BANK = 0.0  # @param {type:"number"}
 MY_PLAN_MANUAL_FREE_TRANSFERS = 1  # @param [0, 1, 2, 3, 4, 5]
 
-# @markdown **5B–5H transfer controls are intentionally deferred until those scenarios are built.**
-MY_PLAN_TRANSFER_COUNT = "AUTO_BEST_1_TO_5"  # @param ["AUTO_BEST_1_TO_5", "1", "2", "3", "4", "5"]
+# @markdown **Transfer count control is reserved for 5B / 5G / 5H.**
+MY_PLAN_TRANSFER_COUNT = "AUTO BEST 1–5"  # @param ["AUTO BEST 1–5", "1", "2", "3", "4", "5"]
 
-MY_PLAN_SCENARIOS = (
-    "A_ROLL",
-    "B_TRANSFER_1_TO_5",
-    "C_FREE_HIT",
-    "D_WILDCARD_5GW",
-    "E_ROLL_BENCH_BOOST",
-    "F_ROLL_TRIPLE_CAPTAIN",
-    "G_TRANSFER_1_TO_5_BENCH_BOOST",
-    "H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN",
-)
-if MY_PLAN_SCENARIO not in MY_PLAN_SCENARIOS:
-    raise ValueError(f"Unknown MY_PLAN_SCENARIO: {MY_PLAN_SCENARIO!r}")
-if MY_PLAN_VIDEO_MODE not in {"SELECTED_ONLY", "ALL_8"}:
-    raise ValueError(f"Unknown MY_PLAN_VIDEO_MODE: {MY_PLAN_VIDEO_MODE!r}")
-
+MY_PLAN_SCENARIOS = tuple(MY_PLAN_SCENARIO_MAP.values())
 MY_PLAN_IMPLEMENTED_SCENARIOS = {"A_ROLL"}
-if MY_PLAN_VIDEO_MODE == "ALL_8":
+
+if MY_PLAN_VIDEO_MODE not in {"SELECTED ONLY", "ALL 8 SCENARIOS"}:
+    raise ValueError(f"Unknown MY_PLAN_VIDEO_MODE: {MY_PLAN_VIDEO_MODE!r}")
+if MY_PLAN_VIDEO_MODE == "ALL 8 SCENARIOS":
     raise NotImplementedError(
-        "MY PLAN ALL_8 is intentionally blocked until scenarios 5B–5H are built. "
-        "Select SELECTED_ONLY + A_ROLL for the current Slide 5A build."
+        "MY PLAN ALL 8 is intentionally blocked until scenarios 5B–5H are built. "
+        "For now select A • ROLL."
     )
-if MY_PLAN_SCENARIO not in MY_PLAN_IMPLEMENTED_SCENARIOS:
+if MY_PLAN_SCENARIO_KEY not in MY_PLAN_IMPLEMENTED_SCENARIOS:
     raise NotImplementedError(
         f"MY PLAN scenario {MY_PLAN_SCENARIO} is not built yet. "
-        "Only A_ROLL is enabled in this Slide 5A pass."
+        "Only A • ROLL is enabled in this Slide 5A pass."
     )
 
 MY_PLAN_RENDER_5A = bool(
-    MY_PLAN_VIDEO_MODE == "SELECTED_ONLY"
-    and MY_PLAN_SCENARIO == "A_ROLL"
+    MY_PLAN_VIDEO_MODE == "SELECTED ONLY"
+    and MY_PLAN_SCENARIO_KEY == "A_ROLL"
 )
 '''
           runtime_source_text = _day3_replace_in_cell(
@@ -595,7 +606,7 @@ SELECTED_SCENES = ['''
 
           _day3_phase11_manual_anchor = 'def _vx_phase11_manual_squad():\\n    if not PHASE11_MANUAL_SQUAD_PATH.exists():\\n        return None'
           _day3_phase11_manual_replacement = r'''def _vx_phase11_manual_squad():
-    _plan_source = str(globals().get("MY_PLAN_TEAM_SOURCE", "MODEL_INPUT_FILE"))
+    _plan_source = str(globals().get("MY_PLAN_TEAM_SOURCE_KEY", "MODEL_INPUT_FILE"))
 
     if _plan_source == "FPL_ENTRY_VISIBLE":
         # Explicitly ignore any persistent manual file for this Day 3 runtime.
@@ -1201,6 +1212,10 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
             "captain_id":int(_d3_cap_id),
             "vice_id":int(_d3_vice_id),
             "squad_state":_d3_state,
+            "team_source":str(globals().get("MY_PLAN_TEAM_SOURCE_KEY", "MODEL_INPUT_FILE")),
+            "current_squad_ids":sorted(
+                int(pid) for pid in _d3_squad["player_id"].astype(int).tolist()
+            ),
         },
     }
 
@@ -1236,9 +1251,9 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
         _d3_plan_timeline = _d3_rebuild_plan_timeline()
 
     _d3_plan_total = float(_d3_plan_timeline["total"])
-    if not 260.0 <= _d3_plan_total <= 280.0:
+    if not 265.0 <= _d3_plan_total <= 275.0:
         raise RuntimeError(
-            f"MY PLAN 5A narration must stay near 4:30; got {_d3_plan_total:.2f}s"
+            f"MY PLAN 5A narration must stay within 4:25–4:35; got {_d3_plan_total:.2f}s"
         )
 
     _d3_plan_narr_end = float(_d3_plan_timeline["narration_end"])
@@ -1669,9 +1684,9 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
             f"MY PLAN 5A audio/manifest duration drift: "
             f"{AUDIO_DURATION:.3f}s vs {MANIFEST_DURATION:.3f}s"
         )
-    if not 260.0 <= AUDIO_DURATION <= 280.0:
+    if not 265.0 <= AUDIO_DURATION <= 275.0:
         raise RuntimeError(
-            f"MY PLAN 5A target is about 4:30; audio is {AUDIO_DURATION:.2f}s"
+            f"MY PLAN 5A target is 4:30 ±5 seconds; audio is {AUDIO_DURATION:.2f}s"
         )
 
     FRAME_PLAN = vx_frame_plan(AUDIO_DURATION, FPS)
@@ -4484,6 +4499,14 @@ if "05_outro" in manifest:
           plan_ids = [int(row.get("id") or 0) for row in plan_players]
           if len(set(plan_ids)) != 15 or any(pid <= 0 for pid in plan_ids):
               raise SystemExit(f"MY PLAN 5A contains duplicate/invalid player IDs: {plan_ids}")
+          source_ids = sorted(
+              int(pid) for pid in (plan_package.get("summary") or {}).get("current_squad_ids", [])
+          )
+          if sorted(plan_ids) != source_ids:
+              raise SystemExit(
+                  f"MY PLAN 5A XI/bench no longer matches the selected current 15: "
+                  f"plan={sorted(plan_ids)} source={source_ids}"
+              )
 
           plan_summary = dict(plan_package.get("summary") or {})
           if int(plan_summary.get("transfers_used") or 0) != 0:
@@ -4498,9 +4521,9 @@ if "05_outro" in manifest:
               raise SystemExit("MY PLAN 5A projected score is missing/non-positive")
 
           plan_duration = float(plan_manifest.get("duration") or 0.0)
-          if not 260.0 <= plan_duration <= 280.0:
+          if not 265.0 <= plan_duration <= 275.0:
               raise SystemExit(
-                  f"MY PLAN 5A must stay near 4:30, found {plan_duration:.2f}s"
+                  f"MY PLAN 5A must stay within 4:25–4:35, found {plan_duration:.2f}s"
               )
           if int(plan_manifest.get("starting_xi") or 0) != 11:
               raise SystemExit("MY PLAN 5A manifest lost its starting XI")
