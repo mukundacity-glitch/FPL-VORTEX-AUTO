@@ -111,14 +111,18 @@ jobs:
                   else len(text)
               )
               return header_pos, end
-
-          def _day3_replace_in_cell(text, header, old, new, expected_count, label):
-              start, end = _day3_cell_bounds(text, header)
-              cell = text[start:end]
-              cell = replace_exact(cell, old, new, expected_count, label)
-              return text[:start] + cell + text[end:]
-
-          def _day3_replace_range_in_cell(text, header, start_marker, end_marker, replacement, label):
+          
+          
+          def _day3_replace_range_in_cell(
+              text,
+              header,
+              start_marker,
+              end_marker,
+              replacement,
+              label,
+              *,
+              end_through_line=False,
+          ):
               start, end = _day3_cell_bounds(text, header)
               cell = text[start:end]
               start_count = cell.count(start_marker)
@@ -129,21 +133,20 @@ jobs:
                       f"start={start_count}, end={end_count}"
                   )
               left = cell.index(start_marker)
-              right = cell.index(end_marker, left) + len(end_marker)
+              right_start = cell.index(end_marker, left)
+              if end_through_line:
+                  newline = cell.find("\n", right_start)
+                  right = len(cell) if newline < 0 else newline + 1
+              else:
+                  right = right_start + len(end_marker)
               cell = cell[:left] + replacement + cell[right:]
               return text[:start] + cell + text[end:]
-
+          
+          
           _intro_cell = "# CELL 14A — INTRO + OUTRO • BROADCAST MASTER DESIGN"
           _narr_cell = "# CELL 18 — INTRO + FDR + GOALS + CS + OUTRO NARRATION"
           _anim_cell = "# CELL 19 — SHARED ANIMATION ENGINE"
-
-          _old_agenda_css = """.agendaWrap{position:absolute;left:665px;right:665px;top:540px;height:1335px;z-index:14;display:flex;flex-direction:column;justify-content:center;gap:42px}
-          .agenda-card{height:245px;border-radius:30px;display:grid;grid-template-columns:230px 1fr;align-items:center;padding:26px 55px;background:linear-gradient(110deg,rgba(10,32,54,.985),rgba(4,17,31,.99));border:2px solid rgba(255,212,71,.38);box-shadow:0 22px 55px rgba(0,0,0,.34),inset 0 1px 0 rgba(255,255,255,.08);overflow:hidden}
-          .agenda-card:nth-child(even){border-color:rgba(53,230,255,.42)}
-          .agendaNum{font-size:96px;font-weight:1000;color:#ffd447;opacity:.96;letter-spacing:-3px}
-          .agenda-title{min-height:76px;font-size:58px;line-height:1.05;font-weight:1000;letter-spacing:2px;color:#fff;white-space:nowrap}
-          .agenda-sub{margin-top:14px;font-size:29px;line-height:1.18;font-weight:900;letter-spacing:2px;color:#9fc2d5}
-          """
+          
           _new_agenda_css = """.agendaStage{position:absolute;left:120px;right:120px;top:535px;bottom:185px;z-index:14;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:60px}
           .agendaColumn{min-width:0;display:flex;flex-direction:column;gap:22px}
           .agendaHeader{height:112px;border-radius:28px;display:flex;align-items:center;justify-content:space-between;gap:28px;padding:0 34px;background:linear-gradient(110deg,rgba(10,32,54,.985),rgba(4,17,31,.99));border:2px solid rgba(53,230,255,.38);box-shadow:0 18px 48px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08)}
@@ -163,17 +166,38 @@ jobs:
           .agenda-sub{margin-top:10px;font-size:24px;line-height:1.12;font-weight:900;letter-spacing:1.15px;color:#9fc2d5;white-space:normal}
           .day3List .agenda-sub{margin-top:7px;font-size:21px}
           """
-          runtime_source_text = _day3_replace_in_cell(
+          runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _intro_cell,
-              _old_agenda_css,
+              ".agendaWrap{",
+              ".agenda-sub{",
               _new_agenda_css,
-              1,
               "Day 3 intro agenda CSS",
+              end_through_line=True,
           )
-
+          
+          # Delete the obsolete Day 1 Slide 0 fixture-board styling and builder from
+          # the temporary clone; no stale intro board is retained as unused duplicate code.
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _intro_cell,
+              ".fxGrid{",
+              ".fxGridDate{",
+              "",
+              "Remove stale Day 1 intro fixture-grid CSS",
+              end_through_line=True,
+          )
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _intro_cell,
+              "def _vx_next_fixture_grid():",
+              "NEXT_FIXTURE_GRID_HTML = _vx_next_fixture_grid()",
+              'NEXT_FIXTURE_GRID_HTML = ""\n',
+              "Remove stale Day 1 intro fixture-grid builder",
+              end_through_line=True,
+          )
+          
           _intro_start = "INTRO = Template(r'''<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><style>$style</style></head><body><div class=\"scene introScene\">"
-          _intro_end = "OUTRO = Template"
           _new_intro = """INTRO = Template(r'''<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene introScene" data-vx-day3="intro-agenda-v3">
           <header class="topHeader"><div class="brandLock"><div class="logoBox">$logo</div><div class="brandWords"><div class="channelName">FPL VORTEX</div><div class="channelSub">GAMEWEEK DATA • MODEL • DECISIONS</div></div></div><div class="gwPill">GAMEWEEK $gw</div></header>
           <div class="mainHeading">GAMEWEEK $gw <span>• VIDEO 3/3 AGENDA</span></div><div class="headingRule"></div>
@@ -199,22 +223,20 @@ jobs:
           <div class="agenda-card v3-7"><div class="agendaNum">07</div><div><div class="agenda-title">VORTEX CAPTAIN</div><div class="agenda-sub">FINAL CAPTAINCY VERDICT</div></div></div>
           </div></section>
           </main><footer class="footer"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div></body></html>''').substitute(style=STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE))
- 
+          
           OUTRO = Template"""
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _intro_cell,
               _intro_start,
-              _intro_end,
+              "OUTRO = Template",
               _new_intro,
               "Day 3 intro HTML",
           )
-
-          _validation_start = 'print("✅ Intro layout: blank centre → centered 5×2 fixture board → agenda cards")'
-          _validation_end = 'print("✅ Verified on-disk INTRO HTML contains fixture grid markup + styling")'
+          
           _new_validation = '''print("✅ Intro layout: Video 2 recap left → Video 3/3 agenda right")
           print("✅ OUTRO HTML:",OUTRO_HTML)
-
+          
           # Day 3_3 Slide 0 contract: no stale Day 1 fixture-board/agenda markup.
           _on_disk_intro = INTRO_HTML.read_text(encoding="utf-8")
           _required_intro_markers = (
@@ -246,190 +268,178 @@ jobs:
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _intro_cell,
-              _validation_start,
-              _validation_end,
+              'print("✅ Intro layout: blank centre → centered 5×2 fixture board → agenda cards")',
+              'print("✅ Verified on-disk INTRO HTML contains fixture grid markup + styling")',
               _new_validation,
               "Day 3 intro on-disk QA",
           )
-
-          _narr_start = '"00_intro":\n\nf"""\n'
-          _narr_end = '\n\n\n"02_fdr":'
+          
           _new_narr = '''"00_intro":
-
+          
           f"""
-
+          
           Welcome back to Fantasy Premier League Vortex. Before we build the final Gameweek plan, here is what we learned in Video 2.
-
+          
           Expected minutes: starting security and a four-player comparison.
-
+          
           Ownership pressure: Top 1K effective ownership when available, with live ownership as the fallback.
-
+          
           Rank gain or loss: rank volatility and the ten versus ten play matrix.
-
+          
           Differentials: the top low-owned rank accelerators.
-
+          
           Player traps: tactical avoidance and the risk blueprint.
-
+          
           Now, in Video 3 of 3, we finish the decision process.
-
+          
           Projected goals plus clean sheet odds: the Gameweek model, with DEFCON numbers on both slides.
-
+          
           Final shortlists: validated players and the final decision pool.
-
+          
           Transfer decision desk: buy, hold, sell, or avoid.
-
+          
           My Gameweek plan: transfers, starting eleven, and structure.
-
+          
           Benching dilemma: who starts, who sits, and autosub risk.
-
+          
           Chip strategy: Free Hit, Wildcard, Triple Captain, and Bench Boost.
-
+          
           Vortex captain: the final captaincy verdict.
-
+          
           """.strip(),
-
-
+          
+          
           "02_fdr":'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _narr_cell,
-              _narr_start,
-              _narr_end,
+              '"00_intro":\n\nf"""\n',
+              '\n\n\n"02_fdr":',
               _new_narr,
               "Day 3 Ryan intro narration",
           )
-
-          _events_start = '    if key=="00_intro":\n\n'
-          _events_end = '    if key=="02_fdr":'
+          
           _new_events = '''    if key=="00_intro":
-
+          
                   welcome_at,_=_sync("Welcome back",0.35)
                   left_header_at,_=_sync("what we learned in Video 2",0.45)
                   right_header_at,_=_sync("Video 3 of 3",0.45)
-
+          
                   left_specs=[
-            (".v2-1","Expected minutes"),
-            (".v2-2","Ownership pressure"),
-            (".v2-3","Rank gain or loss"),
-            (".v2-4","Differentials"),
-            (".v2-5","Player traps"),
+                      (".v2-1","Expected minutes"),
+                      (".v2-2","Ownership pressure"),
+                      (".v2-3","Rank gain or loss"),
+                      (".v2-4","Differentials"),
+                      (".v2-5","Player traps"),
                   ]
                   right_specs=[
-            (".v3-1","Projected goals plus clean sheet odds"),
-            (".v3-2","Final shortlists"),
-            (".v3-3","Transfer decision desk"),
-            (".v3-4","My Gameweek plan"),
-            (".v3-5","Benching dilemma"),
-            (".v3-6","Chip strategy"),
-            (".v3-7","Vortex captain"),
+                      (".v3-1","Projected goals plus clean sheet odds"),
+                      (".v3-2","Final shortlists"),
+                      (".v3-3","Transfer decision desk"),
+                      (".v3-4","My Gameweek plan"),
+                      (".v3-5","Benching dilemma"),
+                      (".v3-6","Chip strategy"),
+                      (".v3-7","Vortex captain"),
                   ]
-
+          
                   left_events=[]
                   for selector,phrase in left_specs:
-            at,span=_sync(phrase,0.48)
-            left_events.append(
-                {"sel":selector,"at":at,"dur":span,"stagger":0,"fx":"rise"}
-            )
-
+                      at,span=_sync(phrase,0.48)
+                      left_events.append(
+                          {"sel":selector,"at":at,"dur":span,"stagger":0,"fx":"rise"}
+                      )
+          
                   right_events=[]
                   for selector,phrase in right_specs:
-            at,span=_sync(phrase,0.48)
-            right_events.append(
-                {"sel":selector,"at":at,"dur":span,"stagger":0,"fx":"rise"}
-            )
-
+                      at,span=_sync(phrase,0.48)
+                      right_events.append(
+                          {"sel":selector,"at":at,"dur":span,"stagger":0,"fx":"rise"}
+                      )
+          
                   left_times=[float(event["at"]) for event in left_events]
                   right_times=[float(event["at"]) for event in right_events]
                   if left_times != sorted(left_times) or len(set(left_times)) != len(left_times):
-            raise RuntimeError(f"00_intro Video 2 recap timing is not sequential: {left_times}")
+                      raise RuntimeError(f"00_intro Video 2 recap timing is not sequential: {left_times}")
                   if right_times != sorted(right_times) or len(set(right_times)) != len(right_times):
-            raise RuntimeError(f"00_intro Video 3/3 timing is not sequential: {right_times}")
+                      raise RuntimeError(f"00_intro Video 3/3 timing is not sequential: {right_times}")
                   if not left_times or not right_times or right_times[0] <= left_times[-1]:
-            raise RuntimeError(
-                "00_intro must finish the Video 2 recap before the right-side Video 3/3 agenda begins."
-            )
-
+                      raise RuntimeError(
+                          "00_intro must finish the Video 2 recap before the right-side Video 3/3 agenda begins."
+                      )
+          
                   return [
-            {"sel":".topHeader,.brandLock,.logoBox,.brandWords,.gwPill","at":welcome_at,"dur":0.65,"stagger":0.05,"fx":"left"},
-            {"sel":".mainHeading,.headingRule","at":welcome_at,"dur":0.70,"stagger":0.08,"fx":"zoom"},
-            {"sel":".leftAgendaHeader","at":left_header_at,"dur":0.55,"stagger":0,"fx":"rise"},
-            *left_events,
-            {"sel":".rightAgendaHeader","at":right_header_at,"dur":0.55,"stagger":0,"fx":"rise"},
-            *right_events,
-            {"sel":".footer","at":welcome_at,"dur":0.45,"stagger":0,"fx":"fade"},
+                      {"sel":".topHeader,.brandLock,.logoBox,.brandWords,.gwPill","at":welcome_at,"dur":0.65,"stagger":0.05,"fx":"left"},
+                      {"sel":".mainHeading,.headingRule","at":welcome_at,"dur":0.70,"stagger":0.08,"fx":"zoom"},
+                      {"sel":".leftAgendaHeader","at":left_header_at,"dur":0.55,"stagger":0,"fx":"rise"},
+                      *left_events,
+                      {"sel":".rightAgendaHeader","at":right_header_at,"dur":0.55,"stagger":0,"fx":"rise"},
+                      *right_events,
+                      {"sel":".footer","at":welcome_at,"dur":0.45,"stagger":0,"fx":"fade"},
                   ]
-
+          
               if key=="02_fdr":'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _anim_cell,
-              _events_start,
-              _events_end,
+              '    if key=="00_intro":\n\n',
+              '    if key=="02_fdr":',
               _new_events,
               "Day 3 intro phrase-synced animation",
           )
-
-          _body_old = '''    if key=="00_intro":
+          
+          _new_body_anchor = '''    if key=="00_intro":
                   _body_candidates=[
-            e for e in events
-            if ".agenda-1" in e["sel"]
+                      e for e in events
+                      if ".v2-1" in e["sel"]
                   ]
-                  _body_event=min(_body_candidates, key=lambda e: float(e["at"])) if _body_candidates else None'''
-          _body_new = '''    if key=="00_intro":
-                  _body_candidates=[
-            e for e in events
-            if ".v2-1" in e["sel"]
-                  ]
-                  _body_event=min(_body_candidates, key=lambda e: float(e["at"])) if _body_candidates else None'''
-          runtime_source_text = _day3_replace_in_cell(
+                  _body_event=min(_body_candidates, key=lambda e: float(e["at"])) if _body_candidates else None
+          '''
+          runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _anim_cell,
-              _body_old,
-              _body_new,
-              1,
+              '    if key=="00_intro":\n        _body_candidates=[',
+              '        _body_event=min(_body_candidates',
+              _new_body_anchor,
               "Day 3 intro body anchor",
+              end_through_line=True,
           )
-
-          _fixture_old = '''    if key=="00_intro":
-                  _fixture_event=next((e for e in events if ".fxGrid" in e["sel"]), None)
-                  if _fixture_event is None:
-            raise RuntimeError("00_intro fixture event is missing")
-                  fixture_at=float(_fixture_event["at"])
-                  fixture_grid_window={
-            "at":round(fixture_at,3),
-            "end":round(_body_start,3),
-                  }
-                  if fixture_grid_window["end"] <= fixture_grid_window["at"]:
-            raise RuntimeError(f"Invalid intro fixture window: {fixture_grid_window}")
-          '''
-          _fixture_new = '''    if key=="00_intro":
+          
+          _new_fixture_logic = '''    if key=="00_intro":
                   # Day 3_3 opens with the Video 2 recap; no legacy pre-agenda fixture board.
                   fixture_grid_window=None
           '''
-          runtime_source_text = _day3_replace_in_cell(
+          runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _anim_cell,
-              _fixture_old,
-              _fixture_new,
-              1,
+              '    if key=="00_intro":\n        _fixture_event=',
+              '            raise RuntimeError(f"Invalid intro fixture window:',
+              _new_fixture_logic,
               "Remove stale Day 1 intro fixture-window logic",
+              end_through_line=True,
           )
-
-          _print_old = '''print("✅ Intro sequence: blank centre → centered fixtures → agenda 01–04 one by one")
-          print("✅ Each agenda title and short description reveal together as one card")
-          print("✅ Intro fixture board is fully removed before agenda 01")'''
-          _print_new = '''print("✅ Intro sequence: left Video 2 recap first → right Video 3/3 agenda second")
+          
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '        /* pre-agenda fixture grid — plain show/hide window, no typewriter */',
+              '    }\n        /* row zoom-to-center: only the currently narrated team row */',
+              '        /* Day 3_3: legacy intro fixture-grid animation removed. */\n'
+              '        /* row zoom-to-center: only the currently narrated team row */',
+              "Remove stale Day 1 intro fixture-grid JavaScript",
+          )
+          
+          _new_prints = '''print("✅ Intro sequence: left Video 2 recap first → right Video 3/3 agenda second")
           print("✅ All 12 agenda cards pop exactly on Ryan WordBoundary timing")
           print("✅ Right side stays blank until Ryan begins the Video 3/3 agenda")'''
-          runtime_source_text = _day3_replace_in_cell(
+          runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _anim_cell,
-              _print_old,
-              _print_new,
-              1,
+              'print("✅ Intro sequence: blank centre → centered fixtures → agenda 01–04 one by one")',
+              'print("✅ Intro fixture board is fully removed before agenda 01")',
+              _new_prints,
               "Day 3 intro animation QA messages",
           )
-
+          
           _day3_required_runtime_markers = (
               'data-vx-day3="intro-agenda-v3"',
               'class="agenda-card v2-5"',
@@ -446,7 +456,24 @@ jobs:
                   "Day 3_3 Slide 0 runtime patch is incomplete: "
                   + " | ".join(_day3_missing_runtime_markers)
               )
+          
+          _day3_forbidden_runtime_markers = (
+              'id="vxFixtureGrid"',
+              'def _vx_next_fixture_grid():',
+              'if ".agenda-1" in e["sel"]',
+              'pre-agenda fixture grid — plain show/hide window',
+          )
+          _day3_stale_runtime_markers = [
+              marker for marker in _day3_forbidden_runtime_markers
+              if marker in runtime_source_text
+          ]
+          if _day3_stale_runtime_markers:
+              raise SystemExit(
+                  "Day 3_3 stale Slide 0 code survived: "
+                  + " | ".join(_day3_stale_runtime_markers)
+              )
           print("Day 3_3 Slide 0 runtime override: PASS")
+          
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
 
