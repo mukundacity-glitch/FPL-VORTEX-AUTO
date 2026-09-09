@@ -635,7 +635,7 @@ SELECTED_SCENES = ['''
               _day3_selection_anchor,
               _day3_selection_replacement,
               1,
-              "Day 3 add DEFCON, Final Shortlists, Transfer Decision Desk and MY PLAN 5A/5B scene selections",
+              "Day 3 add DEFCON, Final Shortlists, Transfer Decision Desk and MY PLAN 5A–5H scene selections",
           )
 
 
@@ -6447,7 +6447,7 @@ if "05_outro" in manifest:
                       f"{expected_label} renderer did not assert GW Review preservation"
                   )
 
-          preserved_review_files = (          preserved_review_files = (
+          preserved_review_files = (
               root / "SLIDE" / "gw_review_scene_4k.png",
               root / "MP3" / "gw_review.mp3",
               root / "MP4" / "gw_review.mp4",
