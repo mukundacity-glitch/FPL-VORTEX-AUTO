@@ -1,0 +1,580 @@
+name: Day 3
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fpl-vortex-day-1
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  SOURCE_FILE: 1_final_day1.py
+  DAY1_ASSET_FOLDER_ID: 1h3Loznr5RnsMyh-kUd-zMxEgOf98uFSt
+  DAY1_ASSET_DIR: /content/drive/MyDrive/FPL_VORTEX/Assets
+  GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+  GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+  YOUTUBE_OAUTH_CLIENT_ID: ${{ secrets.YOUTUBE_OAUTH_CLIENT_ID }}
+  YOUTUBE_OAUTH_CLIENT_SECRET: ${{ secrets.YOUTUBE_OAUTH_CLIENT_SECRET }}
+  YOUTUBE_OAUTH_REFRESH_TOKEN: ${{ secrets.YOUTUBE_OAUTH_REFRESH_TOKEN }}
+  YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
+  ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+
+jobs:
+  run-day-1:
+    name: Run Day 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Verify untouched Day 1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- "${SOURCE_FILE}"
+          source_sha256="$(sha256sum "${SOURCE_FILE}" | awk '{print $1}')"
+          echo "SOURCE_SHA256=${source_sha256}" >> "${GITHUB_ENV}"
+          echo "Day 1 source baseline SHA256: ${source_sha256}"
+          python - <<'PY'
+          import ast
+          import os
+          import re
+          from pathlib import Path
+
+          source_path = Path(os.environ["SOURCE_FILE"])
+          source = source_path.read_text(encoding="utf-8")
+          marker = re.compile(
+              r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
+          )
+          cells = [part for part in marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f"Expected 33 Day 1 cell blocks, found {len(cells)}")
+          for index, cell in enumerate(cells, 1):
+              compile(
+                  cell,
+                  f"{source_path.name}::cell-{index}",
+                  "exec",
+                  flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                  dont_inherit=True,
+              )
+          print("Day 1 integrity and 33-cell syntax check: PASS")
+          PY
+
+      - name: Verify private YouTube upload configuration
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+
+          client_id = (
+              os.environ.get("YOUTUBE_OAUTH_CLIENT_ID")
+              or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+              or ""
+          ).strip()
+          client_secret = (
+              os.environ.get("YOUTUBE_OAUTH_CLIENT_SECRET")
+              or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+              or ""
+          ).strip()
+          refresh_token = (os.environ.get("YOUTUBE_OAUTH_REFRESH_TOKEN") or "").strip()
+          channel_id = (os.environ.get("YOUTUBE_CHANNEL_ID") or "").strip()
+
+          missing = []
+          if not client_id:
+              missing.append("YOUTUBE_OAUTH_CLIENT_ID or GOOGLE_OAUTH_CLIENT_ID")
+          if not client_secret:
+              missing.append(
+                  "YOUTUBE_OAUTH_CLIENT_SECRET or GOOGLE_OAUTH_CLIENT_SECRET"
+              )
+          if not refresh_token:
+              missing.append("YOUTUBE_OAUTH_REFRESH_TOKEN")
+          if not channel_id:
+              missing.append("YOUTUBE_CHANNEL_ID")
+          if missing:
+              raise SystemExit(
+                  "Missing required private YouTube upload secret(s): "
+                  + ", ".join(missing)
+              )
+          if not client_id.endswith(".apps.googleusercontent.com"):
+              raise SystemExit("YouTube OAuth client ID has an invalid format")
+          if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", channel_id):
+              raise SystemExit("YOUTUBE_CHANNEL_ID has an invalid format")
+          print("Private YouTube upload configuration: PASS")
+          print("Automatic Public/Unlisted/scheduled publishing: DISABLED")
+          PY
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg rclone
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "requests>=2.32,<3" \
+            "pandas>=2.2,<3" \
+            "numpy>=2.0,<3" \
+            "pyarrow>=17,<20" \
+            "Pillow>=10.4,<12" \
+            "scipy>=1.14,<2" \
+            "matplotlib>=3.9,<4" \
+            "ipython>=8.27,<10" \
+            "playwright>=1.46,<2" \
+            "edge-tts>=6.1,<8" \
+            "google-api-python-client>=2.147,<3" \
+            "google-auth>=2.35,<3" \
+            "google-auth-httplib2>=0.2,<1"
+
+      - name: Install Chromium runtime
+        shell: bash
+        run: python -m playwright install --with-deps chromium
+
+      - name: Configure private Google Drive connection
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          secret_names = (
+              "GOOGLE_OAUTH_CLIENT_ID",
+              "GOOGLE_OAUTH_CLIENT_SECRET",
+              "GOOGLE_OAUTH_REFRESH_TOKEN",
+          )
+          secrets = {
+              name: (os.environ.get(name) or "").strip()
+              for name in secret_names
+          }
+          missing = [name for name, value in secrets.items() if not value]
+          if missing:
+              raise SystemExit(
+                  "Missing required GitHub secret(s): " + ", ".join(missing)
+              )
+          if not secrets["GOOGLE_OAUTH_CLIENT_ID"].endswith(
+              ".apps.googleusercontent.com"
+          ):
+              raise SystemExit("GOOGLE_OAUTH_CLIENT_ID has an invalid format")
+
+          request_data = urllib.parse.urlencode(
+              {
+                  "client_id": secrets["GOOGLE_OAUTH_CLIENT_ID"],
+                  "client_secret": secrets["GOOGLE_OAUTH_CLIENT_SECRET"],
+                  "refresh_token": secrets["GOOGLE_OAUTH_REFRESH_TOKEN"],
+                  "grant_type": "refresh_token",
+              }
+          ).encode("utf-8")
+          request = urllib.request.Request(
+              "https://oauth2.googleapis.com/token",
+              data=request_data,
+              headers={"Content-Type": "application/x-www-form-urlencoded"},
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              refreshed = json.loads(response.read().decode("utf-8"))
+
+          expires_in = int(refreshed.get("expires_in", 3600))
+          token = {
+              "access_token": refreshed["access_token"],
+              "token_type": refreshed.get("token_type", "Bearer"),
+              "refresh_token": secrets["GOOGLE_OAUTH_REFRESH_TOKEN"],
+              "expiry": (
+                  datetime.now(timezone.utc)
+                  + timedelta(seconds=max(60, expires_in - 60))
+              ).isoformat().replace("+00:00", "Z"),
+          }
+
+          config_dir = Path(os.environ["RUNNER_TEMP"]) / "rclone"
+          config_dir.mkdir(parents=True, exist_ok=True)
+          config_path = config_dir / "rclone.conf"
+          token_json = json.dumps(token, separators=(",", ":"))
+          config_path.write_text(
+              "\n".join(
+                  (
+                      "[vortex-drive]",
+                      "type = drive",
+                      f"client_id = {secrets['GOOGLE_OAUTH_CLIENT_ID']}",
+                      f"client_secret = {secrets['GOOGLE_OAUTH_CLIENT_SECRET']}",
+                      "scope = drive",
+                      "token = " + token_json,
+                      "",
+                      "[day1-assets]",
+                      "type = drive",
+                      f"client_id = {secrets['GOOGLE_OAUTH_CLIENT_ID']}",
+                      f"client_secret = {secrets['GOOGLE_OAUTH_CLIENT_SECRET']}",
+                      "scope = drive",
+                      "token = " + token_json,
+                      f"root_folder_id = {os.environ['DAY1_ASSET_FOLDER_ID']}",
+                      "",
+                  )
+              ),
+              encoding="utf-8",
+          )
+          config_path.chmod(0o600)
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"RCLONE_CONFIG={config_path}\n")
+          print("Google Drive OAuth connection: PASS")
+          PY
+
+      - name: Restore required Google Drive state
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /content/drive/MyDrive
+          sudo chown -R "$(id -u):$(id -g)" /content
+
+          restore_optional() {
+            local remote_path="$1"
+            local local_path="/content/drive/MyDrive/$1"
+            if rclone lsf "vortex-drive:${remote_path}" --max-depth 1 >/dev/null 2>&1; then
+              mkdir -p "${local_path}"
+              rclone copy "vortex-drive:${remote_path}" "${local_path}" \
+                --create-empty-src-dirs --transfers 4 --checkers 8
+              echo "Restored My Drive/${remote_path}"
+            else
+              echo "Optional Drive path not present: My Drive/${remote_path}"
+            fi
+          }
+
+          required_path="FPL_VORTEX_DATA/00_SOURCE_ARCHIVE/FPL_CORE/data"
+          if ! rclone lsf "vortex-drive:${required_path}" --max-depth 1 >/dev/null; then
+            echo "Required Drive path is missing: My Drive/${required_path}" >&2
+            exit 1
+          fi
+
+          restore_optional "FPL_VORTEX/FIRST VIDEO"
+          restore_optional "FPL_VORTEX/MODEL_INPUTS"
+          restore_optional "FPL_VORTEX/DECISION_ENGINE"
+          restore_optional "FPL_VORTEX/RAW_DATA"
+          restore_optional "FPL_VORTEX/MODEL_HISTORY"
+          restore_optional "FPL_VORTEX/elements"
+          restore_optional "elements"
+          restore_optional "${required_path}"
+          restore_optional "FPL_VORTEX_DATA/03_ELITE_MANAGERS"
+          restore_optional "FPL_VORTEX_DATA/04_MASTER"
+          restore_optional "FPL_VORTEX_DATA/05_MODEL_HISTORY"
+          restore_optional "FPL_VORTEX_DATA/06_SNAPSHOTS"
+          restore_optional "FPL_VORTEX_DATA/07_LOGS"
+
+          mkdir -p "${DAY1_ASSET_DIR}"
+          rclone copy "day1-assets:" "${DAY1_ASSET_DIR}" \
+            --filter "+ /opening.mp4" \
+            --filter "+ /Background_music.mp3" \
+            --filter "+ /outro.mp3" \
+            --filter "- **" \
+            --transfers 3 --checkers 6
+          for asset_name in opening.mp4 Background_music.mp3 outro.mp3; do
+            if [[ ! -s "${DAY1_ASSET_DIR}/${asset_name}" ]]; then
+              echo "Required Day 1 asset is missing: ${asset_name}" >&2
+              exit 1
+            fi
+          done
+          echo "Restored opening and audio assets by confirmed Drive folder ID"
+
+      - name: Reset previous Day 1 outputs locally
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          output_root = Path(
+              os.environ.get(
+                  "DAY1_OUTPUT_ROOT",
+                  "/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO",
+              )
+          )
+          if str(output_root.resolve()) != "/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO":
+              raise SystemExit(f"Unsafe output reset target: {output_root}")
+
+          for name in ("MP4", "MP3", "SLIDE", "DATA"):
+              folder = output_root / name
+              folder.mkdir(parents=True, exist_ok=True)
+              for child in folder.iterdir():
+                  if child.is_dir():
+                      shutil.rmtree(child)
+                  else:
+                      child.unlink()
+
+          print("Previous Day 1 outputs cleared; folder structure preserved")
+          PY
+
+      - name: Prepare Colab compatibility layer
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          compat_root = Path(os.environ["RUNNER_TEMP"]) / "colab-compat"
+          package = compat_root / "google" / "colab"
+          package.mkdir(parents=True, exist_ok=True)
+          (compat_root / "google" / "__init__.py").write_text(
+              "from pkgutil import extend_path\n"
+              "__path__ = extend_path(__path__, __name__)\n",
+              encoding="utf-8",
+          )
+          (package / "__init__.py").write_text(
+              "from . import drive, output, userdata\n",
+              encoding="utf-8",
+          )
+          (package / "drive.py").write_text(
+              "from pathlib import Path\n\n"
+              "def mount(mountpoint, **kwargs):\n"
+              "    root = Path(mountpoint)\n"
+              "    (root / 'MyDrive').mkdir(parents=True, exist_ok=True)\n"
+              "    return None\n\n"
+              "def flush_and_unmount():\n"
+              "    return None\n",
+              encoding="utf-8",
+          )
+          (package / "userdata.py").write_text(
+              "import os\n\n"
+              "def get(name):\n"
+              "    return os.environ.get(str(name))\n",
+              encoding="utf-8",
+          )
+          (package / "output.py").write_text(
+              "def serve_kernel_port_as_iframe(*args, **kwargs):\n"
+              "    print('Colab iframe preview skipped in GitHub Actions')\n\n"
+              "def serve_kernel_port_as_window(*args, **kwargs):\n"
+              "    print('Colab window preview skipped in GitHub Actions')\n",
+              encoding="utf-8",
+          )
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"PYTHONPATH={compat_root}\n")
+          print("Colab compatibility layer: PASS")
+          PY
+
+      - name: Execute Day 1 cells once in order
+        shell: bash
+        run: |
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee "${RUNNER_TEMP}/day-1.log"
+          import hashlib
+          import os
+          import re
+          from pathlib import Path
+
+          from IPython.core.interactiveshell import InteractiveShell
+
+          source_path = Path(os.environ["SOURCE_FILE"]).resolve()
+          source_bytes = source_path.read_bytes()
+          actual_hash = hashlib.sha256(source_bytes).hexdigest()
+          expected_hash = os.environ["SOURCE_SHA256"]
+          if actual_hash != expected_hash:
+              raise SystemExit(
+                  f"Source changed before execution: {actual_hash} != {expected_hash}"
+              )
+
+          source = source_bytes.decode("utf-8")
+          marker = re.compile(
+              r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
+          )
+          cells = [part for part in marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f"Expected 33 Day 1 cell blocks, found {len(cells)}")
+
+          shell = InteractiveShell.instance()
+          shell.autoawait = True
+          shell.user_ns["__name__"] = "__main__"
+
+          for index, cell in enumerate(cells, 1):
+              label = next(
+                  (
+                      line.removeprefix("# ").strip()
+                      for line in cell.splitlines()
+                      if re.search(r"\bCELL\s+\d+[A-Za-z]?\b", line)
+                  ),
+                  "Notebook metadata",
+              )
+              print(f"::group::Day 1 block {index:02d}/33 — {label}", flush=True)
+              try:
+                  result = shell.run_cell(cell, store_history=False, silent=False)
+                  if not result.success:
+                      raise RuntimeError(f"Day 1 block {index} failed: {label}")
+              finally:
+                  print("::endgroup::", flush=True)
+
+          print("Day 1 execution: PASS")
+          PY
+
+      - name: Add opening and confirmed music mix
+        shell: bash
+        run: python -m vortex.day1_media
+
+      - name: Build private YouTube metadata package
+        shell: bash
+        run: python -m vortex.youtube_studio_package
+
+      - name: Validate Day 1 output
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO")
+          expected_dirs = {"MP4", "MP3", "SLIDE", "DATA"}
+          if not root.is_dir():
+              raise SystemExit(f"Output root is missing: {root}")
+          actual_dirs = {path.name for path in root.iterdir() if path.is_dir()}
+          root_files = [path.name for path in root.iterdir() if path.is_file()]
+          if actual_dirs != expected_dirs or root_files:
+              raise SystemExit(
+                  f"Output structure invalid: dirs={sorted(actual_dirs)}, "
+                  f"root_files={root_files}"
+              )
+          for name in sorted(expected_dirs):
+              folder = root / name
+              if not any(path.is_file() for path in folder.rglob("*")):
+                  raise SystemExit(f"Expected output directory is empty: {folder}")
+
+          qa_path = root / "DATA" / "final_video_qa.json"
+          if not qa_path.is_file():
+              raise SystemExit(f"Final QA file is missing: {qa_path}")
+          qa = json.loads(qa_path.read_text(encoding="utf-8"))
+          if (
+              qa.get("passed") is not True
+              or qa.get("output_contract", {}).get("passed") is not True
+          ):
+              raise SystemExit("Final video QA did not pass")
+
+          final_mp4s = [
+              path for path in (root / "MP4").glob("*COMBINED*.mp4")
+              if path.is_file()
+          ]
+          final_mp3s = [
+              path for path in (root / "MP3").glob("*COMBINED*.mp3")
+              if path.is_file()
+          ]
+          if len(final_mp4s) != 1 or len(final_mp3s) != 1:
+              raise SystemExit(
+                  "Expected exactly one combined final MP4 and MP3; "
+                  f"found MP4={len(final_mp4s)}, MP3={len(final_mp3s)}"
+              )
+          package_path = root / "DATA" / "youtube_video_1_of_3_package.json"
+          if not package_path.is_file():
+              raise SystemExit(f"YouTube Studio package is missing: {package_path}")
+          package = json.loads(package_path.read_text(encoding="utf-8"))
+          if (
+              package.get("manual_upload_only") is not False
+              or package.get("youtube_api_upload_enabled") is not True
+              or package.get("automatic_publication_enabled") is not False
+          ):
+              raise SystemExit("YouTube package is not locked to private API upload")
+          expected_policy = {
+              "privacy_status": "private",
+              "notify_subscribers": False,
+              "automatic_publish": False,
+              "automatic_schedule": False,
+              "manual_publication_required": True,
+          }
+          if package.get("upload_policy") != expected_policy:
+              raise SystemExit("YouTube private-upload safety policy is invalid")
+
+          metadata = package.get("metadata") or {}
+          preview_gw = int(metadata.get("preview_gw") or 0)
+          review_gw = int(metadata.get("review_gw") or 0)
+          if not 1 <= preview_gw <= 38 or not 1 <= review_gw <= 38:
+              raise SystemExit(
+                  f"YouTube package has invalid dynamic GWs: {preview_gw}/{review_gw}"
+              )
+          if f"FPL GW{preview_gw}" not in str(metadata.get("title") or ""):
+              raise SystemExit("YouTube title does not match its dynamic preview GW")
+          if metadata.get("recommended_visibility") != "Private":
+              raise SystemExit("YouTube Studio visibility must default to Private")
+          visible_title = str(metadata.get("title") or "").upper()
+          if "DAY 1" in visible_title or "DAY 2" in visible_title:
+              raise SystemExit("YouTube title must not use Day numbering")
+
+          print("Day 1 output structure, final QA, and private YouTube package: PASS")
+          PY
+
+      - name: Publish outputs and persistent state to Google Drive
+        shell: bash
+        run: |
+          set -euo pipefail
+          first_video_path="FPL_VORTEX/FIRST VIDEO"
+          first_video_local="/content/drive/MyDrive/${first_video_path}"
+          if [[ -d "${first_video_local}" ]]; then
+            rclone sync "${first_video_local}" "vortex-drive:${first_video_path}" \
+              --create-empty-src-dirs --transfers 4 --checkers 8
+            echo "Replaced My Drive/${first_video_path} with the current output set"
+          fi
+
+          publish_if_present() {
+            local drive_path="$1"
+            local local_path="/content/drive/MyDrive/$1"
+            if [[ -d "${local_path}" ]]; then
+              rclone copy "${local_path}" "vortex-drive:${drive_path}" \
+                --create-empty-src-dirs --transfers 4 --checkers 8
+              echo "Published My Drive/${drive_path}"
+            fi
+          }
+
+          publish_if_present "FPL_VORTEX/MODEL_INPUTS"
+          publish_if_present "FPL_VORTEX/DECISION_ENGINE"
+          publish_if_present "FPL_VORTEX/RAW_DATA"
+          publish_if_present "FPL_VORTEX/MODEL_HISTORY"
+          publish_if_present "FPL_VORTEX_DATA/05_MODEL_HISTORY"
+          publish_if_present "FPL_VORTEX_DATA/06_SNAPSHOTS"
+          publish_if_present "FPL_VORTEX_DATA/07_LOGS"
+
+      - name: Upload final 4K video privately to YouTube
+        shell: bash
+        run: python -m vortex.youtube_private_upload
+
+      - name: Save YouTube private-upload receipt to Google Drive
+        if: always()
+        shell: bash
+        run: |
+          receipt="/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO/DATA/youtube_private_upload.json"
+          if [[ -s "${receipt}" ]]; then
+            rclone copyto \
+              "${receipt}" \
+              "vortex-drive:FPL_VORTEX/FIRST VIDEO/DATA/youtube_private_upload.json"
+            echo "Saved YouTube private-upload receipt to Google Drive"
+          else
+            echo "No YouTube private-upload receipt was created"
+          fi
+
+      - name: Upload Day 1 output artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: day-1-output-${{ github.run_number }}
+          path: /content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload Day 1 execution log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: day-1-log-${{ github.run_number }}
+          path: ${{ runner.temp }}/day-1.log
+          if-no-files-found: warn
+          retention-days: 14
+
