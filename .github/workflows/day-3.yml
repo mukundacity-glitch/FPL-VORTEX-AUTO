@@ -157,14 +157,16 @@ jobs:
               start, end = _day3_cell_bounds(text, header)
               cell = text[start:end]
               start_count = cell.count(start_marker)
-              end_count = cell.count(end_marker)
-              if start_count != 1 or end_count != 1:
+              if start_count != 1:
                   raise SystemExit(
-                      f"{label}: expected one start/end marker, found "
-                      f"start={start_count}, end={end_count}"
+                      f"{label}: expected one start marker, found {start_count}"
                   )
               left = cell.index(start_marker)
-              right_start = cell.index(end_marker, left)
+              right_start = cell.find(end_marker, left + len(start_marker))
+              if right_start < 0:
+                  raise SystemExit(
+                      f"{label}: end marker not found after the unique start marker"
+                  )
               if end_through_line:
                   newline = cell.find("\n", right_start)
                   right = len(cell) if newline < 0 else newline + 1
