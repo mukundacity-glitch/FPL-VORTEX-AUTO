@@ -534,6 +534,7 @@ SELECTED_SCENES = ['''
 
 from html import escape as _d3_escape
 from zoneinfo import ZoneInfo as _D3ZoneInfo
+import json
 
 _D3_REQUIRED_PROJ = {
     "team_id", "team", "team_short", "badge",
@@ -2033,7 +2034,7 @@ This is the final shortlist: validated minutes, model xPts, price and value, org
 
 "05_transfer_decision_desk":
 f"""
-Welcome to the Transfer Decision Desk. Nine players, three clear actions: buy, hold, sell. The action labels are our editorial calls; every fixture, price, expected-minute estimate, xPts number, availability figure, ownership percentage and transfer signal comes from the current VORTEX pipeline.
+Welcome to the Transfer Decision Desk. Nine players, three clear actions: buy, hold, sell. The players and actions are selected by the VORTEX transfer model, with official FPL market trend used as a supporting signal. Every fixture, price, expected-minute estimate, xPts number, availability figure, ownership percentage and transfer signal comes from the current pipeline.
 
 First up — the buys.
 
