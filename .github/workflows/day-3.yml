@@ -124,6 +124,26 @@ jobs:
               return header_pos, end
           
           
+          def _day3_replace_in_cell(
+              text,
+              header,
+              old,
+              new,
+              expected_count,
+              label,
+          ):
+              start, end = _day3_cell_bounds(text, header)
+              cell = text[start:end]
+              actual_count = cell.count(old)
+              if actual_count != expected_count:
+                  raise SystemExit(
+                      f"{label}: expected {expected_count} occurrence(s) in {header!r} of "
+                      f"{old!r}, found {actual_count}"
+                  )
+              cell = cell.replace(old, new)
+              return text[:start] + cell + text[end:]
+
+
           def _day3_replace_range_in_cell(
               text,
               header,
