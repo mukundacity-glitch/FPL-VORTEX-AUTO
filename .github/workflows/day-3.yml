@@ -1,4 +1,4 @@
-name: Day 3
+name: Day 3_3
 
 on:
   workflow_dispatch:
@@ -7,12 +7,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: fpl-vortex-day-1
+  group: fpl-vortex-day-3
   cancel-in-progress: false
 
 env:
   PYTHONUNBUFFERED: "1"
   SOURCE_FILE: 1_final_day1.py
+  DAY3_OUTPUT_ROOT: /content/drive/MyDrive/FPL_VORTEX/Day_3_3
+  DAY3_DRIVE_PATH: FPL_VORTEX/Day_3_3
   DAY1_ASSET_FOLDER_ID: 1h3Loznr5RnsMyh-kUd-zMxEgOf98uFSt
   DAY1_ASSET_DIR: /content/drive/MyDrive/FPL_VORTEX/Assets
   GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
@@ -25,8 +27,8 @@ env:
   ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
 
 jobs:
-  run-day-1:
-    name: Run Day 1
+  run-day-3:
+    name: Run isolated Day 3 — exact Day 1 video clone
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
@@ -39,37 +41,132 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verify untouched Day 1 source
+
+      - name: Prepare isolated Day 3 runtime without changing Day 1 or Day 2
         shell: bash
         run: |
           set -euo pipefail
-          git diff --exit-code -- "${SOURCE_FILE}"
-          source_sha256="$(sha256sum "${SOURCE_FILE}" | awk '{print $1}')"
-          echo "SOURCE_SHA256=${source_sha256}" >> "${GITHUB_ENV}"
-          echo "Day 1 source baseline SHA256: ${source_sha256}"
+          git diff --exit-code -- \
+            "${SOURCE_FILE}" \
+            .github/workflows/day-1.yml \
+            .github/workflows/day-2.yml \
+            vortex/day1_media.py \
+            vortex/youtube_studio_package.py \
+            vortex/youtube_private_upload.py
           python - <<'PY'
           import ast
+          import hashlib
           import os
           import re
           from pathlib import Path
 
-          source_path = Path(os.environ["SOURCE_FILE"])
-          source = source_path.read_text(encoding="utf-8")
+          output_root = Path(os.environ["DAY3_OUTPUT_ROOT"]).resolve()
+          expected_root = (
+              Path("/content/drive/MyDrive") / os.environ["DAY3_DRIVE_PATH"]
+          ).resolve()
+          if output_root != expected_root:
+              raise SystemExit(
+                  f"Unsafe Day 3 output root: {output_root} != {expected_root}"
+              )
+          folder_name = output_root.name
+
+          runtime_dir = Path(os.environ["RUNNER_TEMP"]) / "day3-runtime"
+          runtime_dir.mkdir(parents=True, exist_ok=True)
+
+          def replace_exact(text, old, new, expected_count, label):
+              actual_count = text.count(old)
+              if actual_count != expected_count:
+                  raise SystemExit(
+                      f"{label}: expected {expected_count} occurrence(s) of "
+                      f"{old!r}, found {actual_count}"
+                  )
+              return text.replace(old, new)
+
+          source_path = Path(os.environ["SOURCE_FILE"]).resolve()
+          source_text = source_path.read_text(encoding="utf-8")
+          runtime_source_text = replace_exact(
+              source_text,
+              "FIRST VIDEO",
+              folder_name,
+              9,
+              "Day 1 output-path isolation",
+          )
+          runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
+          runtime_source.write_text(runtime_source_text, encoding="utf-8")
+
           marker = re.compile(
               r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
           )
-          cells = [part for part in marker.split(source) if part.strip()]
+          cells = [part for part in marker.split(runtime_source_text) if part.strip()]
           if len(cells) != 33:
-              raise SystemExit(f"Expected 33 Day 1 cell blocks, found {len(cells)}")
+              raise SystemExit(
+                  f"Expected 33 cloned Day 1 cell blocks, found {len(cells)}"
+              )
           for index, cell in enumerate(cells, 1):
               compile(
                   cell,
-                  f"{source_path.name}::cell-{index}",
+                  f"{runtime_source.name}::cell-{index}",
                   "exec",
                   flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
                   dont_inherit=True,
               )
-          print("Day 1 integrity and 33-cell syntax check: PASS")
+
+          studio_source = Path("vortex/youtube_studio_package.py")
+          studio_text = studio_source.read_text(encoding="utf-8")
+          studio_text = replace_exact(
+              studio_text, "FIRST VIDEO", folder_name, 1, "Studio output path"
+          )
+          studio_text = replace_exact(
+              studio_text,
+              "YT_VIDEO_PART = 1",
+              "YT_VIDEO_PART = 3",
+              1,
+              "Studio video part",
+          )
+          studio_text = replace_exact(
+              studio_text, "1_of_3", "3_of_3", 1, "Studio package filename"
+          )
+          studio_text = replace_exact(
+              studio_text, "1/3", "3/3", 3, "Studio visible series labels"
+          )
+          studio_script = runtime_dir / "youtube_studio_video_3_of_3.py"
+          compile(studio_text, str(studio_script), "exec")
+          studio_script.write_text(studio_text, encoding="utf-8")
+
+          upload_source = Path("vortex/youtube_private_upload.py")
+          upload_text = upload_source.read_text(encoding="utf-8")
+          upload_text = replace_exact(
+              upload_text, "FIRST VIDEO", folder_name, 1, "Uploader output path"
+          )
+          upload_text = replace_exact(
+              upload_text, "1_of_3", "3_of_3", 1, "Uploader package filename"
+          )
+          upload_text = replace_exact(
+              upload_text, "1-of-3", "3-of-3", 1, "Uploader unique marker"
+          )
+          upload_text = replace_exact(
+              upload_text,
+              '"part": 1',
+              '"part": 3',
+              1,
+              "Uploader series validation",
+          )
+          upload_text = replace_exact(
+              upload_text, "1/3", "3/3", 2, "Uploader visible series labels"
+          )
+          upload_script = runtime_dir / "youtube_private_video_3_of_3.py"
+          compile(upload_text, str(upload_script), "exec")
+          upload_script.write_text(upload_text, encoding="utf-8")
+
+          runtime_hash = hashlib.sha256(runtime_source.read_bytes()).hexdigest()
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"DAY3_RUNTIME_SOURCE={runtime_source}\n")
+              env_file.write(f"DAY3_SOURCE_SHA256={runtime_hash}\n")
+              env_file.write(f"DAY3_STUDIO_SCRIPT={studio_script}\n")
+              env_file.write(f"DAY3_UPLOAD_SCRIPT={upload_script}\n")
+
+          print("Day 1 repository source and both existing workflows: untouched")
+          print("Isolated Day 3 runtime clone and Video 3/3 tools: PASS")
           PY
 
       - name: Verify private YouTube upload configuration
@@ -261,7 +358,7 @@ jobs:
             exit 1
           fi
 
-          restore_optional "FPL_VORTEX/FIRST VIDEO"
+          restore_optional "${DAY3_DRIVE_PATH}"
           restore_optional "FPL_VORTEX/MODEL_INPUTS"
           restore_optional "FPL_VORTEX/DECISION_ENGINE"
           restore_optional "FPL_VORTEX/RAW_DATA"
@@ -290,7 +387,8 @@ jobs:
           done
           echo "Restored opening and audio assets by confirmed Drive folder ID"
 
-      - name: Reset previous Day 1 outputs locally
+
+      - name: Reset only previous Day 3 outputs locally
         shell: bash
         run: |
           python - <<'PY'
@@ -298,15 +396,14 @@ jobs:
           import shutil
           from pathlib import Path
 
-          output_root = Path(
-              os.environ.get(
-                  "DAY1_OUTPUT_ROOT",
-                  "/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO",
-              )
-          )
-          if str(output_root.resolve()) != "/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO":
-              raise SystemExit(f"Unsafe output reset target: {output_root}")
+          output_root = Path(os.environ["DAY3_OUTPUT_ROOT"]).resolve()
+          expected = (
+              Path("/content/drive/MyDrive") / os.environ["DAY3_DRIVE_PATH"]
+          ).resolve()
+          if output_root != expected:
+              raise SystemExit(f"Unsafe Day 3 output reset target: {output_root}")
 
+          output_root.mkdir(parents=True, exist_ok=True)
           for name in ("MP4", "MP3", "SLIDE", "DATA"):
               folder = output_root / name
               folder.mkdir(parents=True, exist_ok=True)
@@ -316,7 +413,7 @@ jobs:
                   else:
                       child.unlink()
 
-          print("Previous Day 1 outputs cleared; folder structure preserved")
+          print("Previous Day 3 outputs cleared; four-folder structure preserved")
           PY
 
       - name: Prepare Colab compatibility layer
@@ -366,11 +463,12 @@ jobs:
           print("Colab compatibility layer: PASS")
           PY
 
-      - name: Execute Day 1 cells once in order
+
+      - name: Execute the exact Day 1 video clone as Day 3
         shell: bash
         run: |
           set -o pipefail
-          python - <<'PY' 2>&1 | tee "${RUNNER_TEMP}/day-1.log"
+          python - <<'PY' 2>&1 | tee "${RUNNER_TEMP}/day-3.log"
           import hashlib
           import os
           import re
@@ -378,13 +476,13 @@ jobs:
 
           from IPython.core.interactiveshell import InteractiveShell
 
-          source_path = Path(os.environ["SOURCE_FILE"]).resolve()
+          source_path = Path(os.environ["DAY3_RUNTIME_SOURCE"]).resolve()
           source_bytes = source_path.read_bytes()
           actual_hash = hashlib.sha256(source_bytes).hexdigest()
-          expected_hash = os.environ["SOURCE_SHA256"]
+          expected_hash = os.environ["DAY3_SOURCE_SHA256"]
           if actual_hash != expected_hash:
               raise SystemExit(
-                  f"Source changed before execution: {actual_hash} != {expected_hash}"
+                  f"Day 3 runtime source changed: {actual_hash} != {expected_hash}"
               )
 
           source = source_bytes.decode("utf-8")
@@ -393,7 +491,9 @@ jobs:
           )
           cells = [part for part in marker.split(source) if part.strip()]
           if len(cells) != 33:
-              raise SystemExit(f"Expected 33 Day 1 cell blocks, found {len(cells)}")
+              raise SystemExit(
+                  f"Expected 33 cloned Day 1 cell blocks, found {len(cells)}"
+              )
 
           shell = InteractiveShell.instance()
           shell.autoawait = True
@@ -408,33 +508,51 @@ jobs:
                   ),
                   "Notebook metadata",
               )
-              print(f"::group::Day 1 block {index:02d}/33 — {label}", flush=True)
+              print(
+                  f"::group::Day 3 block {index:02d}/33 — {label}",
+                  flush=True,
+              )
               try:
                   result = shell.run_cell(cell, store_history=False, silent=False)
                   if not result.success:
-                      raise RuntimeError(f"Day 1 block {index} failed: {label}")
+                      raise RuntimeError(f"Day 3 block {index} failed: {label}")
               finally:
                   print("::endgroup::", flush=True)
 
-          print("Day 1 execution: PASS")
+          print("Exact Day 1 video clone executed as Day 3: PASS")
           PY
 
-      - name: Add opening and confirmed music mix
-        shell: bash
-        run: python -m vortex.day1_media
 
-      - name: Build private YouTube metadata package
+      - name: Add the same Day 1 opening and confirmed music mix
         shell: bash
-        run: python -m vortex.youtube_studio_package
+        run: |
+          python -m vortex.day1_media \
+            --output-root "${DAY3_OUTPUT_ROOT}" \
+            --asset-dir "${DAY1_ASSET_DIR}"
 
-      - name: Validate Day 1 output
+
+      - name: Build private YouTube Video 3/3 metadata
+        shell: bash
+        run: |
+          python "${DAY3_STUDIO_SCRIPT}" \
+            --output-root "${DAY3_OUTPUT_ROOT}"
+
+
+      - name: Validate isolated Day 3 output and private Video 3/3 package
         shell: bash
         run: |
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          root = Path("/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO")
+          root = Path(os.environ["DAY3_OUTPUT_ROOT"]).resolve()
+          expected_root = (
+              Path("/content/drive/MyDrive") / os.environ["DAY3_DRIVE_PATH"]
+          ).resolve()
+          if root != expected_root:
+              raise SystemExit(f"Unsafe Day 3 output root: {root}")
+
           expected_dirs = {"MP4", "MP3", "SLIDE", "DATA"}
           if not root.is_dir():
               raise SystemExit(f"Output root is missing: {root}")
@@ -442,7 +560,7 @@ jobs:
           root_files = [path.name for path in root.iterdir() if path.is_file()]
           if actual_dirs != expected_dirs or root_files:
               raise SystemExit(
-                  f"Output structure invalid: dirs={sorted(actual_dirs)}, "
+                  f"Day 3 output structure invalid: dirs={sorted(actual_dirs)}, "
                   f"root_files={root_files}"
               )
           for name in sorted(expected_dirs):
@@ -473,16 +591,20 @@ jobs:
                   "Expected exactly one combined final MP4 and MP3; "
                   f"found MP4={len(final_mp4s)}, MP3={len(final_mp3s)}"
               )
-          package_path = root / "DATA" / "youtube_video_1_of_3_package.json"
+
+          package_path = root / "DATA" / "youtube_video_3_of_3_package.json"
           if not package_path.is_file():
-              raise SystemExit(f"YouTube Studio package is missing: {package_path}")
+              raise SystemExit(f"Video 3/3 package is missing: {package_path}")
           package = json.loads(package_path.read_text(encoding="utf-8"))
           if (
               package.get("manual_upload_only") is not False
               or package.get("youtube_api_upload_enabled") is not True
               or package.get("automatic_publication_enabled") is not False
           ):
-              raise SystemExit("YouTube package is not locked to private API upload")
+              raise SystemExit(
+                  "YouTube Video 3/3 package is not enabled for private API upload"
+              )
+
           expected_policy = {
               "privacy_status": "private",
               "notify_subscribers": False,
@@ -494,87 +616,81 @@ jobs:
               raise SystemExit("YouTube private-upload safety policy is invalid")
 
           metadata = package.get("metadata") or {}
+          if metadata.get("series") != {"part": 3, "total": 3}:
+              raise SystemExit("YouTube package is not marked as Video 3/3")
+          title = str(metadata.get("title") or "")
+          description = str(metadata.get("description") or "")
+          if "(3/3)" not in title or "VIDEO 3/3" not in description.upper():
+              raise SystemExit(
+                  "YouTube title/description is not visibly marked as Video 3/3"
+              )
+          if metadata.get("recommended_visibility") != "Private":
+              raise SystemExit("YouTube visibility is not Private")
+
           preview_gw = int(metadata.get("preview_gw") or 0)
           review_gw = int(metadata.get("review_gw") or 0)
           if not 1 <= preview_gw <= 38 or not 1 <= review_gw <= 38:
-              raise SystemExit(
-                  f"YouTube package has invalid dynamic GWs: {preview_gw}/{review_gw}"
-              )
-          if f"FPL GW{preview_gw}" not in str(metadata.get("title") or ""):
-              raise SystemExit("YouTube title does not match its dynamic preview GW")
-          if metadata.get("recommended_visibility") != "Private":
-              raise SystemExit("YouTube Studio visibility must default to Private")
-          visible_title = str(metadata.get("title") or "").upper()
-          if "DAY 1" in visible_title or "DAY 2" in visible_title:
-              raise SystemExit("YouTube title must not use Day numbering")
+              raise SystemExit(f"Invalid dynamic GWs: {preview_gw}/{review_gw}")
+          if f"FPL GW{preview_gw}" not in title:
+              raise SystemExit("YouTube title has the wrong Gameweek")
 
-          print("Day 1 output structure, final QA, and private YouTube package: PASS")
+          print(f"Day 3 output folder: {root}")
+          print("Four output folders and private YouTube Video 3/3 package: PASS")
           PY
 
-      - name: Publish outputs and persistent state to Google Drive
+
+      - name: Save only Day 3 outputs to the separate Drive folder
         shell: bash
         run: |
           set -euo pipefail
-          first_video_path="FPL_VORTEX/FIRST VIDEO"
-          first_video_local="/content/drive/MyDrive/${first_video_path}"
-          if [[ -d "${first_video_local}" ]]; then
-            rclone sync "${first_video_local}" "vortex-drive:${first_video_path}" \
-              --create-empty-src-dirs --transfers 4 --checkers 8
-            echo "Replaced My Drive/${first_video_path} with the current output set"
+          if [[ ! -d "${DAY3_OUTPUT_ROOT}" ]]; then
+            echo "Day 3 output folder is missing: ${DAY3_OUTPUT_ROOT}" >&2
+            exit 1
           fi
+          rclone sync \
+            "${DAY3_OUTPUT_ROOT}" \
+            "vortex-drive:${DAY3_DRIVE_PATH}" \
+            --create-empty-src-dirs --transfers 4 --checkers 8
+          echo "Saved only Day 3 outputs to My Drive/${DAY3_DRIVE_PATH}"
 
-          publish_if_present() {
-            local drive_path="$1"
-            local local_path="/content/drive/MyDrive/$1"
-            if [[ -d "${local_path}" ]]; then
-              rclone copy "${local_path}" "vortex-drive:${drive_path}" \
-                --create-empty-src-dirs --transfers 4 --checkers 8
-              echo "Published My Drive/${drive_path}"
-            fi
-          }
 
-          publish_if_present "FPL_VORTEX/MODEL_INPUTS"
-          publish_if_present "FPL_VORTEX/DECISION_ENGINE"
-          publish_if_present "FPL_VORTEX/RAW_DATA"
-          publish_if_present "FPL_VORTEX/MODEL_HISTORY"
-          publish_if_present "FPL_VORTEX_DATA/05_MODEL_HISTORY"
-          publish_if_present "FPL_VORTEX_DATA/06_SNAPSHOTS"
-          publish_if_present "FPL_VORTEX_DATA/07_LOGS"
-
-      - name: Upload final 4K video privately to YouTube
+      - name: Upload Video 3/3 privately to YouTube
         shell: bash
-        run: python -m vortex.youtube_private_upload
+        run: |
+          python "${DAY3_UPLOAD_SCRIPT}" \
+            --output-root "${DAY3_OUTPUT_ROOT}"
+          echo "Video 3/3 upload completed and verified as Private"
 
-      - name: Save YouTube private-upload receipt to Google Drive
+
+      - name: Save Video 3/3 private-upload receipt to its Drive folder
         if: always()
         shell: bash
         run: |
-          receipt="/content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO/DATA/youtube_private_upload.json"
+          receipt="${DAY3_OUTPUT_ROOT}/DATA/youtube_private_upload.json"
           if [[ -s "${receipt}" ]]; then
             rclone copyto \
               "${receipt}" \
-              "vortex-drive:FPL_VORTEX/FIRST VIDEO/DATA/youtube_private_upload.json"
-            echo "Saved YouTube private-upload receipt to Google Drive"
+              "vortex-drive:${DAY3_DRIVE_PATH}/DATA/youtube_private_upload.json"
+            echo "Saved Video 3/3 private-upload receipt in the Day 3 folder"
           else
             echo "No YouTube private-upload receipt was created"
           fi
 
-      - name: Upload Day 1 output artifact
+      - name: Upload Day 3 output artifact
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: day-1-output-${{ github.run_number }}
-          path: /content/drive/MyDrive/FPL_VORTEX/FIRST VIDEO
+          name: day-3-output-${{ github.run_number }}
+          path: ${{ env.DAY3_OUTPUT_ROOT }}
           if-no-files-found: warn
           compression-level: 0
           retention-days: 14
 
-      - name: Upload Day 1 execution log
+      - name: Upload Day 3 log
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: day-1-log-${{ github.run_number }}
-          path: ${{ runner.temp }}/day-1.log
+          name: day-3-log-${{ github.run_number }}
+          path: ${{ runner.temp }}/day-3.log
           if-no-files-found: warn
           retention-days: 14
-
