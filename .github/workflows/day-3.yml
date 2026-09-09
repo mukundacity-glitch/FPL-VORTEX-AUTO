@@ -1333,30 +1333,20 @@ def _d3_desk_short_reason(r):
 
 def _d3_desk_narr(action, index):
     r = DAY3_TRANSFER_DESK[str(action)][int(index)]
-    if r["action"] == "BUY":
-        verdict = (
-            "The buy case is the combination of expected minutes, current xPts and the next fixture. "
-            "That gives us a measurable upgrade case rather than buying only because the market is moving."
-        )
-    elif r["action"] == "HOLD":
-        verdict = (
-            "The hold case is that the current player still carries enough minutes and model output "
-            "to avoid wasting a transfer on a sideways move."
-        )
-    else:
-        verdict = (
-            "The sell case is opportunity cost. If this profile is weaker than the validated shortlist, "
-            "the transfer can be used to buy more expected points instead of protecting a name."
-        )
+    action_line = {
+        "BUY": "That combination supports the buy call.",
+        "HOLD": "That is enough to justify the hold call.",
+        "SELL": "That makes the replacement case worth acting on.",
+    }[str(action)]
     return (
         f'{r["name"]}. {r["team"]} face {r["opponent"]} next. '
-        f'VORTEX projects {r["xpts"]:.1f} expected points from {r["xmins"]:.0f} expected minutes. '
-        f'Availability is {r["availability"]:.0f} percent, the price is £{r["price"]:.1f} million, '
-        f'ownership is {r["ownership"]:.1f} percent, and the Gameweek transfer balance is '
-        f'{_d3_desk_flow(r["net_transfers"])}. The player ranks {r["model_rank"]} in the current '
-        f'Gameweek xPts pool. {verdict}'
+        f'VORTEX projects {r["xpts"]:.1f} points from {r["xmins"]:.0f} expected minutes '
+        f'at £{r["price"]:.1f} million, with {r["availability"]:.0f} percent availability. '
+        f'Ownership is {r["ownership"]:.1f} percent and Gameweek transfer balance is '
+        f'{_d3_desk_flow(r["net_transfers"])}. {action_line}'
     )
 
+def _d3_desk_photo(r, css):
 def _d3_desk_photo(r, css):
     src = _d3_escape(str(r.get("photo", "") or ""))
     if src:
@@ -1715,61 +1705,56 @@ This is the final shortlist: validated minutes, model xPts, price and value, org
 
 "05_transfer_decision_desk":
 f"""
-Welcome to the Transfer Decision Desk. Nine players. Three clear actions. Buy, hold, sell. The labels are the editorial decision for this episode, while every price, fixture, expected-minute estimate, expected-points number and transfer signal comes from the current VORTEX pipeline.
+Welcome to the Transfer Decision Desk. Nine players, three clear actions: buy, hold, sell. The action labels are our editorial calls; every fixture, price, expected-minute estimate, xPts number, availability figure, ownership percentage and transfer signal comes from the current VORTEX pipeline.
 
 First up — the buys.
 
 {_d3_desk_narr("BUY",0)}
 
-The important part is not the badge or the name. A buy should improve the squad after price, role and expected minutes are considered together. If the player is expensive, the expected-points advantage has to justify what that money prevents us doing elsewhere.
+A buy has to improve the squad, not just follow the crowd. Minutes and expected points come first.
 
 {_d3_desk_narr("BUY",1)}
 
-This is where value matters. A lower-cost player does not need to beat every premium in raw points; the transfer can still be strong when the saved budget improves another position. The live ownership and transfer balance are context, not the reason for the recommendation.
+Value matters too. A cheaper player can create a second upgrade elsewhere, so price is part of the decision.
 
 {_d3_desk_narr("BUY",2)}
 
-For the third buy, I still want the same checks: a usable starting probability, enough expected minutes, a fixture that supports attacking returns, and an xPts number that survives comparison with the validated shortlist. When all four line up, the transfer has a clear mathematical purpose.
-
-That is the buy lane. Three players, but one rule: spend a transfer only when the new expected-points profile is meaningfully better than the player or structure you are replacing.
+That completes the buy lane. Three names, but one rule: use a transfer only when the expected upgrade is meaningful.
 
 Now the holds.
 
 {_d3_desk_narr("HOLD",0)}
 
-A difficult single fixture is not automatically a sell. Premium players can still have enough ceiling and minutes to justify patience, especially when selling creates a future transfer back. The hold decision protects transfer value when the underlying model has not actually collapsed.
+One difficult fixture is not an automatic sell. Strong minutes and ceiling can make patience the better move.
 
 {_d3_desk_narr("HOLD",1)}
 
-For a hold, I also check whether the player remains part of a strong team environment and whether the next few decisions would be easier with the player already owned. If the expected points are acceptable and the minutes are secure, doing nothing can be the optimal move.
+For a hold, I compare the player with the replacement pool. If the gain is small, save the transfer.
 
 {_d3_desk_narr("HOLD",2)}
 
-Market pressure can make managers feel they must act. The desk does the opposite: it compares the live player with the replacement pool. If the upgrade is too small after price and expected minutes are included, the correct decision is to keep the transfer flexible.
-
-That is the hold lane. We are not defending old picks emotionally. We are simply refusing to pay a transfer cost when the numbers say the current asset still does enough.
+That is the hold lane. We keep these players because the current model still supports them, not because of reputation.
 
 Finally — the sells.
 
 {_d3_desk_narr("SELL",0)}
 
-A sell becomes stronger when the player loses more than one route to points at the same time. Lower expected minutes, weaker availability, a difficult fixture or negative market movement can combine to make the opportunity cost of holding too high.
+A sell gets stronger when minutes, availability, fixture quality or value weaken together.
 
 {_d3_desk_narr("SELL",1)}
 
-The second sell is judged the same way. One blank is not enough. I want to see whether the current Gameweek model, price efficiency and replacement pool all point away from the player. The sale only makes sense when there is a better use of the squad slot.
+One blank is never enough by itself. The replacement has to offer a better expected-points use of the squad slot.
 
 {_d3_desk_narr("SELL",2)}
 
-The final sell is also a minutes decision. Injury and rotation uncertainty reduce every other projection because a player cannot score Fantasy points from the bench. When the expected-minute floor drops and the shortlist contains stronger alternatives, moving early can protect both points and squad structure.
+That completes the sell lane. We are moving on because the opportunity cost of holding is now higher.
 
-That is the sell lane. Three players, but no panic. We are selling because the expected value of the replacement is better, not because a red arrow or a transfer counter tells us what to do.
-
-That is the desk. Three buys. Three holds. Three sells. Use the information, trust the model, and compare every move against what it costs to make it. The live numbers can change after press conferences and price updates, so the desk refreshes with the pipeline. Your move. Make it count.
+That is the desk. Three buys, three holds, three sells. Use the information, trust the model, and compare every move with what it costs. Refresh after the final press conferences because minutes and availability can change. Your move. Make it count.
 
 """.strip(),
 
 "04_clean_sheets":
+f""""04_clean_sheets":
 f"""'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
