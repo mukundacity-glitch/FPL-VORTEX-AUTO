@@ -1144,7 +1144,7 @@ _d3_short_panel = (
     '<section class="board d3ShortBoard">'
     '<div class="d3Formula">'
     '<strong>PLAYER xPTS</strong>'
-    '<span>PLAYING PROBABILITY × EXPECTED RETURNS + APPEARANCE + BONUS</span>'
+    '<span>xPTS ≈ PLAYING PROBABILITY × (ATTACK + DEFENCE + APPEARANCE + BONUS)</span>'
     '</div>'
     '<div class="d3Criteria">'
     f'<span>xMINS ≥ {DAY3_SHORTLIST_MIN_XMINS:g}</span>'
@@ -1166,11 +1166,11 @@ _d3_short_css = r'''
 .d3Criteria{height:66px;display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:center;padding:10px 0}
 .d3Criteria span{height:42px;border-radius:999px;display:grid;place-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);font-family:Arial,sans-serif;font-size:14px;font-weight:1000;color:#a9c3d7;letter-spacing:.8px}
 .d3ShortGrid{height:calc(100% - 144px);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
-.d3ShortPos{min-width:0;border:1px solid rgba(255,255,255,.11);background:linear-gradient(145deg,rgba(11,29,50,.98),rgba(4,15,29,.99));overflow:hidden}
+.d3ShortPos{min-width:0;border:1px solid rgba(255,255,255,.11);background:linear-gradient(145deg,rgba(11,29,50,.98),rgba(4,15,29,.99));overflow:hidden;display:flex;flex-direction:column}
 .d3ShortPosHead{height:58px;display:grid;place-items:center;background:rgba(0,245,160,.10);border-bottom:1px solid rgba(255,255,255,.12);font-size:28px;font-weight:1000;letter-spacing:3px;color:#eafff7}
 .d3ShortCols{height:40px;display:grid;grid-template-columns:minmax(0,1fr) 64px 78px 72px 64px;gap:4px;align-items:center;padding:0 10px 0 48px;font-family:Arial,sans-serif;font-size:11px;font-weight:1000;color:#718ba0;letter-spacing:.5px;text-align:center}
 .d3ShortCols span:first-child{text-align:left}
-.d3ShortRow{height:calc((100% - 98px)/8);min-height:72px;display:grid;grid-template-columns:38px minmax(0,1fr) 64px 78px 72px 64px;gap:4px;align-items:center;padding:0 9px;border-top:1px solid rgba(255,255,255,.07);font-family:Arial,sans-serif;font-size:16px;text-align:center}
+.d3ShortRow{flex:1;min-height:0;display:grid;grid-template-columns:38px minmax(0,1fr) 64px 78px 72px 64px;gap:4px;align-items:center;padding:0 9px;border-top:1px solid rgba(255,255,255,.07);font-family:Arial,sans-serif;font-size:16px;text-align:center}
 .d3ShortRow.d3Elite{background:rgba(255,212,71,.055)}
 .d3ShortRank{font-size:13px;color:#6f8799}.d3ShortPlayer{min-width:0;text-align:left;display:flex;flex-direction:column;gap:3px}.d3ShortPlayer strong{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d3ShortPlayer small{font-size:10px;color:#7f9bb0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .d3XPts{height:38px;display:grid;place-items:center;background:rgba(0,245,160,.16);color:#9fffd8;border-radius:8px;font-size:19px}
@@ -1324,6 +1324,15 @@ def _d3_short_narr(pos, i=0):
               "Day 3 narration ranking helpers",
           )
 
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '    "03_projected_goals": "analysis",\n    "04_clean_sheets": "key_stat",',
+              '    "03_projected_goals": "analysis",\n    "03_defcon": "analysis",\n    "04_final_shortlists": "analysis",\n    "04_clean_sheets": "key_stat",',
+              1,
+              "Day 3 Ryan moods for DEFCON and Final Shortlists",
+          )
+
           _day3_fdr_script = r'''"02_fdr":
 f"""
 For the Gameweek model, this first page combines projected goals and clean sheet odds in one view. Every fixture is on the left, while the two rankings on the right show the full league from strongest to weakest.
@@ -1416,11 +1425,12 @@ This is the final shortlist: validated minutes, model xPts, price and value, org
 
 """.strip(),
 
-"04_clean_sheets":'''
+"04_clean_sheets":
+f"""'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _narr_cell,
-              '"04_clean_sheets":',
+              '"04_clean_sheets":\nf"""',
               _day3_extra_scripts,
               1,
               "Day 3 preserve Projected Goals narration and add DEFCON/Final Shortlists",
