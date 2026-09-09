@@ -490,6 +490,9 @@ jobs:
           # 04_clean_sheets is disabled in this temporary clone only.
           # ------------------------------------------------------------
           _cell0 = "# CELL 0 — FPL VORTEX WEEKLY MANUAL CONTROLS"
+          _phase11_cell = "# CELL 13E — PHASE 11"
+          _gw_review_anim_cell = "# CELL 16 — GW REVIEW • PLAYER-BY-PLAYER EXACT SYNC"
+          _gw_review_render_cell = "# CELL 17 — GW REVIEW • DETERMINISTIC ANIMATED HTML MP4 RENDER"
           _design_cell = "# CELL 14B — ORIGINAL WEEKLY FDR / PROJECTED GOALS / CLEAN SHEET DESIGN"
           _preview_cell = "# CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
           _render_cell = "# CELL 20 — RESUME-SAFE SHARED MP4 RENDERER"
@@ -504,6 +507,68 @@ jobs:
               "Day 3 disable duplicate standalone clean-sheet slide",
           )
 
+
+          _day3_plan_controls = r'''
+# @markdown ---
+# @markdown ### 🧠 DAY 3_3 — MY PLAN
+# @markdown **Scenario video mode**
+MY_PLAN_VIDEO_MODE = "SELECTED_ONLY"  # @param ["SELECTED_ONLY", "ALL_8"]
+
+# @markdown **MY PLAN — choose one scenario**
+MY_PLAN_SCENARIO = "A_ROLL"  # @param ["A_ROLL", "B_TRANSFER_1_TO_5", "C_FREE_HIT", "D_WILDCARD_5GW", "E_ROLL_BENCH_BOOST", "F_ROLL_TRIPLE_CAPTAIN", "G_TRANSFER_1_TO_5_BENCH_BOOST", "H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN"]
+
+# @markdown **Current-team source for MY PLAN**
+MY_PLAN_TEAM_SOURCE = "MODEL_INPUT_FILE"  # @param ["MODEL_INPUT_FILE", "FPL_ENTRY_VISIBLE", "MANUAL_15_PLAYER_IDS"]
+
+# @markdown **Manual current team — exactly 15 comma-separated official FPL player IDs**
+MY_PLAN_MANUAL_PLAYER_IDS = ""  # @param {type:"string"}
+MY_PLAN_MANUAL_BANK = 0.0  # @param {type:"number"}
+MY_PLAN_MANUAL_FREE_TRANSFERS = 1  # @param [0, 1, 2, 3, 4, 5]
+
+# @markdown **5B–5H transfer controls are intentionally deferred until those scenarios are built.**
+MY_PLAN_TRANSFER_COUNT = "AUTO_BEST_1_TO_5"  # @param ["AUTO_BEST_1_TO_5", "1", "2", "3", "4", "5"]
+
+MY_PLAN_SCENARIOS = (
+    "A_ROLL",
+    "B_TRANSFER_1_TO_5",
+    "C_FREE_HIT",
+    "D_WILDCARD_5GW",
+    "E_ROLL_BENCH_BOOST",
+    "F_ROLL_TRIPLE_CAPTAIN",
+    "G_TRANSFER_1_TO_5_BENCH_BOOST",
+    "H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN",
+)
+if MY_PLAN_SCENARIO not in MY_PLAN_SCENARIOS:
+    raise ValueError(f"Unknown MY_PLAN_SCENARIO: {MY_PLAN_SCENARIO!r}")
+if MY_PLAN_VIDEO_MODE not in {"SELECTED_ONLY", "ALL_8"}:
+    raise ValueError(f"Unknown MY_PLAN_VIDEO_MODE: {MY_PLAN_VIDEO_MODE!r}")
+
+MY_PLAN_IMPLEMENTED_SCENARIOS = {"A_ROLL"}
+if MY_PLAN_VIDEO_MODE == "ALL_8":
+    raise NotImplementedError(
+        "MY PLAN ALL_8 is intentionally blocked until scenarios 5B–5H are built. "
+        "Select SELECTED_ONLY + A_ROLL for the current Slide 5A build."
+    )
+if MY_PLAN_SCENARIO not in MY_PLAN_IMPLEMENTED_SCENARIOS:
+    raise NotImplementedError(
+        f"MY PLAN scenario {MY_PLAN_SCENARIO} is not built yet. "
+        "Only A_ROLL is enabled in this Slide 5A pass."
+    )
+
+MY_PLAN_RENDER_5A = bool(
+    MY_PLAN_VIDEO_MODE == "SELECTED_ONLY"
+    and MY_PLAN_SCENARIO == "A_ROLL"
+)
+'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\\n',
+              'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\\n' + _day3_plan_controls,
+              1,
+              "Day 3 add MY PLAN scenario controls",
+          )
+
           _day3_selection_anchor = '''    "04_clean_sheets": SLIDE_05_CLEAN_SHEETS,
     "05_outro": SLIDE_06_OUTRO,
 }
@@ -513,6 +578,7 @@ SELECTED_SCENES = ['''
     "03_defcon": True,
     "04_final_shortlists": True,
     "05_transfer_decision_desk": True,
+    "05a_my_plan_roll": MY_PLAN_RENDER_5A,
     "05_outro": SLIDE_06_OUTRO,
 }
 
@@ -523,7 +589,67 @@ SELECTED_SCENES = ['''
               _day3_selection_anchor,
               _day3_selection_replacement,
               1,
-              "Day 3 add DEFCON, Final Shortlists and Transfer Decision Desk scene selections",
+              "Day 3 add DEFCON, Final Shortlists, Transfer Decision Desk and MY PLAN 5A scene selections",
+          )
+
+
+          _day3_phase11_manual_anchor = 'def _vx_phase11_manual_squad():\\n    if not PHASE11_MANUAL_SQUAD_PATH.exists():\\n        return None'
+          _day3_phase11_manual_replacement = r'''def _vx_phase11_manual_squad():
+    _plan_source = str(globals().get("MY_PLAN_TEAM_SOURCE", "MODEL_INPUT_FILE"))
+
+    if _plan_source == "FPL_ENTRY_VISIBLE":
+        # Explicitly ignore any persistent manual file for this Day 3 runtime.
+        # Phase 11 will fall through to its existing public visible-squad baseline.
+        return None
+
+    if _plan_source == "MANUAL_15_PLAYER_IDS":
+        _raw_ids = str(globals().get("MY_PLAN_MANUAL_PLAYER_IDS", "") or "")
+        _parts = [part.strip() for part in re.split(r"[,;\\s]+", _raw_ids) if part.strip()]
+        if len(_parts) != 15:
+            raise ValueError(
+                "MY_PLAN_MANUAL_PLAYER_IDS must contain exactly 15 official FPL player IDs"
+            )
+        try:
+            _manual_ids = [int(part) for part in _parts]
+        except Exception as exc:
+            raise ValueError("MY_PLAN_MANUAL_PLAYER_IDS contains a non-integer value") from exc
+        if len(set(_manual_ids)) != 15:
+            raise ValueError("MY_PLAN_MANUAL_PLAYER_IDS must contain 15 unique players")
+
+        _rows = [
+            {"player_id": int(pid), "squad_position": int(index + 1)}
+            for index, pid in enumerate(_manual_ids)
+        ]
+        _rows, _bank, _ft = _vx_phase11_validate_squad_rows(
+            _rows,
+            bank=float(globals().get("MY_PLAN_MANUAL_BANK", 0.0) or 0.0),
+            free_transfers=int(globals().get("MY_PLAN_MANUAL_FREE_TRANSFERS", 1)),
+            source_label="DAY3_CELL0_MANUAL_CURRENT_SQUAD",
+        )
+        return {
+            "rows": _rows,
+            "bank": float(_bank),
+            "free_transfers": int(_ft),
+            "gameweek": int(PHASE11_CURRENT_GW),
+            "snapshot_timestamp": str(PHASE11_TIMESTAMP),
+            "source_name": "DAY3_CELL0_MANUAL_CURRENT_SQUAD",
+            "pre_deadline": bool(PHASE11_BEFORE_DEADLINE),
+            "fresh_for_decisions": bool(PHASE11_BEFORE_DEADLINE),
+            "state_type": "MANUAL_CURRENT_SQUAD",
+        }
+
+    if _plan_source != "MODEL_INPUT_FILE":
+        raise ValueError(f"Unknown MY_PLAN_TEAM_SOURCE: {_plan_source!r}")
+
+    if not PHASE11_MANUAL_SQUAD_PATH.exists():
+        return None'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _phase11_cell,
+              _day3_phase11_manual_anchor,
+              _day3_phase11_manual_replacement,
+              1,
+              "Day 3 MY PLAN current-team source override",
           )
 
           _day3_design_block = r"""
