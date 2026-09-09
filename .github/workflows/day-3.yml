@@ -2730,10 +2730,12 @@ if "05_outro" in manifest:
               root / "SLIDE" / "projected_goals_scene_4k.png",
               root / "SLIDE" / "defcon_scene_4k.png",
               root / "SLIDE" / "final_shortlists_scene_4k.png",
+              root / "SLIDE" / "transfer_decision_desk_scene_4k.png",
               root / "MP4" / "02_fdr.mp4",
               root / "MP4" / "03_projected_goals.mp4",
               root / "MP4" / "03_defcon.mp4",
               root / "MP4" / "04_final_shortlists.mp4",
+              root / "MP4" / "05_transfer_decision_desk.mp4",
           )
           for section_file in section_files:
               if not section_file.is_file() or section_file.stat().st_size <= 0:
@@ -2751,6 +2753,10 @@ if "05_outro" in manifest:
               "03_projected_goals": ("Projected goals tell you", "Over the next six Gameweeks"),
               "03_defcon": ("four teams to target", "three teams to avoid", "DEFCON"),
               "04_final_shortlists": ("expected minutes", "expected points", "final shortlist"),
+              "05_transfer_decision_desk": (
+                  "Transfer Decision Desk", "First up", "Now the holds",
+                  "Finally", "Your move"
+              ),
           }.items():
               script = str((section_narr.get(key) or {}).get("script") or "")
               lowered = script.lower()
@@ -2775,12 +2781,36 @@ if "05_outro" in manifest:
                   f"found {shortlist_duration:.2f}s"
               )
 
+
+          desk_info = section_narr.get("05_transfer_decision_desk") or {}
+          desk_duration = float(desk_info.get("duration") or 0.0)
+          if not 278.0 <= desk_duration <= 282.0:
+              raise SystemExit(
+                  f"Transfer Decision Desk must be about 4:40, found {desk_duration:.2f}s"
+              )
+          desk_script = str(desk_info.get("script") or "")
+          desk_names = (
+              "Cole Palmer", "Morgan Rogers", "Cody Gakpo",
+              "Erling Haaland", "João Pedro", "Bryan Mbeumo",
+              "Bruno Fernandes", "Dominik Szoboszlai", "Nico O’Reilly",
+          )
+          desk_positions = []
+          for desk_name in desk_names:
+              if desk_script.count(desk_name) != 1:
+                  raise SystemExit(
+                      f"Transfer Desk narration must contain {desk_name!r} exactly once"
+                  )
+              desk_positions.append(desk_script.index(desk_name))
+          if desk_positions != sorted(desk_positions):
+              raise SystemExit(f"Transfer Desk player order is wrong: {desk_positions}")
+
           scene_keys = list(qa.get("scene_keys") or [])
           required_master_order = [
               "02_fdr",
               "03_projected_goals",
               "03_defcon",
               "04_final_shortlists",
+              "05_transfer_decision_desk",
           ]
           positions = []
           for scene_key in required_master_order:
@@ -2794,8 +2824,8 @@ if "05_outro" in manifest:
                   f"Day 3 combined master scene order is wrong: {positions}"
               )
           print(
-              "Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists "
-              "PNG/MP4/narration contract: PASS"
+              "Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + "
+              "Transfer Decision Desk PNG/MP4/narration contract: PASS"
           )
 
           final_mp4s = [
