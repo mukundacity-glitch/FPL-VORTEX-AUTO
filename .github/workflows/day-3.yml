@@ -309,12 +309,14 @@ OUTRO = Template(r"""<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$st
     captain=escape(_d3_out_cap_name),captain_value=escape(_d3_out_cap_value),
 )
 '''
+          _day3_old_outro_start = """OUTRO = Template(r'''<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene outroScene">"""
+
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _intro_cell,
-              'OUTRO = Template(r\\'\\'\\'<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene outroScene">',
+              _day3_old_outro_start,
               'INTRO = vx_apply_pl_lockup(INTRO)',
-              _day3_elite_outro + '\\nINTRO = vx_apply_pl_lockup(INTRO)',
+              _day3_elite_outro + '\nINTRO = vx_apply_pl_lockup(INTRO)',
               "Day 3 completely replace old outro design with elite final takeaways + CTA",
           )
 
@@ -6685,13 +6687,13 @@ Thank you for watching. This is FPL Vortex. Data over hype, decisions over noise
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _narr_cell,
-              '"05_outro":\\n\\nf"""',
-              '}\\n\\n# FDR pacing target:',
-              _day3_elite_outro_script + '\\n\\n# FDR pacing target:',
+              '"05_outro":\n\nf"""',
+              '}\n\n# FDR pacing target:',
+              _day3_elite_outro_script + '\n\n# FDR pacing target:',
               "Day 3 replace old short outro narration with elite one-minute takeaway + CTA",
           )
 
-          _day3_elite_outro_word_qa = r'''_outro_word_count=len(re.findall(r"\\b[\\w’'-]+\\b", scripts["05_outro"]))
+          _day3_elite_outro_word_qa = r'''_outro_word_count=len(re.findall(r"\b[\w’'-]+\b", scripts["05_outro"]))
 if not 145 <= _outro_word_count <= 230:
     raise RuntimeError(f"Elite outro narration pacing drifted outside target range: {_outro_word_count} words")
 print(f"✅ Elite Outro narration: {_outro_word_count} words • target ~60 seconds • final takeaways → CTA → thank you")
@@ -6700,7 +6702,7 @@ print(f"✅ Elite Outro narration: {_outro_word_count} words • target ~60 seco
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _narr_cell,
-              '_outro_word_count=len(re.findall(r"\\\\b[\\\\w’\\'-]+\\\\b", scripts["05_outro"]))',
+              '_outro_word_count=len(re.findall(r"\\b[\\w’\\'-]+\\b", scripts["05_outro"]))',
               '# Narration QA:',
               _day3_elite_outro_word_qa,
               "Day 3 replace old short-outro word-count QA",
@@ -6997,7 +6999,7 @@ OUT=TIMING'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _narr_cell,
-              'if "05_outro" in manifest:\\n    _outro_duration = float(manifest["05_outro"]["duration"])',
+              'if "05_outro" in manifest:\n    _outro_duration = float(manifest["05_outro"]["duration"])',
               'OUT=TIMING',
               _day3_elite_outro_duration_qa,
               "Day 3 replace old outro duration QA with one-minute elite gate",
@@ -7258,7 +7260,7 @@ OUT=TIMING'''
               runtime_source_text,
               _anim_cell,
               '    # OUTRO — every narrative transition is anchored to Ryan WordBoundary data.',
-              '# ------------------------------------------------------------\\n# COMMON 4K CSS',
+              '# ------------------------------------------------------------\n# COMMON 4K CSS',
               _day3_elite_outro_events,
               "Day 3 replace old outro animation events with elite staged animation",
           )
@@ -7384,8 +7386,8 @@ OUT=TIMING'''
               runtime_source_text,
               _anim_cell,
               '    "05_outro": [',
-              '}\\n\\n# ------------------------------------------------------------\\n# ORIGINAL CHANNEL LOGO',
-              '    "05_outro": [],\\n}\\n\\n# ------------------------------------------------------------\\n# ORIGINAL CHANNEL LOGO',
+              '}\n\n# ------------------------------------------------------------\n# ORIGINAL CHANNEL LOGO',
+              '    "05_outro": [],\n}\n\n# ------------------------------------------------------------\n# ORIGINAL CHANNEL LOGO',
               "Day 3 remove old outro dead-air facts",
           )
 
@@ -7447,7 +7449,7 @@ OUT=TIMING'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _anim_cell,
-              '    /* ----------------------------------------------------\\n       OUTRO STAGING\\n       ---------------------------------------------------- */',
+              '    /* ----------------------------------------------------\n       OUTRO STAGING\n       ---------------------------------------------------- */',
               '    document.documentElement.dataset.vortexTime=',
               _day3_elite_outro_js,
               "Day 3 replace old outro staging JavaScript with elite motion",
@@ -7502,7 +7504,7 @@ OUT=TIMING'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _anim_cell,
-              '    if key=="05_outro":\\n        today_1=vx_phrase_time',
+              '    # Outro timings are strict Ryan WordBoundary anchors — no guessed fallbacks.\n    if key=="05_outro":',
               '    page=src.read_text(',
               _day3_elite_outro_payload,
               "Day 3 replace old outro animation payload/highlights",
