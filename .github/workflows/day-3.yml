@@ -5405,7 +5405,6 @@ if "05_outro" in manifest:
               )
 
           preserved_review_files = (
-          preserved_review_files = (
               root / "SLIDE" / "gw_review_scene_4k.png",
               root / "MP3" / "gw_review.mp3",
               root / "MP4" / "gw_review.mp4",
@@ -5424,7 +5423,7 @@ if "05_outro" in manifest:
               "03_defcon",
               "04_final_shortlists",
               "05_transfer_decision_desk",
-              "05a_my_plan_roll",
+              selected_plan_key,
           ]
           positions = []
           for scene_key in required_master_order:
@@ -5439,7 +5438,7 @@ if "05_outro" in manifest:
               )
           print(
               "Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + "
-              "Transfer Decision Desk + MY PLAN 5A PNG/MP4/narration contract: PASS"
+              f"Transfer Decision Desk + {expected_label} PNG/MP4/narration contract: PASS"
           )
 
           final_mp4s = [
