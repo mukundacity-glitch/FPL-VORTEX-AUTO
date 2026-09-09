@@ -7764,6 +7764,102 @@ jobs:
           studio_text = replace_exact(
               studio_text, "1/3", "3/3", 3, "Studio visible series labels"
           )
+
+          _day3_studio_labels = '''    labels = {
+        "00_intro": "FPL VORTEX intro",
+        "gw_review": f"GW{review_gw} review",
+        "02_fdr": "Fixture difficulty",
+        "03_projected_goals": "Projected goals",
+        "04_clean_sheets": "Clean-sheet odds",
+        "05_outro": "Next video",
+    }
+'''
+          _day3_studio_labels_replacement = '''    labels = {
+        "00_intro": "FPL VORTEX intro",
+        "03_projected_goals": "Projected Goals",
+        "03_defcon": "DEFCON",
+        "04_final_shortlists": "Final Shortlists",
+        "05_transfer_decision_desk": "Transfer Decision Desk",
+        "gw_review": f"GW{review_gw} Gameweek Review",
+        "05a_my_plan_roll": "My Plan • Roll",
+        "05b_my_plan_transfer": "My Plan • Transfer",
+        "05c_my_plan_free_hit": "My Plan • Free Hit",
+        "05d_my_plan_wildcard": "My Plan • Wildcard",
+        "05e_my_plan_roll_bb": "My Plan • Roll + Bench Boost",
+        "05f_my_plan_roll_tc": "My Plan • Roll + Triple Captain",
+        "05g_my_plan_transfer_bb": "My Plan • Transfer + Bench Boost",
+        "05h_my_plan_transfer_tc": "My Plan • Transfer + Triple Captain",
+        "02_fdr": "Benching Dilemma",
+        "04_clean_sheets": "Chip Strategy",
+        "05_outro": "Elite Takeaways & CTA",
+    }
+'''
+          studio_text = replace_exact(
+              studio_text,
+              _day3_studio_labels,
+              _day3_studio_labels_replacement,
+              1,
+              "Day 3 YouTube chapter labels",
+          )
+
+          _day3_studio_metadata_anchor = (
+              '    metadata = _vx23_metadata(preview_gw, review_gw, review_status, qa)\n\n'
+              '    package = {'
+          )
+          _day3_studio_metadata_replacement = r'''    metadata = _vx23_metadata(preview_gw, review_gw, review_status, qa)
+    _day3_chapters = list(metadata.get("chapters") or [])
+    _day3_hashtags = [
+        "#FPL",
+        "#FantasyPremierLeague",
+        f"#FPLGW{preview_gw}",
+        "#FPLVORTEX",
+    ]
+    metadata["title"] = (
+        f"FPL GW{preview_gw} Final Team: Transfers, Bench, Chips & Captain | "
+        f"GW{review_gw} Review (3/3)"
+    )
+    metadata["description"] = "\n".join(
+        [
+            f"FPL VORTEX Video 3/3 for Gameweek {preview_gw}.",
+            "",
+            "This final decision video covers:",
+            "• Projected Goals and DEFCON",
+            "• Final Shortlists and Transfer Decision Desk",
+            f"• GW{review_gw} Gameweek Review and My Plan",
+            "• Benching Dilemma and Chip Strategy",
+            "• Elite takeaways, captaincy and final CTA",
+            "",
+            "CHAPTERS",
+            *_day3_chapters,
+            "",
+            " ".join(_day3_hashtags),
+        ]
+    )
+    metadata["hashtags"] = _day3_hashtags
+    metadata["tags"] = list(dict.fromkeys(
+        list(metadata.get("tags") or [])
+        + [
+            "FPL Vortex",
+            "FPL transfers",
+            "FPL captain",
+            "FPL bench",
+            "FPL chip strategy",
+            "FPL wildcard",
+            "FPL free hit",
+            "FPL bench boost",
+            "FPL triple captain",
+        ]
+    ))
+
+    package = {'''
+          studio_text = replace_exact(
+              studio_text,
+              _day3_studio_metadata_anchor,
+              _day3_studio_metadata_replacement,
+              1,
+              "Day 3 YouTube Video 3/3 metadata",
+          )
+
           studio_script = runtime_dir / "youtube_studio_video_3_of_3.py"
           compile(studio_text, str(studio_script), "exec")
           studio_script.write_text(studio_text, encoding="utf-8")
@@ -8546,9 +8642,13 @@ jobs:
 
 
           intro_slide = root / "SLIDE" / "intro_scene_4k.png"
+          intro_mp3 = root / "MP3" / "00_intro.mp3"
           intro_mp4 = root / "MP4" / "00_intro.mp4"
           narration_path = root / "DATA" / "other_scenes_narration.json"
-          for required_path in (intro_slide, intro_mp4, narration_path):
+          animation_path = root / "DATA" / "other_scenes_animation.json"
+          for required_path in (
+              intro_slide, intro_mp3, intro_mp4, narration_path, animation_path
+          ):
               if not required_path.is_file() or required_path.stat().st_size <= 0:
                   raise SystemExit(f"Day 3_3 Slide 0 output is missing: {required_path}")
 
@@ -8601,13 +8701,18 @@ jobs:
               root / "DATA" / "benching_dilemma.json",
               root / "SLIDE" / "clean_sheet_scene_4k.png",
               root / "DATA" / "chip_strategy.json",
+              root / "MP3" / "02_fdr.mp3",
+              root / "MP3" / "03_projected_goals.mp3",
+              root / "MP3" / "03_defcon.mp3",
+              root / "MP3" / "04_final_shortlists.mp3",
+              root / "MP3" / "05_transfer_decision_desk.mp3",
               root / "MP3" / "04_clean_sheets.mp3",
-              root / "MP4" / "04_clean_sheets.mp4",
               root / "MP4" / "02_fdr.mp4",
               root / "MP4" / "03_projected_goals.mp4",
               root / "MP4" / "03_defcon.mp4",
               root / "MP4" / "04_final_shortlists.mp4",
               root / "MP4" / "05_transfer_decision_desk.mp4",
+              root / "MP4" / "04_clean_sheets.mp4",
           )
           for section_file in section_files:
               if not section_file.is_file() or section_file.stat().st_size <= 0:
@@ -8633,6 +8738,42 @@ jobs:
               missing = [phrase for phrase in required_phrases if phrase.lower() not in lowered]
               if missing:
                   raise SystemExit(f"{key} Day 3_3 narration missing: {missing}")
+          shared_animation = json.loads(animation_path.read_text(encoding="utf-8"))
+          shared_animation_keys = (
+              "00_intro",
+              "02_fdr",
+              "03_projected_goals",
+              "03_defcon",
+              "04_final_shortlists",
+              "05_transfer_decision_desk",
+              "04_clean_sheets",
+              "05_outro",
+          )
+          for animation_key in shared_animation_keys:
+              anim_row = shared_animation.get(animation_key) or {}
+              narr_row = section_narr.get(animation_key) or {}
+              if not anim_row:
+                  raise SystemExit(f"Shared animation manifest is missing {animation_key}")
+              if not list(anim_row.get("events") or []):
+                  raise SystemExit(f"Shared animation has no events for {animation_key}")
+              anim_duration = float(anim_row.get("duration") or 0.0)
+              narr_duration = float(narr_row.get("duration") or 0.0)
+              if anim_duration <= 0.0 or narr_duration <= 0.0:
+                  raise SystemExit(
+                      f"Invalid narration/animation duration for {animation_key}: "
+                      f"{narr_duration}/{anim_duration}"
+                  )
+              if abs(anim_duration - narr_duration) > 0.05:
+                  raise SystemExit(
+                      f"Narration/animation duration mismatch for {animation_key}: "
+                      f"{narr_duration:.3f}s vs {anim_duration:.3f}s"
+                  )
+              if not str(anim_row.get("html") or "").strip():
+                  raise SystemExit(f"Shared animation HTML path is missing for {animation_key}")
+              if not str(anim_row.get("audio") or "").strip():
+                  raise SystemExit(f"Shared animation audio path is missing for {animation_key}")
+          print("Day 3 shared narration + animation manifest contract: PASS")
+
           chip_info = section_narr.get("04_clean_sheets") or {}
           chip_duration = float(chip_info.get("duration") or 0.0)
           if not 90.0 <= chip_duration <= 110.0:
