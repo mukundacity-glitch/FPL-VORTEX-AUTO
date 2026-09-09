@@ -7709,7 +7709,7 @@ CACHE.pop("05_outro", None)
               'TOMORROW VIDEO',
               'Today, we found the teams with the best fixture runs',
               'Outro duration must land between 20 and 25 seconds',
-              'Outro Ryan pacing correction:',
+              '↻ Outro Ryan pacing correction:',
           )
           _day3_outro_stale = [
               marker for marker in _day3_outro_forbidden
