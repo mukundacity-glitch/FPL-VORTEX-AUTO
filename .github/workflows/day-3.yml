@@ -977,10 +977,9 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
         name = vx_narration_player(int(p["id"]))
         if first_goalkeeper:
             return (
-                f"{name}. I start him in goal. The model gives him {p['xpts']:.1f} expected points "
+                f"{name}. I start him in goal. VORTEX projects {p['xpts']:.1f} points "
                 f"from {p['xmins']:.0f} expected minutes against {_d3_plan_spoken_fixture(p)}. "
-                "Because this is the roll scenario, I am not spending a transfer here; "
-                "the current goalkeeper keeps his place on the strength of this Gameweek projection."
+                "In Scenario A I roll the transfer, so he keeps the goalkeeper slot."
             )
         if bench:
             return (
