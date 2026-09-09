@@ -237,6 +237,87 @@ jobs:
               "Day 3 intro HTML",
           )
           
+          # ------------------------------------------------------------
+          # DAY 3_3 ONLY — ELITE PREMIUM OUTRO • ~60s
+          # FINAL TAKEAWAYS → CTA → ORIGINAL LOGO FINALE
+          # ------------------------------------------------------------
+          _day3_elite_outro = r'''
+for _stale in (OUTRO_HTML, OUTRO_PNG):
+    Path(_stale).unlink(missing_ok=True)
+
+_d3_out_attack = p.sort_values(["avg_xg","team_short"], ascending=[False,True]).iloc[0]
+_d3_out_defence = p.sort_values(["avg_cs","team_short"], ascending=[False,True]).iloc[0]
+_d3_out_fixture = fdr_table.sort_values(["average_fdr","team"], ascending=[True,True]).iloc[0]
+
+_d3_out_attack_name = str(_d3_out_attack.get("team_short") or _d3_out_attack.get("team") or "TBD").upper()
+_d3_out_defence_name = str(_d3_out_defence.get("team_short") or _d3_out_defence.get("team") or "TBD").upper()
+_d3_out_fixture_name = str(_d3_out_fixture.get("team_short") or _d3_out_fixture.get("team") or "TBD").upper()
+_d3_out_attack_value = float(pd.to_numeric(_d3_out_attack.get("avg_xg"), errors="coerce"))
+_d3_out_defence_value = float(pd.to_numeric(_d3_out_defence.get("avg_cs"), errors="coerce"))
+_d3_out_fixture_value = float(pd.to_numeric(_d3_out_fixture.get("average_fdr"), errors="coerce"))
+
+_d3_out_cap = globals().get("PHASE11_BEST_CAPTAIN") or {}
+_d3_out_cap_name = str(_d3_out_cap.get("player_name") or _d3_out_cap.get("web_name") or "MODEL CAPTAIN").upper()
+_d3_out_cap_raw = pd.to_numeric(_d3_out_cap.get("final_gameweek_xpts"), errors="coerce")
+_d3_out_cap_xpts = float(_d3_out_cap_raw) if pd.notna(_d3_out_cap_raw) else None
+_d3_out_cap_value = f"{_d3_out_cap_xpts:.1f} xPTS" if _d3_out_cap_xpts is not None else "HIGHEST CURRENT CEILING"
+
+D3_ELITE_OUTRO_DATA = {
+    "gameweek": int(NEXT_GW),
+    "attack_team": _d3_out_attack_name,
+    "attack_xg": _d3_out_attack_value,
+    "defence_team": _d3_out_defence_name,
+    "defence_cs": _d3_out_defence_value,
+    "fixture_team": _d3_out_fixture_name,
+    "fixture_fdr": _d3_out_fixture_value,
+    "captain": _d3_out_cap_name,
+    "captain_xpts": _d3_out_cap_xpts,
+}
+
+OUTRO_ELITE_STYLE = r"""
+.outroScene{background:radial-gradient(circle at 82% 12%,rgba(245,197,24,.16),transparent 26%),radial-gradient(circle at 14% 84%,rgba(0,212,255,.14),transparent 30%),linear-gradient(145deg,#020711 0%,#071426 52%,#02050c 100%)!important}
+.outroScene:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(rgba(255,255,255,.014) 1px,transparent 1px);background-size:110px 110px;opacity:.38;pointer-events:none}
+.outroScene .topHeader{top:34px;height:228px;z-index:30}.outroScene .brandLock{height:220px;gap:34px}.outroScene .logoBox{width:505px;height:205px}.outroScene .logoBox .vortex-logo{max-width:490px!important;max-height:190px!important}.outroScene .channelName{font-size:68px}.outroScene .channelSub{font-size:22px;letter-spacing:4px}.outroScene .gwPill{font-size:29px;padding:16px 25px}
+.eliteSummary{position:absolute;inset:0;z-index:10}.eliteTakeTitle{position:absolute;top:287px;left:150px;right:150px;text-align:center}.eliteTakeKicker{font:1000 22px Arial;letter-spacing:8px;color:#00D4FF}.eliteTakeTitle h1{margin:12px 0 0;font-size:104px;line-height:.95;font-weight:1000;letter-spacing:4px;color:#fff;text-shadow:0 10px 34px rgba(0,0,0,.48)}.eliteTakeTitle h1 span{color:#F5C518}.eliteTakeSub{margin-top:18px;font:950 26px Arial;letter-spacing:5px;color:#9fb4c8}
+.eliteTakeGrid{position:absolute;left:170px;right:170px;top:555px;height:890px;display:grid;grid-template-columns:1fr 1fr;gap:28px}.eliteTakeCard{position:relative;overflow:hidden;border-radius:34px;padding:42px 46px;background:linear-gradient(145deg,rgba(13,29,49,.96),rgba(5,13,25,.99));border:2px solid rgba(255,255,255,.10);box-shadow:0 28px 72px rgba(0,0,0,.36),inset 0 1px 0 rgba(255,255,255,.07)}.eliteTakeCard:nth-child(1),.eliteTakeCard:nth-child(4){border-color:rgba(245,197,24,.34)}.eliteTakeCard:nth-child(2),.eliteTakeCard:nth-child(3){border-color:rgba(0,212,255,.30)}
+.eliteTakeNo{font:1000 24px Arial;letter-spacing:5px;color:#F5C518}.eliteTakeLabel{margin-top:16px;font-size:41px;font-weight:1000;letter-spacing:2px;color:#fff}.eliteTakeValue{margin-top:26px;font-size:75px;line-height:.94;font-weight:1000;color:#00D4FF}.eliteTakeCard:nth-child(1) .eliteTakeValue,.eliteTakeCard:nth-child(4) .eliteTakeValue{color:#F5C518}.eliteTakeMetric{margin-top:18px;font:950 28px Arial;letter-spacing:2px;color:#c8d8e7}
+.eliteRule{position:absolute;left:380px;right:380px;top:1500px;height:190px;border-radius:34px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(100deg,rgba(76,58,4,.62),rgba(4,34,52,.74));border:2px solid rgba(245,197,24,.36);box-shadow:0 24px 68px rgba(0,0,0,.34)}.eliteRule small{font:1000 20px Arial;letter-spacing:7px;color:#9fb4c8}.eliteRule strong{margin-top:15px;font-size:58px;letter-spacing:3px;color:#fff}.eliteRule strong span{color:#F5C518}.outroFooter{z-index:30!important}
+#ctaStage{position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;flex-direction:column;background:radial-gradient(circle at 50% 42%,rgba(245,197,24,.12),transparent 31%),linear-gradient(145deg,#020711,#071426 58%,#02050c)}.eliteCtaKicker{font:1000 24px Arial;letter-spacing:9px;color:#00D4FF}.eliteCtaMain{margin-top:20px;font-size:96px;line-height:.98;font-weight:1000;letter-spacing:3px;color:#fff;text-align:center}.eliteCtaMain span{color:#F5C518}.eliteCtaSub{margin-top:24px;font:950 31px/1.25 Arial;letter-spacing:2px;color:#b9ccdc;text-align:center}
+.eliteCtaActions{margin-top:52px;display:flex;align-items:center;gap:24px}.ctaAction{height:104px;min-width:255px;padding:0 32px;border-radius:24px;display:flex;align-items:center;justify-content:center;font:1000 27px Arial;letter-spacing:2px;background:rgba(255,255,255,.055);border:2px solid rgba(255,255,255,.12);color:#fff}.ctaAction.subscribe{min-width:360px;background:linear-gradient(180deg,#ffe88b,#F5C518);color:#07101e;border-color:#ffe88b;box-shadow:0 0 46px rgba(245,197,24,.18)}.ctaAction.comment{border-color:rgba(0,212,255,.42);color:#00D4FF}.eliteCtaSocial{margin-top:46px;display:flex;gap:65px;font:1000 30px Arial;letter-spacing:2px;color:#fff}.eliteCtaSocial b{color:#F5C518}.eliteBell{display:inline-block;margin-left:18px;font-size:42px;transform-origin:50% 15%}
+#logoStage{position:absolute;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 42%,rgba(245,197,24,.17),transparent 30%),linear-gradient(145deg,#020711,#060d18 58%,#010307)}.eliteLogoHolder{width:1500px;height:720px;display:flex;align-items:center;justify-content:center}.eliteLogoHolder .vortex-logo{max-width:1480px!important;max-height:700px!important;width:auto!important;height:auto!important;filter:drop-shadow(0 20px 45px rgba(0,0,0,.50))}.eliteThank{margin-top:14px;font-size:86px;font-weight:1000;letter-spacing:7px;color:#F5C518}.eliteFinalLine{margin-top:18px;font:1000 31px Arial;letter-spacing:6px;color:#dce8f3}.eliteHandle{margin-top:22px;font:1000 28px Arial;letter-spacing:4px;color:#00D4FF}.eliteParticle{position:absolute;width:9px;height:9px;border-radius:50%;background:#F5C518;box-shadow:0 0 25px rgba(245,197,24,.65);opacity:.18;pointer-events:none}
+"""
+_d3_out_particles = "".join(
+    f'<i class="eliteParticle" data-p="{i}" style="left:{4 + (i*13)%92}%;top:{5 + (i*19)%88}%"></i>'
+    for i in range(12)
+)
+
+OUTRO = Template(r"""<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene outroScene" data-vx-day3="elite-outro-v1">$particles<div class="bgFade" id="bgFade"></div>
+<div class="eliteSummary" id="summaryStage"><header class="topHeader"><div class="brandLock"><div class="logoBox">$logo</div><div class="brandWords"><div class="channelName">FPL VORTEX</div><div class="channelSub">DATA • MODEL • DECISIONS</div></div></div><div class="gwPill">GAMEWEEK $gw</div></header>
+<section class="eliteTakeTitle"><div class="eliteTakeKicker">FINAL DECISION LOCK</div><h1>ELITE <span>TAKEAWAYS</span></h1><div class="eliteTakeSub">WHAT MATTERS BEFORE THE DEADLINE</div></section>
+<section class="eliteTakeGrid"><article class="eliteTakeCard take-1"><div class="eliteTakeNo">01 • ATTACK</div><div class="eliteTakeLabel">BEST ATTACKING ENVIRONMENT</div><div class="eliteTakeValue">$attack_team</div><div class="eliteTakeMetric">$attack_xg xG / FIXTURE</div></article>
+<article class="eliteTakeCard take-2"><div class="eliteTakeNo">02 • DEFENCE</div><div class="eliteTakeLabel">BEST CLEAN-SHEET ENVIRONMENT</div><div class="eliteTakeValue">$defence_team</div><div class="eliteTakeMetric">$defence_cs% AVG CS</div></article>
+<article class="eliteTakeCard take-3"><div class="eliteTakeNo">03 • FIXTURE</div><div class="eliteTakeLabel">EASIEST UPCOMING RUN</div><div class="eliteTakeValue">$fixture_team</div><div class="eliteTakeMetric">$fixture_fdr AVG FDR</div></article>
+<article class="eliteTakeCard take-4"><div class="eliteTakeNo">04 • CAPTAIN</div><div class="eliteTakeLabel">CURRENT MODEL LEADER</div><div class="eliteTakeValue">$captain</div><div class="eliteTakeMetric">$captain_value</div></article></section>
+<section class="eliteRule"><small>THE VORTEX RULE</small><strong>MINUTES • FIXTURE • xPTS • <span>CEILING</span></strong></section><footer class="footer outroFooter"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div>
+<section id="ctaStage"><div class="eliteCtaKicker">CALL TO ACTION</div><div class="eliteCtaMain">JOIN THE <span>FPL VORTEX</span></div><div class="eliteCtaSub">SUBSCRIBE FOR THE NEXT GAMEWEEK MODEL • COMMENT YOUR TRANSFER, CAPTAIN OR CHIP PLAN</div><div class="eliteCtaActions"><div class="ctaAction subscribe">SUBSCRIBE <span class="eliteBell">◉</span></div><div class="ctaAction">LIKE</div><div class="ctaAction comment">COMMENT</div><div class="ctaAction">SHARE</div><div class="ctaAction">FOLLOW</div></div><div class="eliteCtaSocial"><span>YOUTUBE <b>@FPLVORTEX</b></span><span>𝕏 <b>@FPLVORTEXM</b></span></div></section>
+<section id="logoStage"><div class="eliteLogoHolder">$logo</div><div class="eliteThank">THANK YOU</div><div class="eliteFinalLine">DATA OVER HYPE • DECISIONS OVER NOISE</div><div class="eliteHandle">$handle</div></section></div></body></html>""").substitute(
+    style=STYLE+"\n"+OUTRO_ELITE_STYLE,particles=_d3_out_particles,logo=vortex_logo_html,gw=int(NEXT_GW),
+    social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),handle=str(globals().get("CHANNEL_HANDLE","@FPLVORTEX")).strip(),
+    attack_team=escape(_d3_out_attack_name),attack_xg=f"{_d3_out_attack_value:.2f}",
+    defence_team=escape(_d3_out_defence_name),defence_cs=f"{_d3_out_defence_value:.0f}",
+    fixture_team=escape(_d3_out_fixture_name),fixture_fdr=f"{_d3_out_fixture_value:.1f}",
+    captain=escape(_d3_out_cap_name),captain_value=escape(_d3_out_cap_value),
+)
+'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _intro_cell,
+              'OUTRO = Template(r\\'\\'\\'<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene outroScene">',
+              'INTRO = vx_apply_pl_lockup(INTRO)',
+              _day3_elite_outro + '\\nINTRO = vx_apply_pl_lockup(INTRO)',
+              "Day 3 completely replace old outro design with elite final takeaways + CTA",
+          )
+
           _new_validation = '''print("✅ Intro layout: Video 2 recap left → Video 3/3 agenda right")
           print("✅ OUTRO HTML:",OUTRO_HTML)
           
@@ -6579,6 +6660,52 @@ That is the chip strategy for Gameweek {NEXT_GW}. See you next week.
               "Day 3 completely replace Clean Sheet narration with Slide 7 Chip Strategy",
           )
 
+
+          _day3_elite_outro_script = r'''"05_outro":
+f"""
+Final takeaways for Gameweek {NEXT_GW}. The model is finished, the shortlist is built, and these are the decisions I want to carry into the deadline.
+
+First, {_d3_out_attack_name} lead the attacking environment at {_d3_out_attack_value:.2f} expected goals per fixture. That is the team context I trust most for attacking upside.
+
+Second, {_d3_out_defence_name} lead the defensive environment at {_d3_out_defence_value:.0f} percent average clean-sheet probability. That is where the defensive floor looks strongest.
+
+Third, {_d3_out_fixture_name} own the easiest upcoming run at {_d3_out_fixture_value:.1f} average FDR. Fixtures do not make the decision alone, but they create the opportunity.
+
+Fourth, {_d3_out_cap_name} is my current captaincy model leader{f" at {_d3_out_cap_xpts:.1f} expected points" if _d3_out_cap_xpts is not None else ""}. Captaincy still comes back to minutes, fixture quality, expected points and ceiling.
+
+The bigger lesson is consistency. Do not chase one-week noise. Do not bench secure minutes for reputation. Do not force a transfer or chip without a real expected-points edge. If late team news changes the minutes, refresh the model and change the decision.
+
+Before you go, subscribe to FPL Vortex, like the video, and comment with your transfer, captain or chip plan. Share it with another FPL manager, and follow YouTube at FPL Vortex and X at FPL Vortex M for the next Gameweek update.
+
+Thank you for watching. This is FPL Vortex. Data over hype, decisions over noise. See you next Gameweek.
+
+""".strip(),
+
+}'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '"05_outro":\\n\\nf"""',
+              '}\\n\\n# FDR pacing target:',
+              _day3_elite_outro_script + '\\n\\n# FDR pacing target:',
+              "Day 3 replace old short outro narration with elite one-minute takeaway + CTA",
+          )
+
+          _day3_elite_outro_word_qa = r'''_outro_word_count=len(re.findall(r"\\b[\\w’'-]+\\b", scripts["05_outro"]))
+if not 145 <= _outro_word_count <= 230:
+    raise RuntimeError(f"Elite outro narration pacing drifted outside target range: {_outro_word_count} words")
+print(f"✅ Elite Outro narration: {_outro_word_count} words • target ~60 seconds • final takeaways → CTA → thank you")
+
+# Narration QA:'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '_outro_word_count=len(re.findall(r"\\\\b[\\\\w’\\'-]+\\\\b", scripts["05_outro"]))',
+              '# Narration QA:',
+              _day3_elite_outro_word_qa,
+              "Day 3 replace old short-outro word-count QA",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _narr_cell,
@@ -6592,7 +6719,7 @@ That is the chip strategy for Gameweek {NEXT_GW}. See you next week.
               runtime_source_text,
               _narr_cell,
               'manifest={}',
-              '(AUDIO / "02_fdr.mp3").unlink(missing_ok=True)\n(AUDIO / "04_clean_sheets.mp3").unlink(missing_ok=True)\nmanifest={}',
+              '(AUDIO / "02_fdr.mp3").unlink(missing_ok=True)\n(AUDIO / "04_clean_sheets.mp3").unlink(missing_ok=True)\n(AUDIO / "05_outro.mp3").unlink(missing_ok=True)\nmanifest={}',
               1,
               "Day 3 Slide 6 remove stale 02_fdr MP3 before Ryan TTS",
           )
@@ -6730,6 +6857,30 @@ if "05_outro" in manifest:
               "Day 3 lock Slide 7 Ryan narration to 90–110 seconds",
           )
 
+
+          _day3_elite_outro_pacing = r'''    if key=="05_outro":
+        for _attempt in range(3):
+            _d=float(manifest[key]["duration"])
+            if 55.0 <= _d <= 65.0:
+                break
+            _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
+            _current_speed=max(0.20,1.0+_current_rate/100.0)
+            _target_seconds=60.0
+            _needed_speed=_current_speed*(_d/_target_seconds)
+            _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
+            print(f"↻ Elite Outro Ryan pacing correction: {_d:.2f}s at {manifest[key]['tts_profile']['rate']} → {_new_rate}")
+            manifest[key]=await make_audio(key,text,rate_override=_new_rate)
+
+    print('''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '    if key=="05_outro":\\n        for _attempt in range(2):\\n            _d=float(manifest[key]["duration"])\\n            if 20.0 <= _d <= 25.8:',
+              '    print(',
+              _day3_elite_outro_pacing,
+              "Day 3 replace old 20–25 second outro pacing with 55–65 second elite outro",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _narr_cell,
@@ -6815,6 +6966,45 @@ if "05_outro" in manifest:
 ''',
               1,
               "Day 3 validate Slide 7 duration and section order",
+          )
+
+
+          _day3_elite_outro_duration_qa = r'''if "05_outro" in manifest:
+    _outro_info=manifest["05_outro"]
+    _outro_duration=float(_outro_info["duration"])
+    if not 55.0 <= _outro_duration <= 65.0:
+        raise RuntimeError(f"Elite outro duration must be 55–65 seconds; current audio is {_outro_duration:.2f}s")
+    _ow=_outro_info["words"]
+    _oa=[
+        vx_phrase_time(_ow,"Final takeaways for Gameweek",required=True,context="Elite outro open"),
+        vx_phrase_time(_ow,"First",required=True,context="Elite outro attack"),
+        vx_phrase_time(_ow,"Second",required=True,context="Elite outro defence"),
+        vx_phrase_time(_ow,"Third",required=True,context="Elite outro fixture"),
+        vx_phrase_time(_ow,"Fourth",required=True,context="Elite outro captain"),
+        vx_phrase_time(_ow,"The bigger lesson is consistency",required=True,context="Elite outro rule"),
+        vx_phrase_time(_ow,"Before you go",required=True,context="Elite outro CTA"),
+        vx_phrase_time(_ow,"Thank you for watching",required=True,context="Elite outro finale"),
+    ]
+    if _oa != sorted(_oa) or len(set(_oa)) != len(_oa):
+        raise RuntimeError(f"Elite outro narration order is invalid: {_oa}")
+    print(f"✅ Elite Outro duration locked: {_outro_duration:.2f}s")
+
+OUT=TIMING'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              'if "05_outro" in manifest:\\n    _outro_duration = float(manifest["05_outro"]["duration"])',
+              'OUT=TIMING',
+              _day3_elite_outro_duration_qa,
+              "Day 3 replace old outro duration QA with one-minute elite gate",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              'print("✅ Updated short outro")',
+              'print("✅ Elite 60-second final takeaways + CTA outro")',
+              1,
+              "Day 3 narration summary label for elite outro",
           )
 
           _day3_anim_scene_anchor = '''    "03_projected_goals": (
