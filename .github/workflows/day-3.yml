@@ -1678,17 +1678,17 @@ jobs:
               }]
 
               for _i, _p in enumerate(_d3_plan_starters):
-          _d3_plan_segments.append({
-            "id":f"plan_player_{_p['id']}",
-            "player_id":int(_p["id"]),
-            "name":vx_narration_player(int(_p["id"])),
-            "kind":"starter",
-            "text":_d3_plan_player_text(
-                _p,
-                bench=False,
-                first_goalkeeper=(_i == 0 and _p["pos"] == "GK"),
-            ),
-          })
+                  _d3_plan_segments.append({
+                      "id":f"plan_player_{_p['id']}",
+                      "player_id":int(_p["id"]),
+                      "name":vx_narration_player(int(_p["id"])),
+                      "kind":"starter",
+                      "text":_d3_plan_player_text(
+                          _p,
+                          bench=False,
+                          first_goalkeeper=(_i == 0 and _p["pos"] == "GK"),
+                      ),
+                  })
 
               _d3_plan_segments.append({
                   "id":"bench_intro",
@@ -2787,17 +2787,17 @@ jobs:
               }]
 
               for _i, _p in enumerate(_d3_plan_starters):
-          _d3_plan_segments.append({
-            "id":f"plan_player_{_p['id']}",
-            "player_id":int(_p["id"]),
-            "name":vx_narration_player(int(_p["id"])),
-            "kind":"starter",
-            "text":_d3_plan_player_text(
-                _p,
-                bench=False,
-                first_goalkeeper=(_i == 0 and _p["pos"] == "GK"),
-            ),
-          })
+                  _d3_plan_segments.append({
+                      "id":f"plan_player_{_p['id']}",
+                      "player_id":int(_p["id"]),
+                      "name":vx_narration_player(int(_p["id"])),
+                      "kind":"starter",
+                      "text":_d3_plan_player_text(
+                          _p,
+                          bench=False,
+                          first_goalkeeper=(_i == 0 and _p["pos"] == "GK"),
+                      ),
+                  })
 
               _d3_plan_segments.append({
                   "id":"bench_intro",
