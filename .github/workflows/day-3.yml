@@ -1580,13 +1580,723 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
     print(f"✅ Ryan master: {_d3_plan_total:.2f}s")
     print("✅ Original gw_review_scene_4k / narration / MP4 untouched")
 '''
+          # Derive 5B from the exact 5A/GW Review visual + animation path.
+          # This prevents a second design implementation from drifting away from 5A.
+          def _d3_copy_replace(text, old, new, label, count=1):
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(
+                      f"{label}: expected {count} occurrence(s), found {actual}"
+                  )
+              return text.replace(old, new, count)
+
+          def _d3_copy_replace_range(text, start_marker, end_marker, replacement, label):
+              if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+                  raise SystemExit(
+                      f"{label}: expected one start/end marker, found "
+                      f"{text.count(start_marker)}/{text.count(end_marker)}"
+                  )
+              left = text.index(start_marker)
+              right = text.index(end_marker, left)
+              return text[:left] + replacement + text[right:]
+
+          _day3_plan5b_block = _day3_plan5a_block
+          for _old, _new in (
+              ("05a_my_plan_roll", "05b_my_plan_transfer"),
+              ("my_plan_5a_roll", "my_plan_5b_transfer"),
+              ("MY PLAN 5A", "MY PLAN 5B"),
+              ("SLIDE 5A • MY PLAN • ROLL", "SLIDE 5B • MY PLAN • TRANSFER"),
+              ('"scenario":"A_ROLL"', '"scenario":"B_TRANSFER_1_TO_5"'),
+              ("DAY3_MY_PLAN_5A_PACKAGE", "DAY3_MY_PLAN_5B_PACKAGE"),
+              ("DAY3_MY_PLAN_5A_MANIFEST", "DAY3_MY_PLAN_5B_MANIFEST"),
+          ):
+              _day3_plan5b_block = _day3_plan5b_block.replace(_old, _new)
+
+          _day3_5b_transfer_engine = r'''
+    # ------------------------------------------------------------
+    # 5B TRANSFER ENGINE — 1 TO 5 LEGAL MOVES
+    # Model maths first; official FPL market flow is only a tiebreaker.
+    # ------------------------------------------------------------
+    if "_vx_phase11_best_lineup" not in globals():
+        raise RuntimeError("MY PLAN 5B requires the Phase-11 legal-lineup optimiser")
+
+    _d3_5b_base = phase11_current_squad_state.copy()
+    _d3_5b_pool = phase11_player_decision_pool.copy()
+    if len(_d3_5b_base) != 15:
+        raise RuntimeError(
+            f"MY PLAN 5B requires exactly 15 current players, found {len(_d3_5b_base)}"
+        )
+
+    def _d3_5b_num(value, default=0.0):
+        value = pd.to_numeric(value, errors="coerce")
+        return float(value) if pd.notna(value) else float(default)
+
+    for _frame in (_d3_5b_base, _d3_5b_pool):
+        for _col in ("player_id","team_id","price","final_gameweek_xpts"):
+            if _col not in _frame.columns:
+                raise RuntimeError(f"MY PLAN 5B model data is missing {_col}")
+            _frame[_col] = pd.to_numeric(_frame[_col], errors="coerce")
+        if "phase11_weighted_horizon_xpts" not in _frame.columns:
+            _frame["phase11_weighted_horizon_xpts"] = np.nan
+        _frame["phase11_weighted_horizon_xpts"] = pd.to_numeric(
+            _frame["phase11_weighted_horizon_xpts"], errors="coerce"
+        )
+
+    _d3_5b_base = _d3_5b_base.dropna(
+        subset=["player_id","team_id","price","final_gameweek_xpts"]
+    ).copy()
+    _d3_5b_pool = _d3_5b_pool.dropna(
+        subset=["player_id","team_id","price","final_gameweek_xpts"]
+    ).copy()
+    _d3_5b_base["player_id"] = _d3_5b_base["player_id"].astype(int)
+    _d3_5b_base["team_id"] = _d3_5b_base["team_id"].astype(int)
+    _d3_5b_pool["player_id"] = _d3_5b_pool["player_id"].astype(int)
+    _d3_5b_pool["team_id"] = _d3_5b_pool["team_id"].astype(int)
+
+    if len(_d3_5b_base) != 15:
+        raise RuntimeError("MY PLAN 5B current squad lost rows during numeric validation")
+    if "selling_price" not in _d3_5b_base.columns:
+        _d3_5b_base["selling_price"] = _d3_5b_base["price"]
+    _d3_5b_base["selling_price"] = pd.to_numeric(
+        _d3_5b_base["selling_price"], errors="coerce"
+    ).fillna(_d3_5b_base["price"])
+    if "purchase_price" not in _d3_5b_base.columns:
+        _d3_5b_base["purchase_price"] = _d3_5b_base["price"]
+    if "squad_position" not in _d3_5b_base.columns:
+        _d3_5b_base["squad_position"] = np.arange(1,16)
+
+    _ft_override = str(globals().get("MY_PLAN_FREE_TRANSFERS_OVERRIDE","AUTO"))
+    if _ft_override == "AUTO":
+        _ft_value = globals().get("PHASE11_FREE_TRANSFERS")
+        if _ft_value is None:
+            _ft_value = globals().get("MY_PLAN_MANUAL_FREE_TRANSFERS",1)
+        _d3_5b_ft = int(_ft_value)
+    else:
+        _d3_5b_ft = int(_ft_override)
+    _d3_5b_ft = max(0,min(5,_d3_5b_ft))
+
+    _bank_raw = pd.to_numeric(globals().get("PHASE11_BANK"), errors="coerce")
+    _d3_5b_start_bank = (
+        float(_bank_raw)
+        if pd.notna(_bank_raw)
+        else float(globals().get("MY_PLAN_MANUAL_BANK",0.0) or 0.0)
+    )
+
+    _weights = globals().get("_gw_weights", {})
+    _weight_sum = (
+        float(sum(float(v) for v in _weights.values()))
+        if isinstance(_weights, dict) and _weights
+        else 1.0
+    )
+
+    def _d3_5b_utility(row):
+        gw = _d3_5b_num(row.get("final_gameweek_xpts"))
+        wh = pd.to_numeric(row.get("phase11_weighted_horizon_xpts"), errors="coerce")
+        horizon = float(wh) / _weight_sum if pd.notna(wh) else gw
+        return 0.70 * gw + 0.30 * horizon
+
+    _d3_5b_base["_plan_utility"] = _d3_5b_base.apply(_d3_5b_utility,axis=1)
+    _d3_5b_pool["_plan_utility"] = _d3_5b_pool.apply(_d3_5b_utility,axis=1)
+
+    # Official FPL market trend — supporting tiebreak only.
+    _market = players[[
+        "id","transfers_in_event","transfers_out_event"
+    ]].copy() if {
+        "id","transfers_in_event","transfers_out_event"
+    }.issubset(players.columns) else pd.DataFrame()
+    _market_net = {}
+    if not _market.empty:
+        _market["id"] = pd.to_numeric(_market["id"], errors="coerce")
+        _market = _market.dropna(subset=["id"]).copy()
+        _market["id"] = _market["id"].astype(int)
+        _market["net_transfers"] = (
+            pd.to_numeric(_market["transfers_in_event"], errors="coerce").fillna(0)
+            - pd.to_numeric(_market["transfers_out_event"], errors="coerce").fillna(0)
+        )
+        _market_net = _market.set_index("id")["net_transfers"].to_dict()
+    _d3_5b_pool["net_transfers"] = _d3_5b_pool["player_id"].map(
+        lambda pid: float(_market_net.get(int(pid),0.0))
+    )
+
+    _base_ids = set(_d3_5b_base["player_id"].astype(int))
+    _ready = _d3_5b_pool.loc[
+        ~_d3_5b_pool["player_id"].isin(_base_ids)
+    ].copy()
+    if "decision_pool_ready" in _ready.columns:
+        _ready = _ready.loc[
+            _ready["decision_pool_ready"].fillna(False).astype(bool)
+        ].copy()
+
+    # Candidate list shown/used by the manual plan selector:
+    # GK 5, DEF 20, MID 20, FWD 5 — always dynamic.
+    _candidate_caps = {"GK":5,"DEF":20,"MID":20,"FWD":5}
+    _candidate_by_pos = {}
+    _candidate_rows = []
+    for _pos,_cap in _candidate_caps.items():
+        _g = _ready.loc[
+            _ready["position"].astype(str).str.upper().eq(_pos)
+        ].sort_values(
+            ["_plan_utility","final_gameweek_xpts","net_transfers","player_name"],
+            ascending=[False,False,False,True],
+            na_position="last",
+        ).head(int(_cap)).copy()
+        _candidate_by_pos[_pos] = _g
+        for _,_r in _g.iterrows():
+            _candidate_rows.append({
+                "position":_pos,
+                "player_id":int(_r["player_id"]),
+                "player_name":str(_r.get("player_name") or ""),
+                "price":round(float(_r["price"]),2),
+                "xpts":round(float(_r["final_gameweek_xpts"]),3),
+                "net_transfers":int(round(float(_r.get("net_transfers",0) or 0))),
+            })
+    _candidate_file = Path(TIMING) / "my_plan_5b_transfer_candidates.json"
+    _candidate_file.write_text(
+        _d3_json.dumps(_candidate_rows,indent=2,ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    def _d3_5b_legal_counts(frame):
+        counts = frame.groupby("team_id").size().astype(int)
+        return bool(counts.empty or int(counts.max()) <= 3)
+
+    def _d3_5b_apply(squad,bank,out_id,in_row):
+        out = squad.loc[squad["player_id"].eq(int(out_id))]
+        if len(out) != 1:
+            return None
+        out_row = out.iloc[0]
+        if str(out_row["position"]).upper() != str(in_row["position"]).upper():
+            return None
+        in_id = int(in_row["player_id"])
+        if in_id in set(squad["player_id"].astype(int)):
+            return None
+        new_bank = (
+            float(bank)
+            + float(out_row["selling_price"])
+            - float(in_row["price"])
+        )
+        if new_bank < -1e-8:
+            return None
+        new_row = in_row.copy()
+        new_row["selling_price"] = float(in_row["price"])
+        new_row["purchase_price"] = float(in_row["price"])
+        new_row["squad_position"] = int(out_row.get("squad_position",99) or 99)
+        new_squad = squad.loc[
+            ~squad["player_id"].eq(int(out_id))
+        ].copy()
+        new_squad = pd.concat(
+            [new_squad,pd.DataFrame([new_row])],
+            ignore_index=True,
+        )
+        if (
+            len(new_squad) != 15
+            or new_squad["player_id"].duplicated().any()
+            or not _d3_5b_legal_counts(new_squad)
+        ):
+            return None
+        return new_squad,float(new_bank)
+
+    def _d3_5b_hit(move_count):
+        return 4 * max(0,int(move_count)-int(_d3_5b_ft))
+
+    def _d3_5b_fast_score(squad,move_count):
+        return (
+            float(pd.to_numeric(
+                squad["_plan_utility"],errors="coerce"
+            ).fillna(0).sum())
+            - float(_d3_5b_hit(move_count))
+        )
+
+    def _d3_5b_exact(state):
+        xi,bench = _vx_phase11_best_lineup(
+            state["squad"],"final_gameweek_xpts"
+        )
+        if len(xi) != 11 or len(bench) != 4:
+            return None
+        cap_rank = xi.sort_values(
+            ["final_gameweek_xpts","phase11_weighted_horizon_xpts"],
+            ascending=[False,False],na_position="last"
+        ).reset_index(drop=True)
+        cap = cap_rank.iloc[0]
+        gw = float(pd.to_numeric(
+            xi["final_gameweek_xpts"],errors="coerce"
+        ).fillna(0).sum()) + float(cap["final_gameweek_xpts"])
+        hit = _d3_5b_hit(len(state["moves"]))
+        horizon = float(pd.to_numeric(
+            xi["phase11_weighted_horizon_xpts"],errors="coerce"
+        ).fillna(0).sum()) / _weight_sum
+        objective = 0.80 * (gw-hit) + 0.20 * horizon
+        return {
+            **state,
+            "xi":xi.copy(),
+            "bench":bench.copy(),
+            "captain_id":int(cap["player_id"]),
+            "vice_id":int(cap_rank.iloc[1]["player_id"]),
+            "gross_gw":float(gw),
+            "hit_cost":int(hit),
+            "objective":float(objective),
+        }
+
+    _manual_transfer_mode = str(
+        globals().get("MY_PLAN_TRANSFER_SELECTION","AUTO MODEL")
+    ).upper().startswith("MANUAL")
+
+    if _manual_transfer_mode:
+        def _parse_ids(raw,label):
+            parts = [
+                part for part in re.split(r"[,;\s]+",str(raw or "").strip())
+                if part
+            ]
+            try:
+                return [int(part) for part in parts]
+            except Exception as exc:
+                raise ValueError(f"{label} contains a non-integer player ID") from exc
+
+        _outs = _parse_ids(
+            globals().get("MY_PLAN_MANUAL_OUT_PLAYER_IDS",""),
+            "MY PLAN OUT",
+        )
+        _ins = _parse_ids(
+            globals().get("MY_PLAN_MANUAL_IN_PLAYER_IDS",""),
+            "MY PLAN IN",
+        )
+        if len(_outs) != len(_ins) or not 1 <= len(_outs) <= 5:
+            raise ValueError(
+                "MY PLAN 5B manual OUT and IN lists must contain the same 1–5 players"
+            )
+        _state = {
+            "squad":_d3_5b_base.copy(),
+            "bank":float(_d3_5b_start_bank),
+            "moves":[],
+        }
+        for _out_id,_in_id in zip(_outs,_ins):
+            incoming = _d3_5b_pool.loc[
+                _d3_5b_pool["player_id"].eq(int(_in_id))
+            ]
+            if len(incoming) != 1:
+                raise ValueError(
+                    f"MY PLAN 5B incoming player {_in_id} is not model-ready"
+                )
+            applied = _d3_5b_apply(
+                _state["squad"],_state["bank"],_out_id,incoming.iloc[0]
+            )
+            if applied is None:
+                raise ValueError(
+                    f"MY PLAN 5B manual transfer {_out_id} → {_in_id} is illegal"
+                )
+            _new_squad,_new_bank = applied
+            _state = {
+                "squad":_new_squad,
+                "bank":_new_bank,
+                "moves":_state["moves"]+[{
+                    "out_id":int(_out_id),
+                    "in_id":int(_in_id),
+                }],
+            }
+        _chosen = _d3_5b_exact(_state)
+        if _chosen is None:
+            raise RuntimeError(
+                "MY PLAN 5B manual transfer plan has no legal starting eleven"
+            )
+    else:
+        _raw_transfer_count = str(
+            globals().get("MY_PLAN_TRANSFER_COUNT","AUTO BEST 1–5")
+        )
+        _forced_count = (
+            None if _raw_transfer_count.startswith("AUTO")
+            else int(_raw_transfer_count)
+        )
+        _max_depth = 5 if _forced_count is None else _forced_count
+        _beam = [{
+            "squad":_d3_5b_base.copy(),
+            "bank":float(_d3_5b_start_bank),
+            "moves":[],
+            "fast":_d3_5b_fast_score(_d3_5b_base,0),
+        }]
+        _evaluated = []
+        _original_ids = set(_d3_5b_base["player_id"].astype(int))
+
+        for _depth in range(1,_max_depth+1):
+            _generated = {}
+            for _state in _beam:
+                _used_out = {
+                    int(move["out_id"]) for move in _state["moves"]
+                }
+                _out_pool = _state["squad"].loc[
+                    _state["squad"]["player_id"].isin(
+                        _original_ids-_used_out
+                    )
+                ].sort_values(
+                    ["_plan_utility","final_gameweek_xpts"],
+                    ascending=[True,True],
+                    na_position="first",
+                ).head(10)
+                for _,_out_row in _out_pool.iterrows():
+                    _pos = str(_out_row["position"]).upper()
+                    _incoming = _candidate_by_pos.get(_pos,pd.DataFrame())
+                    for _,_in_row in _incoming.iterrows():
+                        applied = _d3_5b_apply(
+                            _state["squad"],
+                            _state["bank"],
+                            int(_out_row["player_id"]),
+                            _in_row,
+                        )
+                        if applied is None:
+                            continue
+                        _new_squad,_new_bank = applied
+                        _moves = _state["moves"]+[{
+                            "out_id":int(_out_row["player_id"]),
+                            "in_id":int(_in_row["player_id"]),
+                        }]
+                        _key = tuple(sorted(
+                            _new_squad["player_id"].astype(int).tolist()
+                        ))
+                        _fast = _d3_5b_fast_score(
+                            _new_squad,len(_moves)
+                        )
+                        old = _generated.get(_key)
+                        if old is None or _fast > old["fast"]:
+                            _generated[_key] = {
+                                "squad":_new_squad,
+                                "bank":_new_bank,
+                                "moves":_moves,
+                                "fast":_fast,
+                            }
+            if not _generated:
+                break
+            _beam = sorted(
+                _generated.values(),
+                key=lambda state:state["fast"],
+                reverse=True,
+            )[:60]
+            for _state in _beam[:30]:
+                exact = _d3_5b_exact(_state)
+                if exact is not None:
+                    _evaluated.append(exact)
+            if _forced_count is not None and _depth >= _forced_count:
+                break
+
+        if _forced_count is not None:
+            _evaluated = [
+                state for state in _evaluated
+                if len(state["moves"]) == _forced_count
+            ]
+        else:
+            _evaluated = [
+                state for state in _evaluated
+                if 1 <= len(state["moves"]) <= 5
+            ]
+        if not _evaluated:
+            raise RuntimeError(
+                "MY PLAN 5B found no legal 1–5 transfer solution"
+            )
+        _chosen = max(
+            _evaluated,key=lambda state:state["objective"]
+        )
+
+    _d3_5b_squad = _chosen["squad"].copy()
+    _d3_5b_xi = _chosen["xi"].copy()
+    _d3_5b_bench = _chosen["bench"].copy()
+    _d3_5b_bank = float(_chosen["bank"])
+    _d3_5b_hit_cost = int(_chosen["hit_cost"])
+    _d3_5b_cap_id = int(_chosen["captain_id"])
+    _d3_5b_vice_id = int(_chosen["vice_id"])
+    _d3_5b_transfers = list(_chosen["moves"])
+    _d3_5b_transfer_count = len(_d3_5b_transfers)
+    _d3_5b_ft_effective = int(_d3_5b_ft)
+
+    # Same bench ordering used by Phase 11.
+    _bench_gk = _d3_5b_bench.loc[
+        _d3_5b_bench["position"].astype(str).str.upper().eq("GK")
+    ].copy()
+    _bench_out = _d3_5b_bench.loc[
+        ~_d3_5b_bench["position"].astype(str).str.upper().eq("GK")
+    ].sort_values("final_gameweek_xpts",ascending=False).copy()
+    _bench_out["bench_order"] = np.arange(1,len(_bench_out)+1)
+    if not _bench_gk.empty:
+        _bench_gk["bench_order"] = 4
+    _d3_5b_bench = pd.concat(
+        [_bench_out,_bench_gk],ignore_index=True
+    )
+
+    _name_map = _d3_5b_pool.drop_duplicates("player_id").set_index(
+        "player_id"
+    )["player_name"].to_dict()
+    _d3_5b_transfer_pairs = []
+    for _move in _d3_5b_transfers:
+        _move["out_name"] = str(
+            _name_map.get(
+                int(_move["out_id"]),f'PLAYER {_move["out_id"]}'
+            )
+        )
+        _move["in_name"] = str(
+            _name_map.get(
+                int(_move["in_id"]),f'PLAYER {_move["in_id"]}'
+            )
+        )
+        _d3_5b_transfer_pairs.append(
+            f'{_move["out_name"]} out, {_move["in_name"]} in'
+        )
+    _d3_5b_transfer_text = "; ".join(_d3_5b_transfer_pairs)
+    _d3_5b_current_ids = sorted(
+        int(pid)
+        for pid in phase11_current_squad_state["player_id"].astype(int)
+    )
+    _d3_5b_final_ids = sorted(
+        int(pid)
+        for pid in _d3_5b_squad["player_id"].astype(int)
+    )
+'''
+
+          _day3_plan5b_block = _d3_copy_replace(
+              _day3_plan5b_block,
+              '''    _d3_squad = phase11_current_squad_state.copy()
+    _d3_xi = phase11_recommended_lineup.copy()
+    _d3_bench = phase11_bench_order.copy()
+    _d3_pool = phase11_player_decision_pool.copy()
+''',
+              _day3_5b_transfer_engine + '''    _d3_squad = _d3_5b_squad.copy()
+    _d3_xi = _d3_5b_xi.copy()
+    _d3_bench = _d3_5b_bench.copy()
+    _d3_pool = phase11_player_decision_pool.copy()
+''',
+              "Day 3 MY PLAN 5B transfer-engine insertion",
+          )
+
+          _day3_plan5b_block = _d3_copy_replace(
+              _day3_plan5b_block,
+              '''    _d3_cap_raw = (
+        (PHASE11_BEST_CAPTAIN or {}).get("player_id")
+        if isinstance(PHASE11_BEST_CAPTAIN, dict) else 0
+    )
+    _d3_vice_raw = (
+        (PHASE11_BEST_VICE or {}).get("player_id")
+        if isinstance(PHASE11_BEST_VICE, dict) else 0
+    )
+''',
+              '''    _d3_cap_raw = int(_d3_5b_cap_id)
+    _d3_vice_raw = int(_d3_5b_vice_id)
+''',
+              "Day 3 MY PLAN 5B captain override",
+          )
+          _day3_plan5b_block = _d3_copy_replace(
+              _day3_plan5b_block,
+              '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"])',
+              '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) - float(_d3_5b_hit_cost)',
+              "Day 3 MY PLAN 5B net score",
+          )
+          _day3_plan5b_block = _d3_copy_replace(
+              _day3_plan5b_block,
+              '    _d3_ft = globals().get("PHASE11_FREE_TRANSFERS")',
+              '    _d3_ft = int(_d3_5b_ft_effective)',
+              "Day 3 MY PLAN 5B free transfers",
+          )
+          _day3_plan5b_block = _d3_copy_replace(
+              _day3_plan5b_block,
+              '    _d3_bank = _d3_plan_number(globals().get("PHASE11_BANK"), 0.0)',
+              '    _d3_bank = float(_d3_5b_bank)',
+              "Day 3 MY PLAN 5B ending bank",
+          )
+
+          _day3_5b_narration = r'''    def _d3_plan_player_text(p, bench=False, first_goalkeeper=False):
+        name = vx_narration_player(int(p["id"]))
+        if first_goalkeeper:
+            return (
+                f"{name}. He starts in goal after the transfer plan. VORTEX projects "
+                f"{p['xpts']:.1f} points from {p['xmins']:.0f} expected minutes against "
+                f"{_d3_plan_spoken_fixture(p)}."
+            )
+        if bench:
+            return (
+                f"{name}. He remains in the final fifteen but starts on my bench. "
+                f"The model gives {p['xpts']:.1f} expected points from {p['xmins']:.0f} minutes "
+                f"against {_d3_plan_spoken_fixture(p)}. After the transfers, the stronger "
+                "projected options take the starting places."
+            )
+        captain_note = (
+            " He is also the model captain, so his expected return is counted twice."
+            if p["captain"] else
+            " He is the vice captain and first captaincy fallback."
+            if p["vice"] else ""
+        )
+        return (
+            f"{name}. He starts in the {p['pos']} line. VORTEX projects {p['xpts']:.1f} "
+            f"points from {p['xmins']:.0f} expected minutes against {_d3_plan_spoken_fixture(p)}. "
+            f"This place comes from the post-transfer squad optimisation.{captain_note}"
+        )
+
+    _d3_plan_segments = [{
+        "id":"headline",
+        "text":(
+            f"This is my plan. Scenario B: transfer. The model makes {_d3_5b_transfer_count} "
+            f"move{'s' if _d3_5b_transfer_count != 1 else ''}. "
+            f"The transfer path is {_d3_5b_transfer_text}. "
+            f"Hit cost is {_d3_5b_hit_cost} points, and then I optimise the final fifteen."
+        ),
+    }]
+
+    for _i, _p in enumerate(_d3_plan_starters):
+        _d3_plan_segments.append({
+            "id":f"plan_player_{_p['id']}",
+            "player_id":int(_p["id"]),
+            "name":vx_narration_player(int(_p["id"])),
+            "kind":"starter",
+            "text":_d3_plan_player_text(
+                _p,
+                bench=False,
+                first_goalkeeper=(_i == 0 and _p["pos"] == "GK"),
+            ),
+        })
+
+    _d3_plan_segments.append({
+        "id":"bench_intro",
+        "text":(
+            "Now the substitutes. These are the four players outside the strongest "
+            "legal starting eleven after the transfers."
+        ),
+    })
+    for _p in _d3_plan_bench:
+        _d3_plan_segments.append({
+            "id":f"plan_player_{_p['id']}",
+            "player_id":int(_p["id"]),
+            "name":vx_narration_player(int(_p["id"])),
+            "kind":"bench",
+            "text":_d3_plan_player_text(_p,bench=True),
+        })
+
+    _d3_plan_segments += [
+        {
+            "id":"metrics_intro",
+            "text":(
+                "With the final fifteen placed, here is the Scenario B decision board. "
+                "The projected score already includes any transfer hit."
+            ),
+        },
+        {
+            "id":"metric_points",
+            "text":(
+                f"The optimized starting eleven projects for {_d3_projected_score:.1f} net points "
+                "after captaincy and transfer cost."
+            ),
+        },
+        {
+            "id":"metric_orank",
+            "text":(
+                f"The legal formation is {_d3_formation}, re-optimized after "
+                f"{_d3_5b_transfer_count} transfer{'s' if _d3_5b_transfer_count != 1 else ''}."
+            ),
+        },
+        {
+            "id":"metric_gwrank",
+            "text":(
+                f"I started with {_d3_ft_text} free transfers and used {_d3_5b_transfer_count}. "
+                f"The resulting hit cost is {_d3_5b_hit_cost} points."
+            ),
+        },
+        {
+            "id":"metric_captain",
+            "text":(
+                f"The model captain is {vx_narration_player(_d3_cap_id)}, projected for "
+                f"{_d3_cap['xpts']:.1f} raw points. "
+                f"{vx_narration_player(_d3_vice_id)} is the vice captain."
+            ),
+        },
+        {
+            "id":"metric_bench",
+            "text":(
+                f"The four substitutes carry {_d3_bench_xpts:.1f} combined expected points "
+                "after the transfer plan."
+            ),
+        },
+        {
+            "id":"metric_hit",
+            "text":(
+                f"Transfer cost is {_d3_5b_hit_cost} points and the remaining bank is "
+                f"{_d3_bank:.1f} million. The moves are {_d3_5b_transfer_text}."
+            ),
+        },
+        {
+            "id":"review_close",
+            "text":(
+                f"That is Scenario B: {_d3_5b_transfer_count} transfer"
+                f"{'s' if _d3_5b_transfer_count != 1 else ''}. "
+                "The budget, positions and three-player club limit are enforced, the hit is included, "
+                "and the final eleven, bench and captain are all re-optimized."
+            ),
+        },
+    ]
+
+'''
+          _day3_plan5b_block = _d3_copy_replace_range(
+              _day3_plan5b_block,
+              '    def _d3_plan_player_text(p, bench=False, first_goalkeeper=False):\n',
+              '    _d3_plan_audio_dir = Path(\n',
+              _day3_5b_narration,
+              "Day 3 MY PLAN 5B narration",
+          )
+
+          _day3_plan5b_block = _d3_copy_replace(
+              _day3_plan5b_block,
+              '''            "transfers_used":0,
+            "transfer_cost":0,
+''',
+              '''            "transfers_used":int(_d3_5b_transfer_count),
+            "transfer_cost":int(_d3_5b_hit_cost),
+            "transfers":_d3_5b_transfers,
+            "transfer_text":_d3_5b_transfer_text,
+            "starting_bank":round(float(_d3_5b_start_bank),2),
+''',
+              "Day 3 MY PLAN 5B summary transfers",
+          )
+          _day3_plan5b_block = _d3_copy_replace(
+              _day3_plan5b_block,
+              '''            "current_squad_ids":sorted(
+                int(pid) for pid in _d3_squad["player_id"].astype(int).tolist()
+            ),
+''',
+              '''            "current_squad_ids":list(_d3_5b_current_ids),
+            "final_squad_ids":list(_d3_5b_final_ids),
+            "effective_free_transfers":int(_d3_5b_ft_effective),
+''',
+              "Day 3 MY PLAN 5B source/final squads",
+          )
+
+          for _old, _new in (
+              ('setText("#vsAvg", "ROLL • NO TRANSFER");',
+               'setText("#vsAvg", "TRANSFER • "+String(ps.transfers_used||0)+" MOVE"+(Number(ps.transfers_used||0)===1?"":"S"));'),
+              ('setText("#gwPercentile", "FREE TRANSFERS AVAILABLE");',
+               'setText("#gwPercentile", "USED "+String(ps.transfers_used||0)+" • HIT "+String(ps.transfer_cost||0));'),
+              ('setText("#hitPoints", "0");',
+               'setText("#hitPoints", String(ps.transfer_cost||0));'),
+              ('if(chipSmall) chipSmall.textContent="SCENARIO 5A";',
+               'if(chipSmall) chipSmall.textContent="SCENARIO 5B";'),
+              ('const cards=[["A","ROLL","SELECTED"],["TR","TRANSFER","0"],["CH","CHIP","NONE"],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];',
+               'const cards=[["B","TRANSFER","SELECTED"],["TR","MOVES",String(ps.transfers_used||0)],["HIT","COST",String(ps.transfer_cost||0)],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];'),
+              ('setText("#entryName", "ROLL • OPTIMISED XI");',
+               'setText("#entryName", "TRANSFER • OPTIMISED XI");'),
+              ('["PLAN","ROLL","good"],',
+               '["PLAN","TRANSFER","good"],'),
+          ):
+              _day3_plan5b_block = _d3_copy_replace(
+                  _day3_plan5b_block,_old,_new,
+                  "Day 3 MY PLAN 5B copied UI",
+              )
+
+          _day3_plan5b_block = _day3_plan5b_block.replace(
+              'print("✅ Scenario: zero transfers • zero hit • no chip")',
+              'print(f"✅ Scenario: {_d3_5b_transfer_count} transfers • hit {_d3_5b_hit_cost} • no chip")',
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _gw_review_anim_cell,
               'print("✅ AUDIO:",MASTER_MP3)',
-              'print("✅ AUDIO:",MASTER_MP3)\n' + _day3_plan5a_block,
+              'print("✅ AUDIO:",MASTER_MP3)\n'
+              + _day3_plan5a_block
+              + "\n"
+              + _day3_plan5b_block,
               1,
-              "Day 3 build MY PLAN 5A from copied GW Review animation",
+              "Day 3 build MY PLAN 5A/5B from copied GW Review animation",
           )
 
           _day3_plan5a_render_block = r'''
