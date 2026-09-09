@@ -949,7 +949,8 @@ if "export_4k_png" not in globals():
 await export_4k_png(FDR_HTML_PATH, FDR_PNG_PATH)
 await export_4k_png(DEFCON_HTML_PATH, DEFCON_PNG_PATH)
 
-# No duplicate legacy section outputs in Day 3_3.
+# Delete only obsolete Day 3_3 presentation files after all original model logic
+# has run. No underlying FDR/xG/CS calculation logic is removed or rewritten.
 for _obsolete in (
     XG_HTML_PATH, CS_HTML_PATH, XG_PNG_PATH, CS_PNG_PATH,
 ):
@@ -969,14 +970,17 @@ print("✅ 1. fdr_scene_4k.png = Projected Goals + Clean Sheet Odds")
 print("✅ 2. defcon_scene_4k.png = DEFCON")
 print("✅ Top 4 targets + bottom 3 avoids are dynamic and shared with narration")
 '''
-          runtime_source_text = _day3_replace_range_in_cell(
+          # Preserve every existing FDR / Projected Goals / Clean Sheet data/model
+          # calculation in Cell 14B. The original slide files may be created transiently,
+          # then the Day 3_3 presentation outputs below replace/delete only those old files.
+          _day3_design_anchor = 'print("✅ ORIGINAL WEEKLY FDR / GOALS / CLEAN-SHEET HTML + PNG RESTORED")'
+          runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _design_cell,
-              "# 21. BUILD PROJECTED GOALS HTML",
-              'print("✅ ORIGINAL WEEKLY FDR / GOALS / CLEAN-SHEET HTML + PNG RESTORED")',
-              _day3_design_block,
-              "Day 3 replace legacy FDR/Goals/CS section with two-slide section",
-              end_through_line=True,
+              _day3_design_anchor,
+              _day3_design_anchor + "\n" + _day3_design_block,
+              1,
+              "Day 3 append two-slide presentation outputs after preserved model logic",
           )
 
           runtime_source_text = _day3_replace_in_cell(
@@ -1212,6 +1216,11 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
               'DAY3_DEFCON_TARGETS',
               '<span>GLS</span><span>CS%</span>',
               '<b>GLS</b><b>CS%</b>',
+              '# 21. BUILD PROJECTED GOALS HTML',
+              'xg_sorted = (',
+              'cs_sorted = (',
+              'xg_html = scene_template.substitute(',
+              'cs_html = scene_template.substitute(',
           )
           _day3_section_missing = [
               marker for marker in _day3_section_required
