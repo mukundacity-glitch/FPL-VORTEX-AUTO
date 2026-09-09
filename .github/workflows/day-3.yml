@@ -1892,7 +1892,7 @@ jobs:
               _d3_plan_total = float(_d3_plan_timeline["total"])
               if not 265.0 <= _d3_plan_total <= 275.0:
                   raise RuntimeError(
-                      f"MY PLAN 5A narration must stay within 4:25–4:35; got {_d3_plan_total:.2f}s"
+                      f"MY PLAN narration duration is invalid; got {_d3_plan_total:.2f}s"
                   )
 
               _d3_plan_narr_end = float(_d3_plan_timeline["narration_end"])
@@ -3905,7 +3905,7 @@ jobs:
                   )
               if not 265.0 <= AUDIO_DURATION <= 275.0:
                   raise RuntimeError(
-                      f"MY PLAN 5A target is 4:30 ±5 seconds; audio is {AUDIO_DURATION:.2f}s"
+                      f"MY PLAN narration duration is invalid; audio is {AUDIO_DURATION:.2f}s"
                   )
 
               FRAME_PLAN = vx_frame_plan(AUDIO_DURATION, FPS)
@@ -6798,7 +6798,7 @@ jobs:
           _day3_elite_outro_word_qa = r'''_outro_word_count=len(re.findall(r"\b[\w’'-]+\b", scripts["05_outro"]))
           if not 145 <= _outro_word_count <= 230:
               raise RuntimeError(f"Elite outro narration pacing drifted outside target range: {_outro_word_count} words")
-          print(f"✅ Elite Outro narration: {_outro_word_count} words • target ~60 seconds • final takeaways → CTA → thank you")
+          print(f"✅ Elite Outro narration: {_outro_word_count} words • natural delivery • final takeaways → CTA → thank you")
 
           # Narration QA:'''
           runtime_source_text = _day3_replace_range_in_cell(
@@ -6988,7 +6988,7 @@ jobs:
               runtime_source_text,
               _narr_cell,
               'print("✅ Updated short outro")',
-              'print("✅ Elite 60-second final takeaways + CTA outro")',
+              'print("✅ Elite natural final takeaways + CTA outro")',
               1,
               "Day 3 narration summary label for elite outro",
           )
@@ -8524,7 +8524,7 @@ jobs:
           chip_duration = float(chip_info.get("duration") or 0.0)
           if chip_duration <= 0.0:
               raise SystemExit(
-                  f"Slide 7 Chip Strategy must be 90–110 seconds, found {chip_duration:.2f}s"
+                  f"Slide 7 Chip Strategy narration duration is invalid: {chip_duration:.2f}s"
               )
           chip_manifest_path = root / "DATA" / "chip_strategy.json"
           chip_manifest = json.loads(chip_manifest_path.read_text(encoding="utf-8"))
@@ -8566,7 +8566,7 @@ jobs:
           bench_duration = float(bench_info.get("duration") or 0.0)
           if bench_duration <= 0.0:
               raise SystemExit(
-                  f"Slide 6 Benching Dilemma must be 2–3 minutes, found {bench_duration:.2f}s"
+                  f"Slide 6 Benching Dilemma narration duration is invalid: {bench_duration:.2f}s"
               )
           bench_manifest_path = root / "DATA" / "benching_dilemma.json"
           bench_manifest = json.loads(bench_manifest_path.read_text(encoding="utf-8"))
@@ -8604,7 +8604,7 @@ jobs:
           )
           if shortlist_duration <= 0.0:
               raise SystemExit(
-                  f"Final Shortlists narration must be 4:20–4:30, "
+                  f"Final Shortlists narration duration is invalid, "
                   f"found {shortlist_duration:.2f}s"
               )
 
@@ -8613,7 +8613,7 @@ jobs:
           desk_duration = float(desk_info.get("duration") or 0.0)
           if desk_duration <= 0.0:
               raise SystemExit(
-                  f"Transfer Decision Desk must be about 4:40, found {desk_duration:.2f}s"
+                  f"Transfer Decision Desk narration duration is invalid: {desk_duration:.2f}s"
               )
           desk_script = str(desk_info.get("script") or "")
           desk_manifest_path = root / "DATA" / "transfer_decision_desk.json"
@@ -8904,7 +8904,7 @@ jobs:
               plan_duration = float(plan_manifest.get("duration") or 0.0)
               if plan_duration <= 0.0:
                   raise SystemExit(
-                      f"{expected_label} must stay within 4:25–4:35, "
+                      f"{expected_label} narration duration is invalid, "
                       f"found {plan_duration:.2f}s"
                   )
               if int(plan_manifest.get("starting_xi") or 0) != 11:
@@ -8930,7 +8930,7 @@ jobs:
           elite_outro_duration = float(elite_outro_info.get("duration") or 0.0)
           if elite_outro_duration <= 0.0:
               raise SystemExit(
-                  f"Elite Day 3 outro must be 55–65 seconds, found {elite_outro_duration:.2f}s"
+                  f"Elite Day 3 outro narration duration is invalid: {elite_outro_duration:.2f}s"
               )
           elite_outro_files = (
               root / "SLIDE" / "outro_scene_4k.png",
@@ -8947,7 +8947,7 @@ jobs:
           ):
               if elite_phrase not in elite_script:
                   raise SystemExit(f"Elite outro narration missing CTA/takeaway phrase: {elite_phrase}")
-          print(f"Day 3_3 Elite 60-second outro PNG/MP3/MP4/narration contract: PASS ({elite_outro_duration:.2f}s)")
+          print(f"Day 3_3 Elite natural outro PNG/MP3/MP4/narration contract: PASS ({elite_outro_duration:.2f}s)")
 
           day3_slide5_review_files = (
               root / "SLIDE" / "gw_review_scene_4k.png",
