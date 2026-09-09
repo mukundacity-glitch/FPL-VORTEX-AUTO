@@ -5139,24 +5139,18 @@ if "05_outro" in manifest:
               root / "SLIDE" / "defcon_scene_4k.png",
               root / "SLIDE" / "final_shortlists_scene_4k.png",
               root / "SLIDE" / "transfer_decision_desk_scene_4k.png",
-              root / "SLIDE" / "my_plan_5a_roll_scene_4k.png",
               root / "DATA" / "transfer_decision_desk.json",
-              root / "DATA" / "my_plan_5a_roll_package.json",
-              root / "DATA" / "my_plan_5a_roll_animation_manifest.json",
-              root / "DATA" / "my_plan_5a_roll_render.json",
-              root / "MP3" / "05a_my_plan_roll.mp3",
               root / "MP4" / "02_fdr.mp4",
               root / "MP4" / "03_projected_goals.mp4",
               root / "MP4" / "03_defcon.mp4",
               root / "MP4" / "04_final_shortlists.mp4",
               root / "MP4" / "05_transfer_decision_desk.mp4",
-              root / "MP4" / "05a_my_plan_roll.mp4",
           )
           for section_file in section_files:
               if not section_file.is_file() or section_file.stat().st_size <= 0:
                   raise SystemExit(f"Day 3_3 section output is missing: {section_file}")
 
-          obsolete_clean_sheet = root / "SLIDE" / "clean_sheet_scene_4k.png"
+          obsolete_clean_sheet = root / "SLIDE" / "clean_sheet_scene_4k.png"          obsolete_clean_sheet = root / "SLIDE" / "clean_sheet_scene_4k.png"
           if obsolete_clean_sheet.exists():
               raise SystemExit(
                   "Standalone clean-sheet slide survived even though it is merged into 02_fdr"
@@ -5239,65 +5233,178 @@ if "05_outro" in manifest:
               raise SystemExit(f"Transfer Desk player order is wrong: {desk_positions}")
 
 
-          plan_package_path = root / "DATA" / "my_plan_5a_roll_package.json"
-          plan_manifest_path = root / "DATA" / "my_plan_5a_roll_animation_manifest.json"
-          plan_render_path = root / "DATA" / "my_plan_5a_roll_render.json"
+          scene_keys = list(qa.get("scene_keys") or [])
+          selected_plan_keys = [
+              key for key in ("05a_my_plan_roll", "05b_my_plan_transfer")
+              if key in scene_keys
+          ]
+          if len(selected_plan_keys) != 1:
+              raise SystemExit(
+                  "Day 3 selected-only MY PLAN must contain exactly one of 5A/5B; "
+                  f"found {selected_plan_keys}"
+              )
+          selected_plan_key = selected_plan_keys[0]
+          if selected_plan_key == "05a_my_plan_roll":
+              plan_prefix = "my_plan_5a_roll"
+              expected_scenario = "A_ROLL"
+              expected_label = "MY PLAN 5A"
+          else:
+              plan_prefix = "my_plan_5b_transfer"
+              expected_scenario = "B_TRANSFER_1_TO_5"
+              expected_label = "MY PLAN 5B"
+
+          plan_specific_files = [
+              root / "SLIDE" / f"{plan_prefix}_scene_4k.png",
+              root / "DATA" / f"{plan_prefix}_package.json",
+              root / "DATA" / f"{plan_prefix}_animation_manifest.json",
+              root / "DATA" / f"{plan_prefix}_render.json",
+              root / "MP3" / (
+                  "05a_my_plan_roll.mp3"
+                  if selected_plan_key == "05a_my_plan_roll"
+                  else "05b_my_plan_transfer.mp3"
+              ),
+              root / "MP4" / (
+                  "05a_my_plan_roll.mp4"
+                  if selected_plan_key == "05a_my_plan_roll"
+                  else "05b_my_plan_transfer.mp4"
+              ),
+          ]
+          if selected_plan_key == "05b_my_plan_transfer":
+              plan_specific_files.append(
+                  root / "DATA" / "my_plan_5b_transfer_candidates.json"
+              )
+          for plan_file in plan_specific_files:
+              if not plan_file.is_file() or plan_file.stat().st_size <= 0:
+                  raise SystemExit(
+                      f"{expected_label} output is missing: {plan_file}"
+                  )
+
+          plan_package_path = root / "DATA" / f"{plan_prefix}_package.json"
+          plan_manifest_path = root / "DATA" / f"{plan_prefix}_animation_manifest.json"
+          plan_render_path = root / "DATA" / f"{plan_prefix}_render.json"
           plan_package = json.loads(plan_package_path.read_text(encoding="utf-8"))
           plan_manifest = json.loads(plan_manifest_path.read_text(encoding="utf-8"))
           plan_render = json.loads(plan_render_path.read_text(encoding="utf-8"))
 
-          if str(plan_package.get("scenario")) != "A_ROLL":
-              raise SystemExit(f"MY PLAN 5A scenario is wrong: {plan_package.get('scenario')}")
+          if str(plan_package.get("scenario")) != expected_scenario:
+              raise SystemExit(
+                  f"{expected_label} scenario is wrong: {plan_package.get('scenario')}"
+              )
           plan_players = list(plan_package.get("players") or [])
           plan_starters = list(plan_package.get("starters") or [])
           plan_bench = list(plan_package.get("bench") or [])
           if len(plan_players) != 15 or len(plan_starters) != 11 or len(plan_bench) != 4:
               raise SystemExit(
-                  f"MY PLAN 5A squad shape must be 15/11/4, found "
+                  f"{expected_label} squad shape must be 15/11/4, found "
                   f"{len(plan_players)}/{len(plan_starters)}/{len(plan_bench)}"
               )
           plan_ids = [int(row.get("id") or 0) for row in plan_players]
           if len(set(plan_ids)) != 15 or any(pid <= 0 for pid in plan_ids):
-              raise SystemExit(f"MY PLAN 5A contains duplicate/invalid player IDs: {plan_ids}")
-          source_ids = sorted(
-              int(pid) for pid in (plan_package.get("summary") or {}).get("current_squad_ids", [])
-          )
-          if sorted(plan_ids) != source_ids:
               raise SystemExit(
-                  f"MY PLAN 5A XI/bench no longer matches the selected current 15: "
-                  f"plan={sorted(plan_ids)} source={source_ids}"
+                  f"{expected_label} contains duplicate/invalid player IDs: {plan_ids}"
               )
 
           plan_summary = dict(plan_package.get("summary") or {})
-          if int(plan_summary.get("transfers_used") or 0) != 0:
-              raise SystemExit("MY PLAN 5A ROLL must use zero transfers")
-          if int(plan_summary.get("transfer_cost") or 0) != 0:
-              raise SystemExit("MY PLAN 5A ROLL must have zero transfer hit")
+          source_ids = sorted(
+              int(pid) for pid in plan_summary.get("current_squad_ids", [])
+          )
+          if len(source_ids) != 15 or len(set(source_ids)) != 15:
+              raise SystemExit(
+                  f"{expected_label} current-squad IDs are invalid: {source_ids}"
+              )
+
+          transfers_used = int(plan_summary.get("transfers_used") or 0)
+          transfer_cost = int(plan_summary.get("transfer_cost") or 0)
+          if selected_plan_key == "05a_my_plan_roll":
+              if sorted(plan_ids) != source_ids:
+                  raise SystemExit(
+                      f"MY PLAN 5A ROLL changed the current 15: "
+                      f"plan={sorted(plan_ids)} source={source_ids}"
+                  )
+              if transfers_used != 0 or transfer_cost != 0:
+                  raise SystemExit(
+                      "MY PLAN 5A ROLL must use zero transfers and zero hit"
+                  )
+          else:
+              final_ids = sorted(
+                  int(pid) for pid in plan_summary.get("final_squad_ids", [])
+              )
+              if sorted(plan_ids) != final_ids:
+                  raise SystemExit(
+                      f"MY PLAN 5B final squad mismatch: "
+                      f"plan={sorted(plan_ids)} summary={final_ids}"
+                  )
+              if not 1 <= transfers_used <= 5:
+                  raise SystemExit(
+                      f"MY PLAN 5B must use 1–5 transfers, found {transfers_used}"
+                  )
+              transfer_rows = list(plan_summary.get("transfers") or [])
+              if len(transfer_rows) != transfers_used:
+                  raise SystemExit(
+                      f"MY PLAN 5B transfer rows/count mismatch: "
+                      f"{len(transfer_rows)} vs {transfers_used}"
+                  )
+              out_ids = [int(row.get("out_id") or 0) for row in transfer_rows]
+              in_ids = [int(row.get("in_id") or 0) for row in transfer_rows]
+              if (
+                  len(set(out_ids)) != transfers_used
+                  or len(set(in_ids)) != transfers_used
+                  or any(pid <= 0 for pid in out_ids + in_ids)
+              ):
+                  raise SystemExit(
+                      f"MY PLAN 5B transfer IDs are duplicate/invalid: "
+                      f"OUT={out_ids} IN={in_ids}"
+                  )
+              expected_final = sorted(
+                  (set(source_ids) - set(out_ids)) | set(in_ids)
+              )
+              if expected_final != final_ids:
+                  raise SystemExit(
+                      f"MY PLAN 5B transfer math does not produce final squad: "
+                      f"expected={expected_final} actual={final_ids}"
+                  )
+              ft = int(plan_summary.get("effective_free_transfers") or 0)
+              expected_hit = 4 * max(0, transfers_used - ft)
+              if transfer_cost != expected_hit:
+                  raise SystemExit(
+                      f"MY PLAN 5B hit is wrong: {transfer_cost} vs {expected_hit}"
+                  )
+
           if str(plan_summary.get("chip") or "").upper() != "NONE":
-              raise SystemExit("MY PLAN 5A ROLL must not activate a chip")
+              raise SystemExit(f"{expected_label} must not activate a chip")
           if not str(plan_summary.get("formation") or ""):
-              raise SystemExit("MY PLAN 5A formation is missing")
+              raise SystemExit(f"{expected_label} formation is missing")
           if float(plan_summary.get("projected_score") or 0.0) <= 0:
-              raise SystemExit("MY PLAN 5A projected score is missing/non-positive")
+              raise SystemExit(
+                  f"{expected_label} projected score is missing/non-positive"
+              )
 
           plan_duration = float(plan_manifest.get("duration") or 0.0)
           if not 265.0 <= plan_duration <= 275.0:
               raise SystemExit(
-                  f"MY PLAN 5A must stay within 4:25–4:35, found {plan_duration:.2f}s"
+                  f"{expected_label} must stay within 4:25–4:35, "
+                  f"found {plan_duration:.2f}s"
               )
           if int(plan_manifest.get("starting_xi") or 0) != 11:
-              raise SystemExit("MY PLAN 5A manifest lost its starting XI")
+              raise SystemExit(f"{expected_label} manifest lost its starting XI")
           if int(plan_manifest.get("bench") or 0) != 4:
-              raise SystemExit("MY PLAN 5A manifest lost its four substitutes")
+              raise SystemExit(f"{expected_label} manifest lost its four substitutes")
           if float(plan_manifest.get("final_hold_seconds") or 0.0) < 3.0:
-              raise SystemExit("MY PLAN 5A final composition hold is under three seconds")
+              raise SystemExit(
+                  f"{expected_label} final composition hold is under three seconds"
+              )
           if plan_render.get("passed") is not True:
-              raise SystemExit("MY PLAN 5A renderer QA did not pass")
+              raise SystemExit(f"{expected_label} renderer QA did not pass")
           if plan_render.get("visual_source") != "COPIED_GW_REVIEW_ANIMATED_DOM_HTML":
-              raise SystemExit("MY PLAN 5A is not using the copied GW Review animated visual source")
+              raise SystemExit(
+                  f"{expected_label} is not using the copied GW Review visual source"
+              )
           if plan_render.get("original_gw_review_preserved") is not True:
-              raise SystemExit("MY PLAN 5A renderer did not assert original GW Review preservation")
+              raise SystemExit(
+                  f"{expected_label} renderer did not assert GW Review preservation"
+              )
 
+          preserved_review_files = (
           preserved_review_files = (
               root / "SLIDE" / "gw_review_scene_4k.png",
               root / "MP3" / "gw_review.mp3",
