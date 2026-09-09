@@ -512,6 +512,7 @@ SELECTED_SCENES = ['''
           _day3_selection_replacement = '''    "04_clean_sheets": SLIDE_05_CLEAN_SHEETS,
     "03_defcon": True,
     "04_final_shortlists": True,
+    "05_transfer_decision_desk": True,
     "05_outro": SLIDE_06_OUTRO,
 }
 
@@ -522,7 +523,7 @@ SELECTED_SCENES = ['''
               _day3_selection_anchor,
               _day3_selection_replacement,
               1,
-              "Day 3 add DEFCON and Final Shortlists scene selections",
+              "Day 3 add DEFCON, Final Shortlists and Transfer Decision Desk scene selections",
           )
 
           _day3_design_block = r"""
@@ -1198,11 +1199,289 @@ _d3_short_html = vx_apply_pl_lockup(_d3_short_html)
 _d3_short_html = vx_polish_branding(_d3_short_html)
 FINAL_SHORTLISTS_HTML_PATH.write_text(_d3_short_html, encoding="utf-8")
 
+
+# -----------------------------
+# SLIDE 4 — TRANSFER DECISION DESK
+# Same Projected Goals scene_template/header/footer shell.
+# Nine editorial names/actions are user-selected; all player facts are live pipeline data.
+# -----------------------------
+_D3_DESK_EDITORIAL = (
+    ("BUY",  "Cole Palmer"),
+    ("BUY",  "Morgan Rogers"),
+    ("BUY",  "Cody Gakpo"),
+    ("HOLD", "Erling Haaland"),
+    ("HOLD", "João Pedro"),
+    ("HOLD", "Bryan Mbeumo"),
+    ("SELL", "Bruno Fernandes"),
+    ("SELL", "Dominik Szoboszlai"),
+    ("SELL", "Nico O’Reilly"),
+)
+
+def _d3_desk_norm(value):
+    import unicodedata
+    value = unicodedata.normalize("NFKD", str(value or ""))
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", " ", value.lower().replace("’", "'")).strip()
+
+def _d3_desk_num(value, default=0.0):
+    value = pd.to_numeric(value, errors="coerce")
+    return float(value) if pd.notna(value) else float(default)
+
+def _d3_desk_find_player(requested_name):
+    target = _d3_desk_norm(requested_name)
+    matches = []
+    for _, row in players.iterrows():
+        first = str(row.get("first_name", "") or "")
+        second = str(row.get("second_name", "") or "")
+        web = str(row.get("web_name", "") or "")
+        aliases = {
+            _d3_desk_norm(f"{first} {second}".strip()),
+            _d3_desk_norm(web),
+            _d3_desk_norm(f"{first} {web}".strip()),
+        }
+        if target in aliases:
+            matches.append(row)
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"Day 3_3 Transfer Desk expected one FPL match for {requested_name!r}, "
+            f"found {len(matches)}"
+        )
+    return matches[0]
+
+_d3_desk_model = _d3_short_agg.drop_duplicates("player_id", keep="last").copy()
+_d3_desk_model["player_id"] = pd.to_numeric(_d3_desk_model["player_id"], errors="coerce")
+_d3_desk_model = _d3_desk_model.dropna(subset=["player_id"]).copy()
+_d3_desk_model["player_id"] = _d3_desk_model["player_id"].astype(int)
+_d3_desk_model = _d3_desk_model.set_index("player_id", drop=False)
+
+_d3_desk_rank = (
+    _d3_short_agg.sort_values(
+        ["xpts", "xmins", "player_name"],
+        ascending=[False, False, True],
+        na_position="last",
+    )
+    .reset_index(drop=True)
+)
+_d3_desk_rank_map = {
+    int(pid): int(rank)
+    for rank, pid in enumerate(_d3_desk_rank["player_id"].tolist(), 1)
+}
+
+def _d3_desk_flow(value):
+    value = int(round(float(value)))
+    if value > 0:
+        return f"+{value:,}"
+    if value < 0:
+        return f"-{abs(value):,}"
+    return "0"
+
+DAY3_TRANSFER_DESK = {"BUY": [], "HOLD": [], "SELL": []}
+DAY3_TRANSFER_DESK_ORDER = []
+
+for _desk_i, (_action, _requested_name) in enumerate(_D3_DESK_EDITORIAL):
+    _p = _d3_desk_find_player(_requested_name)
+    _pid = int(_p["id"])
+    if _pid not in _d3_desk_model.index:
+        raise RuntimeError(
+            f"Day 3_3 Transfer Desk has no READY Phase-10 row for {_requested_name}"
+        )
+    _m = _d3_desk_model.loc[_pid]
+    _team_id = int(_p["team"])
+    _meta = team_meta_by_id.get(_team_id, {})
+    _proj = _d3_proj_by_id.loc[_team_id] if _team_id in _d3_proj_by_id.index else {}
+    _opponent = str(
+        _proj.get("gw1_opponent", "TBD") if hasattr(_proj, "get") else "TBD"
+    ).upper()
+    _tin = _d3_desk_num(_p.get("transfers_in_event"))
+    _tout = _d3_desk_num(_p.get("transfers_out_event"))
+    _record = {
+        "index": int(_desk_i),
+        "action": str(_action),
+        "name": str(_requested_name),
+        "player_id": _pid,
+        "team_id": _team_id,
+        "team": str(_meta.get("short", _p.get("team_short", "")) or "").upper(),
+        "position": str(_p.get("position", "") or "").upper(),
+        "price": _d3_desk_num(_p.get("price")),
+        "photo": str(resolve_player_photo(_p) or ""),
+        "badge": str(_meta.get("badge", "") or ""),
+        "opponent": _opponent,
+        "xpts": _d3_desk_num(_m.get("xpts")),
+        "xmins": _d3_desk_num(_m.get("xmins")),
+        "availability": 100.0 * _d3_desk_num(_m.get("availability_probability")),
+        "start_probability": 100.0 * _d3_desk_num(_m.get("start_probability")),
+        "ownership": _d3_desk_num(_p.get("selected_by_percent")),
+        "transfers_in": _tin,
+        "transfers_out": _tout,
+        "net_transfers": _tin - _tout,
+        "model_rank": int(_d3_desk_rank_map.get(_pid, 0)),
+    }
+    DAY3_TRANSFER_DESK[_action].append(_record)
+    DAY3_TRANSFER_DESK_ORDER.append(str(_requested_name))
+
+if [len(DAY3_TRANSFER_DESK[x]) for x in ("BUY","HOLD","SELL")] != [3,3,3]:
+    raise RuntimeError("Transfer Desk must contain exactly three BUY, three HOLD and three SELL players")
+if len({r["player_id"] for g in DAY3_TRANSFER_DESK.values() for r in g}) != 9:
+    raise RuntimeError("Transfer Desk contains a duplicate player")
+
+def _d3_desk_short_reason(r):
+    if r["action"] == "BUY":
+        return f'{r["xpts"]:.1f} xPTS • {r["xmins"]:.0f} xMINS • {r["opponent"]} NEXT'
+    if r["action"] == "HOLD":
+        return f'{r["availability"]:.0f}% AVAILABLE • {r["xpts"]:.1f} xPTS • HOLD VALUE'
+    return f'{r["availability"]:.0f}% AVAILABLE • {r["xmins"]:.0f} xMINS • FLOW {_d3_desk_flow(r["net_transfers"])}'
+
+def _d3_desk_narr(action, index):
+    r = DAY3_TRANSFER_DESK[str(action)][int(index)]
+    if r["action"] == "BUY":
+        verdict = (
+            "The buy case is the combination of expected minutes, current xPts and the next fixture. "
+            "That gives us a measurable upgrade case rather than buying only because the market is moving."
+        )
+    elif r["action"] == "HOLD":
+        verdict = (
+            "The hold case is that the current player still carries enough minutes and model output "
+            "to avoid wasting a transfer on a sideways move."
+        )
+    else:
+        verdict = (
+            "The sell case is opportunity cost. If this profile is weaker than the validated shortlist, "
+            "the transfer can be used to buy more expected points instead of protecting a name."
+        )
+    return (
+        f'{r["name"]}. {r["team"]} face {r["opponent"]} next. '
+        f'VORTEX projects {r["xpts"]:.1f} expected points from {r["xmins"]:.0f} expected minutes. '
+        f'Availability is {r["availability"]:.0f} percent, the price is £{r["price"]:.1f} million, '
+        f'ownership is {r["ownership"]:.1f} percent, and the Gameweek transfer balance is '
+        f'{_d3_desk_flow(r["net_transfers"])}. The player ranks {r["model_rank"]} in the current '
+        f'Gameweek xPts pool. {verdict}'
+    )
+
+def _d3_desk_photo(r, css):
+    src = _d3_escape(str(r.get("photo", "") or ""))
+    if src:
+        return f'<img class="{css}" src="{src}" alt="">'
+    return f'<div class="{css} d3DeskPhotoFallback">{_d3_escape(r["position"])}</div>'
+
+def _d3_desk_badge(r, css):
+    src = _d3_escape(str(r.get("badge", "") or ""))
+    if src:
+        return f'<img class="{css}" src="{src}" alt="">'
+    return f'<div class="{css} d3DeskBadgeFallback">{_d3_escape(r["team"][:3])}</div>'
+
+def _d3_desk_popup(r):
+    return (
+        f'<article class="d3DeskPop {r["action"].lower()}" data-desk-i="{r["index"]}">'
+        f'<div class="d3DeskChip">{r["action"]}</div>'
+        '<div class="d3DeskPhotoBox">'
+        f'{_d3_desk_photo(r, "d3DeskPhoto")}'
+        f'{_d3_desk_badge(r, "d3DeskBigBadge")}'
+        '</div><div class="d3DeskPopCopy">'
+        f'<h2>{_d3_escape(r["name"])}</h2>'
+        f'<div class="d3DeskMeta">{_d3_escape(r["team"])} • {_d3_escape(r["position"])} • £{r["price"]:.1f}m</div>'
+        f'<div class="d3DeskReason">{_d3_escape(_d3_desk_short_reason(r))}</div>'
+        '<div class="d3DeskStats">'
+        f'<span><b>{r["xpts"]:.1f}</b>xPTS</span>'
+        f'<span><b>{r["xmins"]:.0f}</b>xMINS</span>'
+        f'<span><b>{r["ownership"]:.1f}%</b>OWN</span>'
+        '</div></div></article>'
+    )
+
+def _d3_desk_slot(r):
+    return (
+        f'<div class="d3DeskSlot {r["action"].lower()}" data-desk-i="{r["index"]}">'
+        f'{_d3_desk_photo(r, "d3DeskMiniPhoto")}'
+        '<div class="d3DeskSlotCopy">'
+        f'<strong>{_d3_escape(r["name"])}</strong>'
+        f'<small>{_d3_escape(r["team"])} • {_d3_escape(r["position"])} • £{r["price"]:.1f}m</small>'
+        f'<span>{r["xpts"]:.1f} xPTS • {r["xmins"]:.0f} xMINS</span>'
+        '</div>'
+        f'{_d3_desk_badge(r, "d3DeskMiniBadge")}'
+        '</div>'
+    )
+
+_d3_desk_popups = "".join(
+    _d3_desk_popup(r)
+    for action in ("BUY","HOLD","SELL")
+    for r in DAY3_TRANSFER_DESK[action]
+)
+_d3_desk_zones = []
+for _action in ("BUY","HOLD","SELL"):
+    _slots = "".join(_d3_desk_slot(r) for r in DAY3_TRANSFER_DESK[_action])
+    _d3_desk_zones.append(
+        f'<section class="d3DeskZone {_action.lower()}">'
+        f'<div class="d3DeskZoneHead">{_action}</div>'
+        f'<div class="d3DeskSlots">{_slots}</div></section>'
+    )
+
+_d3_desk_left = (
+    '<section class="board d3DeskPitch d3DeskLeft">'
+    '<div class="d3DeskOpen"><strong>NINE PLAYERS</strong>'
+    '<span>THREE CLEAR ACTIONS • LIVE VORTEX DATA</span></div>'
+    f'{_d3_desk_popups}'
+    '<div class="d3DeskClose"><strong>YOUR MOVE.</strong><span>MAKE IT COUNT.</span></div>'
+    '</section>'
+)
+_d3_desk_right = (
+    '<section class="board d3DeskPitch d3DeskRight">'
+    f'{"".join(_d3_desk_zones)}'
+    '</section>'
+)
+
+_d3_desk_css = r'''
+.tables{flex:1!important;min-height:0!important;display:grid!important;grid-template-columns:1.05fr .95fr!important;gap:30px!important;padding-bottom:10px!important}
+.d3DeskPitch{position:relative;min-height:0;border-radius:24px;overflow:hidden;background:radial-gradient(circle at 50% 0,rgba(255,255,255,.12),transparent 26%),repeating-linear-gradient(90deg,rgba(8,74,46,.98) 0 150px,rgba(6,61,39,.98) 150px 300px);border:1px solid rgba(255,255,255,.16);box-shadow:0 18px 44px rgba(0,0,0,.34)}
+.d3DeskPitch:after{content:"";position:absolute;inset:7%;border:4px solid rgba(255,255,255,.11);border-radius:16px;pointer-events:none}
+.d3DeskLeft{display:grid;place-items:center}.d3DeskRight{display:grid;grid-template-rows:repeat(3,1fr);gap:18px;padding:20px}
+.d3DeskOpen{position:absolute;left:40px;top:28px;z-index:4;display:flex;flex-direction:column}.d3DeskOpen strong{font-size:32px;letter-spacing:4px}.d3DeskOpen span{font:900 15px Arial;color:#a9cabc;letter-spacing:1px;margin-top:5px}
+.d3DeskPop{position:absolute;left:70px;top:180px;width:1310px;height:1130px;padding:30px;border-radius:34px;z-index:30;background:linear-gradient(145deg,rgba(4,20,17,.98),rgba(7,39,29,.98));border:2px solid rgba(255,255,255,.18);box-shadow:0 30px 80px rgba(0,0,0,.48)}
+.d3DeskPop.buy{border-color:rgba(83,255,165,.55)}.d3DeskPop.hold{border-color:rgba(255,221,80,.55)}.d3DeskPop.sell{border-color:rgba(255,91,105,.57)}
+.d3DeskChip{position:absolute;right:28px;top:27px;z-index:3;padding:12px 24px;border-radius:999px;background:rgba(0,0,0,.38);font:1000 24px Arial;letter-spacing:3px}.buy .d3DeskChip{color:#75ffc2}.hold .d3DeskChip{color:#ffe36c}.sell .d3DeskChip{color:#ff8d98}
+.d3DeskPhotoBox{height:600px;position:relative;display:grid;place-items:center;overflow:hidden;border-radius:26px;background:radial-gradient(circle at 50% 20%,rgba(255,255,255,.16),rgba(0,0,0,.10))}
+.d3DeskPhoto{height:590px;max-width:800px;object-fit:contain;filter:drop-shadow(0 22px 30px rgba(0,0,0,.42))}.d3DeskPhotoFallback{width:350px;height:480px;display:grid;place-items:center;font-size:58px;font-weight:1000;color:#9fd1ba}
+.d3DeskBigBadge{position:absolute;left:28px;bottom:25px;width:106px;height:106px;object-fit:contain;filter:drop-shadow(0 8px 12px rgba(0,0,0,.5))}.d3DeskBadgeFallback{display:grid;place-items:center;border-radius:50%;background:#102e24;color:#fff}
+.d3DeskPopCopy{padding:22px 10px 0}.d3DeskPopCopy h2{margin:0;font-size:62px;line-height:1;font-weight:1000}.d3DeskMeta{margin-top:10px;font:1000 24px Arial;color:#bad7ca;letter-spacing:1.3px}.d3DeskReason{margin-top:20px;font:900 25px/1.25 Arial;color:#eefaf5}.d3DeskStats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px}.d3DeskStats span{height:80px;display:flex;align-items:center;justify-content:center;gap:10px;border-radius:16px;background:rgba(255,255,255,.07);font:900 18px Arial;color:#a8c6b9}.d3DeskStats b{font-size:31px;color:#fff}
+.d3DeskZone{position:relative;min-height:0;border-radius:22px;padding:68px 16px 14px;background:rgba(3,23,18,.88);border:2px solid rgba(255,255,255,.12)}.d3DeskZone.buy{border-color:rgba(72,255,160,.40)}.d3DeskZone.hold{border-color:rgba(255,218,75,.40)}.d3DeskZone.sell{border-color:rgba(255,90,100,.44)}
+.d3DeskZoneHead{position:absolute;left:18px;top:14px;font:1000 31px Arial;letter-spacing:5px}.buy .d3DeskZoneHead{color:#66ffb8}.hold .d3DeskZoneHead{color:#ffe36b}.sell .d3DeskZoneHead{color:#ff7d88}
+.d3DeskSlots{height:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.d3DeskSlot{min-width:0;border-radius:18px;display:grid;grid-template-rows:170px minmax(0,1fr);padding:10px;background:linear-gradient(145deg,rgba(7,42,31,.97),rgba(3,22,18,.98));border:1px solid rgba(255,255,255,.12);position:relative;box-shadow:0 13px 30px rgba(0,0,0,.28)}
+.d3DeskMiniPhoto{width:100%;height:165px;object-fit:contain}.d3DeskMiniBadge{position:absolute;right:10px;top:10px;width:45px;height:45px;object-fit:contain}.d3DeskSlotCopy{min-width:0;display:flex;flex-direction:column;gap:5px;padding:8px 4px}.d3DeskSlotCopy strong{font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d3DeskSlotCopy small{font:800 10px Arial;color:#9cb9aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d3DeskSlotCopy span{font:1000 12px Arial;color:#e4f7ee}
+.d3DeskClose{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:40;text-align:center}.d3DeskClose strong{display:block;font-size:72px;letter-spacing:5px}.d3DeskClose span{display:block;margin-top:8px;font:1000 38px Arial;color:#7fffc5;letter-spacing:8px}
+'''
+
+TRANSFER_DESK_HTML_PATH = HTML_DIR / "transfer_decision_desk_scene_4k.html"
+TRANSFER_DESK_PNG_PATH = PNG_DIR / "transfer_decision_desk_scene_4k.png"
+_d3_desk_html = scene_template.substitute(
+    document_title="FPL VORTEX — Transfer Decision Desk",
+    vortex_logo=vortex_logo_html,
+    header_kicker='<span style="position:relative;left:-560px;">PLAYER DECISION ENGINE</span>',
+    title_first="TRANSFER DECISION DESK",
+    title_second="BUY • HOLD • SELL",
+    subtitle=f"GW{int(NEXT_GW)} • NINE PLAYERS • LIVE MODEL + MARKET SIGNALS",
+    scale_heading="BUY • HOLD • SELL",
+    left_panel=_d3_desk_left,
+    right_panel=_d3_desk_right,
+    source_text="VORTEX PHASE 10 • OFFICIAL FPL SNAPSHOT",
+    youtube_icon=youtube_icon,
+    x_icon=x_icon,
+    data_updated=data_updated,
+)
+_d3_desk_html = _d3_desk_html.replace("</style>", _d3_desk_css + "\n</style>", 1)
+_d3_desk_html = vx_apply_pl_lockup(_d3_desk_html)
+_d3_desk_html = vx_polish_branding(_d3_desk_html)
+TRANSFER_DESK_HTML_PATH.write_text(_d3_desk_html, encoding="utf-8")
+
+if _d3_desk_html.count('class="d3DeskPop ') != 9:
+    raise RuntimeError("Transfer Desk popup-card count is not nine")
+if _d3_desk_html.count('class="d3DeskSlot ') != 9:
+    raise RuntimeError("Transfer Desk settled-card count is not nine")
+
+
 if "export_4k_png" not in globals():
     raise RuntimeError("Day 3_3 requires the shared 4K renderer")
 await export_4k_png(FDR_HTML_PATH, FDR_PNG_PATH)
 await export_4k_png(DEFCON_HTML_PATH, DEFCON_PNG_PATH)
 await export_4k_png(FINAL_SHORTLISTS_HTML_PATH, FINAL_SHORTLISTS_PNG_PATH)
+await export_4k_png(TRANSFER_DESK_HTML_PATH, TRANSFER_DESK_PNG_PATH)
 
 # Preserve projected_goals_scene_4k exactly as generated by the original logic.
 # Only the now-merged standalone clean-sheet presentation file is removed.
@@ -1214,6 +1493,7 @@ for _required in (
     XG_HTML_PATH, XG_PNG_PATH,
     DEFCON_HTML_PATH, DEFCON_PNG_PATH,
     FINAL_SHORTLISTS_HTML_PATH, FINAL_SHORTLISTS_PNG_PATH,
+    TRANSFER_DESK_HTML_PATH, TRANSFER_DESK_PNG_PATH,
 ):
     if not Path(_required).is_file() or Path(_required).stat().st_size <= 0:
         raise RuntimeError(f"Day 3_3 section output missing: {_required}")
@@ -1232,7 +1512,9 @@ print("✅ fdr_scene_4k.png = Projected Goals + Clean Sheet Odds")
 print("✅ projected_goals_scene_4k.png = ORIGINAL PRESERVED")
 print("✅ defcon_scene_4k.png = DEFCON")
 print("✅ final_shortlists_scene_4k.png = Final Shortlists")
+print("✅ transfer_decision_desk_scene_4k.png = Transfer Decision Desk")
 print("✅ Final Shortlists uses dynamic xMins/xPts/price/value from Phase 10")
+print("✅ Transfer Desk values come from the live Day 3 pipeline")
 """
           # Preserve every existing FDR / Projected Goals / Clean Sheet data/model
           # calculation in Cell 14B. The original slide files may be created transiently,
@@ -1258,7 +1540,8 @@ print("✅ Final Shortlists uses dynamic xMins/xPts/price/value from Phase 10")
           _day3_preview_anchor = '("03_projected_goals", "PROJECTED GOALS", "projected_goals_scene_4k.html"),'
           _day3_preview_extra = _day3_preview_anchor + '''
     ("03_defcon", "DEFCON", "defcon_scene_4k.html"),
-    ("04_final_shortlists", "FINAL SHORTLISTS", "final_shortlists_scene_4k.html"),'''
+    ("04_final_shortlists", "FINAL SHORTLISTS", "final_shortlists_scene_4k.html"),
+    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", "transfer_decision_desk_scene_4k.html"),'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _preview_cell,
@@ -1328,9 +1611,9 @@ def _d3_short_narr(pos, i=0):
               runtime_source_text,
               _narr_cell,
               '    "03_projected_goals": "analysis",\n    "04_clean_sheets": "key_stat",',
-              '    "03_projected_goals": "analysis",\n    "03_defcon": "analysis",\n    "04_final_shortlists": "analysis",\n    "04_clean_sheets": "key_stat",',
+              '    "03_projected_goals": "analysis",\n    "03_defcon": "analysis",\n    "04_final_shortlists": "analysis",\n    "05_transfer_decision_desk": "analysis",\n    "04_clean_sheets": "key_stat",',
               1,
-              "Day 3 Ryan moods for DEFCON and Final Shortlists",
+              "Day 3 Ryan moods for DEFCON, Final Shortlists and Transfer Desk",
           )
 
           _day3_fdr_script = r'''"02_fdr":
@@ -1422,6 +1705,63 @@ Step five is chip context. Free Hit or Wildcard can rebuild from the current num
 The shortlist refreshes from the same pipeline after injuries, press conferences, prices, and role information update. No player name on this slide is hard-coded. If the data changes, the decision pool changes with it.
 
 This is the final shortlist: validated minutes, model xPts, price and value, organised by position. From here we move to the transfer decision desk and turn the pool into actual buys, holds, sells, and avoids.
+
+""".strip(),
+
+
+"05_transfer_decision_desk":
+f"""
+Welcome to the Transfer Decision Desk. Nine players. Three clear actions. Buy, hold, sell. The labels are the editorial decision for this episode, while every price, fixture, expected-minute estimate, expected-points number and transfer signal comes from the current VORTEX pipeline.
+
+First up — the buys.
+
+{_d3_desk_narr("BUY",0)}
+
+The important part is not the badge or the name. A buy should improve the squad after price, role and expected minutes are considered together. If the player is expensive, the expected-points advantage has to justify what that money prevents us doing elsewhere.
+
+{_d3_desk_narr("BUY",1)}
+
+This is where value matters. A lower-cost player does not need to beat every premium in raw points; the transfer can still be strong when the saved budget improves another position. The live ownership and transfer balance are context, not the reason for the recommendation.
+
+{_d3_desk_narr("BUY",2)}
+
+For the third buy, I still want the same checks: a usable starting probability, enough expected minutes, a fixture that supports attacking returns, and an xPts number that survives comparison with the validated shortlist. When all four line up, the transfer has a clear mathematical purpose.
+
+That is the buy lane. Three players, but one rule: spend a transfer only when the new expected-points profile is meaningfully better than the player or structure you are replacing.
+
+Now the holds.
+
+{_d3_desk_narr("HOLD",0)}
+
+A difficult single fixture is not automatically a sell. Premium players can still have enough ceiling and minutes to justify patience, especially when selling creates a future transfer back. The hold decision protects transfer value when the underlying model has not actually collapsed.
+
+{_d3_desk_narr("HOLD",1)}
+
+For a hold, I also check whether the player remains part of a strong team environment and whether the next few decisions would be easier with the player already owned. If the expected points are acceptable and the minutes are secure, doing nothing can be the optimal move.
+
+{_d3_desk_narr("HOLD",2)}
+
+Market pressure can make managers feel they must act. The desk does the opposite: it compares the live player with the replacement pool. If the upgrade is too small after price and expected minutes are included, the correct decision is to keep the transfer flexible.
+
+That is the hold lane. We are not defending old picks emotionally. We are simply refusing to pay a transfer cost when the numbers say the current asset still does enough.
+
+Finally — the sells.
+
+{_d3_desk_narr("SELL",0)}
+
+A sell becomes stronger when the player loses more than one route to points at the same time. Lower expected minutes, weaker availability, a difficult fixture or negative market movement can combine to make the opportunity cost of holding too high.
+
+{_d3_desk_narr("SELL",1)}
+
+The second sell is judged the same way. One blank is not enough. I want to see whether the current Gameweek model, price efficiency and replacement pool all point away from the player. The sale only makes sense when there is a better use of the squad slot.
+
+{_d3_desk_narr("SELL",2)}
+
+The final sell is also a minutes decision. Injury and rotation uncertainty reduce every other projection because a player cannot score Fantasy points from the bench. When the expected-minute floor drops and the shortlist contains stronger alternatives, moving early can protect both points and squad structure.
+
+That is the sell lane. Three players, but no panic. We are selling because the expected value of the replacement is better, not because a red arrow or a transfer counter tells us what to do.
+
+That is the desk. Three buys. Three holds. Three sells. Use the information, trust the model, and compare every move against what it costs to make it. The live numbers can change after press conferences and price updates, so the desk refreshes with the pipeline. Your move. Make it count.
 
 """.strip(),
 
