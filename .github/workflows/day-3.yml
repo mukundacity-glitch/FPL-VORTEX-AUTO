@@ -6097,10 +6097,92 @@ print("✅ Final Shortlists uses dynamic xMins/xPts/price/value from Phase 10")
 print("✅ Transfer Desk players + values come from VORTEX math and official FPL market trends")
 print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
 """
-          # Preserve every existing FDR / Projected Goals / Clean Sheet data/model
-          # calculation in Cell 14B. The original slide files may be created transiently,
-          # then the Day 3_3 presentation outputs below replace/delete only those old files.
-          _day3_design_anchor = 'print("✅ ORIGINAL WEEKLY FDR / GOALS / CLEAN-SHEET HTML + PNG RESTORED")'
+          # Day 3_3 keeps the shared team-model calculations but removes the
+          # obsolete standalone Clean Sheet presentation. The same file/key path
+          # is rebuilt below as Slide 7 CHIP STRATEGY.
+          _old_cs_section = '''# ============================================================
+# 22. BUILD CLEAN SHEET HTML
+# ============================================================'''
+          _source_label_section = '''# ============================================================
+# 23. SOURCE LABEL
+# ============================================================'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _design_cell,
+              _old_cs_section,
+              _source_label_section,
+              _source_label_section,
+              "Day 3 remove old clean-sheet ranking/panel builder",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _design_cell,
+              'cs_source_text = "VORTEX PHASE 4 MODEL • SAME CS PROBABILITY AS DEFENCE FDR"\n',
+              '',
+              1,
+              "Day 3 remove obsolete clean-sheet source label",
+          )
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _design_cell,
+              'print("✅ CLEAN SHEET source: Phase-4 model probabilities shared exactly with Defence FDR")',
+              'xg_html = vx_apply_pl_lockup(xg_html)',
+              'xg_html = vx_apply_pl_lockup(xg_html)',
+              "Day 3 remove old clean-sheet HTML presentation builder",
+          )
+          for _old_line, _label in (
+              ('cs_html = vx_apply_pl_lockup(cs_html)\n', "old clean-sheet PL lockup"),
+              ('cs_html = vx_polish_branding(cs_html)\n', "old clean-sheet polish"),
+              ('await export_4k_png(CS_HTML_PATH, CS_PNG_PATH)\n', "old clean-sheet PNG render"),
+          ):
+              runtime_source_text = _day3_replace_in_cell(
+                  runtime_source_text,
+                  _design_cell,
+                  _old_line,
+                  '',
+                  1,
+                  f"Day 3 remove {_label}",
+              )
+          _old_cs_write = '''CS_HTML_PATH.write_text(
+    cs_html,
+    encoding="utf-8"
+)
+'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _design_cell,
+              _old_cs_write,
+              '',
+              1,
+              "Day 3 remove old clean-sheet HTML write",
+          )
+          _old_cs_print = '''print()
+print(
+    "✅ CLEAN SHEET ODDS HTML"
+)
+
+print(
+    CS_HTML_PATH
+)
+'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _design_cell,
+              _old_cs_print,
+              '',
+              1,
+              "Day 3 remove old clean-sheet output message",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _design_cell,
+              'print("✅ ORIGINAL WEEKLY FDR / GOALS / CLEAN-SHEET HTML + PNG RESTORED")',
+              'print("✅ ORIGINAL WEEKLY FDR / GOALS HTML + PNG RESTORED")',
+              1,
+              "Day 3 remove old clean-sheet restored marker",
+          )
+
+          _day3_design_anchor = 'print("✅ ORIGINAL WEEKLY FDR / GOALS HTML + PNG RESTORED")'
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _design_cell,
@@ -6165,6 +6247,7 @@ print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
 for _name in (
     "DAY3_BENCHING_TOP10", "DAY3_BENCHING_BOTTOM5",
     "DAY3_DEFCON_TARGETS", "DAY3_DEFCON_AVOIDS", "DAY3_SHORTLISTS",
+    "DAY3_CHIP_STRATEGY",
 ):
     if _name not in globals():
         raise RuntimeError(f"Day 3_3 narration missing {_name}; run Cell 14B first")
@@ -6199,6 +6282,63 @@ def _d3_short_narr(pos, i=0):
         f"{str(row['player_name'])}, {float(row['xmins']):.0f} expected minutes, "
         f"{float(row['xpts']):.1f} expected points, at {float(row['price']):.1f} million"
     )
+
+_D3_CHIP_NARR = DAY3_CHIP_STRATEGY
+_D3_CHIP_USAGE_BY_CODE = {
+    str(row["code"]): row for row in list(_D3_CHIP_NARR.get("usage") or [])
+}
+
+def _d3_chip_usage_narr(code):
+    row = _D3_CHIP_USAGE_BY_CODE[str(code)]
+    return (
+        f"{str(row['label']).title()} usage is {float(row['percentage']):.1f} percent, "
+        f"representing {int(row['managers']):,} manager activations"
+    )
+
+def _d3_chip_highest_narr():
+    row = _D3_CHIP_NARR.get("highest_verified_chip_score")
+    if not row:
+        return (
+            "There is no officially verified weekly overall winner with an observable "
+            "active chip in the completed snapshot yet, so I leave this number blank "
+            "instead of inventing it"
+        )
+    return (
+        f"The highest verified chip score among weekly overall winners is "
+        f"{int(row['points'])} points, achieved in Gameweek {int(row['gw'])} "
+        f"with {str(row['label']).title()}"
+    )
+
+def _d3_chip_remaining_narr():
+    labels = [str(x).title() for x in (_D3_CHIP_NARR.get("remaining_labels") or [])]
+    if not labels:
+        return "I have used every chip in the current half-season set"
+    if len(labels) == 1:
+        return f"I still have {labels[0]} available in the current half-season set"
+    return "I still have " + ", ".join(labels[:-1]) + f", and {labels[-1]} available in the current half-season set"
+
+def _d3_chip_target_narr(key, fallback):
+    row = (_D3_CHIP_NARR.get("targets") or {}).get(key)
+    if not row:
+        return fallback
+    if key == "triple_captain":
+        return (
+            f"Gameweek {int(row['gw'])}, where {str(row['player_name'])} currently leads "
+            f"the horizon at {float(row['xpts']):.1f} expected points"
+        )
+    if key == "free_hit":
+        return (
+            f"Gameweek {int(row['gw'])}, currently the largest blank pressure in my squad "
+            f"with {int(row['blank_players'])} players without a fixture"
+        )
+    if key == "bench_boost":
+        return (
+            f"Gameweek {int(row['gw'])}, currently the strongest bench window with "
+            f"{int(row['double_players'])} squad players on multiple fixtures"
+        )
+    if key == "wildcard":
+        return f"Gameweek {int(row['gw'])}, the data-ranked point inside the Gameweek six to twelve reset window"
+    return fallback
 '''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
@@ -6381,11 +6521,78 @@ f"""'''
               "Day 3 preserve Projected Goals narration and add DEFCON/Final Shortlists",
           )
 
+
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '# CLEAN SHEET narration uses the exact same six-Gameweek team model',
+              '# FDR narration has its own decision-focused ranking',
+              '# FDR narration has its own decision-focused ranking',
+              "Day 3 remove obsolete clean-sheet narration ranking logic",
+          )
+
+          _day3_chip_script = r'''"04_clean_sheets":
+f"""
+Chip strategy for Gameweek {NEXT_GW}. Free Hit, Wildcard, Triple Captain and Bench Boost are powerful, but the best chip is the one used in the right fixture window.
+
+Season chip usage overview.
+
+Bench Boost usage is {_d3_chip_usage_narr("bboost")}. That tells us how aggressively the field has already attacked bench depth.
+
+Triple Captain usage is {_d3_chip_usage_narr("3xc")}. I care about the number, but I do not chase it. Captain ceiling and fixture quality still decide my move.
+
+Wildcard usage is {_d3_chip_usage_narr("wildcard")}. A Wildcard is permanent squad surgery, so I want a genuine structural reason rather than one bad score.
+
+Free Hit usage is {_d3_chip_usage_narr("freehit")}. This chip is most valuable when the normal squad is badly exposed by a blank or unusually awkward fixture week.
+
+These official counts are manager activations from the current FPL season, measured against {_D3_CHIP_NARR["total_active_managers"]:,} active managers.
+
+Highest chip score so far. {_d3_chip_highest_narr()}. The slide only shows a value when the official weekly winner and active chip can both be verified.
+
+My remaining chips. {_d3_chip_remaining_narr()}. For 2026/27, the first set expires after Gameweek nineteen and the same four chips refresh for the second half, so the slide evaluates the active half-season set only.
+
+Now the forward plan.
+
+Wildcard: {_d3_chip_target_narr("wildcard", "the best long-term squad reset inside Gameweeks six to twelve")}. I want multiple problems solved at once, not a cosmetic transfer.
+
+Triple Captain: {_d3_chip_target_narr("triple_captain", "the best premium haul window in the model")}. Expected minutes, xPts and fixture volume must all support the captain.
+
+Free Hit: {_d3_chip_target_narr("free_hit", "the next major blank window")}. I save it for a week where the temporary rebuild protects the starting eleven.
+
+Bench Boost: {_d3_chip_target_narr("bench_boost", "the next strong double or deep-bench window")}. All fifteen players need credible minutes before I spend it.
+
+This week, my recommendation is {str(_D3_CHIP_NARR["recommendation"]).title()}. {str(_D3_CHIP_NARR["recommendation_reason"])}
+
+The rule is simple: do not force a chip just because it is available. Wait for the fixture structure, minutes security and expected-points ceiling to align.
+
+That is the chip strategy for Gameweek {NEXT_GW}. See you next week.
+
+""".strip(),
+
+"05_outro":'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '"04_clean_sheets":\\nf"""',
+              '"05_outro":',
+              _day3_chip_script,
+              "Day 3 completely replace Clean Sheet narration with Slide 7 Chip Strategy",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              "_cs_word_count=len(re.findall(r\"\\b[\\w’'-]+\\b\", scripts[\"04_clean_sheets\"]))\nif not 320 <= _cs_word_count <= 460:\n    raise RuntimeError(\n        f\"Clean-sheet narration pacing drifted outside target range: {_cs_word_count} words\"\n    )\nprint(\n    f\"✅ Clean Sheet narration: {_cs_word_count} words • \"\n    \"next 5 GWs • top 5 target • bottom 3 avoid\"\n)\n",
+              "_chip_word_count=len(re.findall(r\"\\b[\\w’'-]+\\b\", scripts[\"04_clean_sheets\"]))\nif not 200 <= _chip_word_count <= 330:\n    raise RuntimeError(\n        f\"Slide 7 Chip Strategy narration drifted outside target range: {_chip_word_count} words\"\n    )\nprint(\n    f\"✅ Slide 7 Chip Strategy narration: {_chip_word_count} words • \"\n    \"usage → highest score → remaining → recommendation\"\n)\n",
+              1,
+              "Day 3 replace Clean Sheet narration QA with Slide 7 QA",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _narr_cell,
               'manifest={}',
-              '(AUDIO / "02_fdr.mp3").unlink(missing_ok=True)\nmanifest={}',
+              '(AUDIO / "02_fdr.mp3").unlink(missing_ok=True)\n(AUDIO / "04_clean_sheets.mp3").unlink(missing_ok=True)\nmanifest={}',
               1,
               "Day 3 Slide 6 remove stale 02_fdr MP3 before Ryan TTS",
           )
@@ -6496,6 +6703,33 @@ if "05_outro" in manifest:
               "Day 3 lock Transfer Decision Desk Ryan narration to 4:40",
           )
 
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '    if key=="05_outro":\n        for _attempt in range(2):',
+              '''    if key=="04_clean_sheets":
+        for _attempt in range(3):
+            _d=float(manifest[key]["duration"])
+            if 90.0 <= _d <= 110.0:
+                break
+            _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
+            _current_speed=max(0.20,1.0+_current_rate/100.0)
+            _target_seconds=100.0
+            _needed_speed=_current_speed*(_d/_target_seconds)
+            _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
+            print(
+                f"↻ Slide 7 Chip Strategy Ryan pacing correction: {_d:.2f}s at "
+                f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
+            )
+            manifest[key]=await make_audio(key,text,rate_override=_new_rate)
+
+    if key=="05_outro":
+        for _attempt in range(2):''',
+              1,
+              "Day 3 lock Slide 7 Ryan narration to 90–110 seconds",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _narr_cell,
@@ -6538,6 +6772,49 @@ if "05_outro" in manifest:
 ''',
               1,
               "Day 3 validate Transfer Decision Desk duration and section timing",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              'print("✅ Clean Sheet %")',
+              'print("✅ Slide 7 Chip Strategy")',
+              1,
+              "Day 3 narration summary label for Slide 7",
+          )
+
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              'if "05_outro" in manifest:\n',
+              '''if "04_clean_sheets" in manifest:
+    _chip_info=manifest["04_clean_sheets"]
+    _chip_duration=float(_chip_info["duration"])
+    if not 90.0 <= _chip_duration <= 110.0:
+        raise RuntimeError(
+            f"Slide 7 Chip Strategy narration must be 90–110 seconds; "
+            f"current duration is {_chip_duration:.2f}s"
+        )
+    _chip_words=_chip_info["words"]
+    _chip_anchors=[
+        vx_phrase_time(_chip_words,"Season chip usage overview",required=True,context="Slide 7 usage"),
+        vx_phrase_time(_chip_words,"Bench Boost usage is",required=True,context="Slide 7 BB"),
+        vx_phrase_time(_chip_words,"Triple Captain usage is",required=True,context="Slide 7 TC"),
+        vx_phrase_time(_chip_words,"Wildcard usage is",required=True,context="Slide 7 WC"),
+        vx_phrase_time(_chip_words,"Free Hit usage is",required=True,context="Slide 7 FH"),
+        vx_phrase_time(_chip_words,"Highest chip score so far",required=True,context="Slide 7 high"),
+        vx_phrase_time(_chip_words,"My remaining chips",required=True,context="Slide 7 remaining"),
+        vx_phrase_time(_chip_words,"This week, my recommendation is",required=True,context="Slide 7 recommendation"),
+        vx_phrase_time(_chip_words,"That is the chip strategy for Gameweek",required=True,context="Slide 7 close"),
+    ]
+    if _chip_anchors != sorted(_chip_anchors) or len(set(_chip_anchors)) != len(_chip_anchors):
+        raise RuntimeError(f"Slide 7 narration section order is invalid: {_chip_anchors}")
+    print(f"✅ Slide 7 Chip Strategy narration locked: {_chip_duration:.2f}s")
+
+if "05_outro" in manifest:
+''',
+              1,
+              "Day 3 validate Slide 7 duration and section order",
           )
 
           _day3_anim_scene_anchor = '''    "03_projected_goals": (
@@ -6670,6 +6947,80 @@ if "05_outro" in manifest:
               "Day 3 add DEFCON and Final Shortlists animation events",
           )
 
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '_vx_cs_top = team_projection_df.sort_values("avg_cs", ascending=False).iloc[0]\n_vx_cs_low = team_projection_df.sort_values("avg_cs", ascending=True).iloc[0]\n',
+              '',
+              1,
+              "Day 3 remove obsolete clean-sheet dead-air ranking",
+          )
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    "04_clean_sheets": [',
+              '    "05_outro": [',
+              '    "04_clean_sheets": [],\n    "05_outro": [',
+              "Day 3 remove old clean-sheet dead-air facts",
+          )
+
+          _day3_chip_events = r'''    if key=="04_clean_sheets":
+        usage_at=vx_phrase_time(
+            words,"Season chip usage overview",required=True,context="Slide 7 usage"
+        )
+        usage_times=[
+            vx_phrase_time(words,phrase,required=True,context=f"Slide 7 {label}")
+            for label,phrase in (
+                ("BB","Bench Boost usage is"),
+                ("TC","Triple Captain usage is"),
+                ("WC","Wildcard usage is"),
+                ("FH","Free Hit usage is"),
+            )
+        ]
+        high_at=vx_phrase_time(
+            words,"Highest chip score so far",required=True,context="Slide 7 highest"
+        )
+        remaining_at=vx_phrase_time(
+            words,"My remaining chips",required=True,context="Slide 7 remaining"
+        )
+        strategy_at=vx_phrase_time(
+            words,"This week, my recommendation is",required=True,context="Slide 7 strategy"
+        )
+        close_at=vx_phrase_time(
+            words,"That is the chip strategy for Gameweek",required=True,context="Slide 7 close"
+        )
+        ordered=[usage_at,*usage_times,high_at,remaining_at,strategy_at,close_at]
+        if ordered != sorted(ordered) or len(set(ordered)) != len(ordered):
+            raise RuntimeError(f"Slide 7 animation anchors are not sequential: {ordered}")
+        globals().setdefault("_VX_CHIP_STRATEGY_MOTION",{})[key]={
+            "usage_at":float(usage_at),
+            "usage_times":[float(x) for x in usage_times],
+            "highest_at":float(high_at),
+            "remaining_at":float(remaining_at),
+            "strategy_at":float(strategy_at),
+            "close_at":float(close_at),
+        }
+        return [
+            {"sel":".header,.hero,.main-title","at":0.0,"dur":0.75,"stagger":0.05,"fx":"left"},
+            {"sel":".subtitle,.scale-row,.scale-heading","at":0.55,"dur":0.65,"stagger":0.05,"fx":"fade"},
+            {"sel":".d3ChipUsagePanel","at":usage_at,"dur":0.75,"stagger":0,"fx":"rise"},
+            {"sel":".d3ChipHighest","at":high_at,"dur":0.75,"stagger":0,"fx":"zoom"},
+            {"sel":".d3ChipRemaining","at":remaining_at,"dur":0.70,"stagger":0,"fx":"rise"},
+            {"sel":".d3ChipRecommendation","at":strategy_at,"dur":0.75,"stagger":0,"fx":"rise"},
+            {"sel":".d3ChipClose","at":close_at,"dur":0.62,"stagger":0,"fx":"fade"},
+        ]
+
+    # OUTRO — every narrative transition is anchored to Ryan WordBoundary data.'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    if key=="04_clean_sheets":\n\n        return [',
+              '    # OUTRO — every narrative transition is anchored to Ryan WordBoundary data.',
+              _day3_chip_events,
+              "Day 3 completely replace old Clean Sheet animation with Slide 7 animation",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _anim_cell,
@@ -6723,6 +7074,69 @@ if "05_outro" in manifest:
               "Day 3 Transfer Desk card-flight JavaScript",
           )
 
+
+          _day3_chip_js = r'''
+    /* Slide 7 CHIP STRATEGY — deterministic particles, flips, counters and progress. */
+    if(VX.key==="04_clean_sheets" && VX.chip_motion){
+        const cm=VX.chip_motion;
+        const clamp01=v=>Math.max(0,Math.min(1,v));
+        const phase=(at,span)=>ease(clamp01((t-at)/Math.max(.001,span)));
+
+        document.querySelectorAll(".d3ChipParticle").forEach((el,i)=>{
+            const drift=Math.sin(t*.34+i*1.77)*18;
+            const lift=Math.cos(t*.27+i*.91)*11;
+            el.style.transform="translate("+drift+"px,"+lift+"px)";
+            el.style.opacity=String(.10+.11*(.5+.5*Math.sin(t*.22+i)));
+        });
+
+        const times=Array.isArray(cm.usage_times)?cm.usage_times:[];
+        document.querySelectorAll(".d3ChipUsageCard").forEach((card,i)=>{
+            const at=Number(times[i]??cm.usage_at??0);
+            const p=phase(at,.82);
+            card.style.opacity=String(p);
+            card.style.transform="perspective(1100px) translateY("+((1-p)*34)+"px) rotateY("+(-82*(1-p))+"deg) scale("+(0.94+0.06*p)+")";
+            const target=parseFloat(card.dataset.targetPct||"0");
+            const pct=card.querySelector(".d3ChipPct");
+            if(pct) pct.textContent=(target*p).toFixed(1)+"%";
+            const fill=card.querySelector(".d3ChipProgressFill");
+            if(fill) fill.style.transform="scaleX("+Math.min(1,(target/100)*p)+")";
+        });
+
+        const high=document.querySelector(".d3ChipHighestNumber");
+        if(high){
+            const raw=String(high.dataset.targetScore||"");
+            const target=parseInt(raw,10);
+            if(Number.isFinite(target)){
+                const p=phase(Number(cm.highest_at||0),1.05);
+                const small=high.querySelector("small");
+                high.childNodes[0].nodeValue=String(Math.round(target*p));
+                if(small) small.style.opacity=String(p);
+            }
+        }
+
+        document.querySelectorAll(".d3ChipRemainCard").forEach((card,i)=>{
+            const p=phase(Number(cm.remaining_at||0)+i*.12,.52);
+            card.style.opacity=String(p);
+            card.style.transform="translateY("+((1-p)*20)+"px) scale("+(0.90+0.10*p)+")";
+        });
+
+        document.querySelectorAll(".d3ChipUnderline").forEach((line,i)=>{
+            const p=phase(Number(cm.strategy_at||0)+i*.15,.55);
+            line.style.transform="scaleX("+p+")";
+            line.style.opacity=String(p);
+        });
+    }
+
+'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    /* data-driven dead-air teaser */',
+              _day3_chip_js + '    /* data-driven dead-air teaser */',
+              1,
+              "Day 3 Slide 7 cinematic deterministic JavaScript",
+          )
+
           _day3_vx_anchor = '''    vx={
         "key":key,
         "duration":duration,
@@ -6745,6 +7159,12 @@ if "05_outro" in manifest:
                 f"Transfer Desk animation requires 9 card-flight windows; "
                 f"found {len(vx['transfer_desk_windows'])}"
             )'''
+    if key=="04_clean_sheets":
+        vx["chip_motion"]=globals().get(
+            "_VX_CHIP_STRATEGY_MOTION",{}
+        ).get(key,{})
+        if len(vx["chip_motion"].get("usage_times",[])) != 4:
+            raise RuntimeError("Slide 7 animation requires four chip-card timing anchors")
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _anim_cell,
@@ -6763,10 +7183,13 @@ if "05_outro" in manifest:
 except Exception:
     CACHE = {}
 
-# Slide 6 completely replaces the former 02_fdr asset: never reuse that scene cache.
+# Slides 6 and 7 completely replace legacy scene assets: never reuse those caches.
 CACHE.pop("02_fdr", None)
 (SECTIONS / "02_fdr.mp4").unlink(missing_ok=True)
-(PREVIEWS / f"02_fdr_{H}p.png").unlink(missing_ok=True)''',
+(PREVIEWS / f"02_fdr_{H}p.png").unlink(missing_ok=True)
+CACHE.pop("04_clean_sheets", None)
+(SECTIONS / "04_clean_sheets.mp4").unlink(missing_ok=True)
+(PREVIEWS / f"04_clean_sheets_{H}p.png").unlink(missing_ok=True)''',
               1,
               "Day 3 Slide 6 force clean rerender without stale 02_fdr cache",
           )
@@ -6917,6 +7340,27 @@ CACHE.pop("02_fdr", None)
                   + " | ".join(_day3_section_missing)
               )
           print("Day 3_3 Slides 1–7 runtime override: Projected Goals + DEFCON + Final Shortlists + Transfer Desk + Slide 5 Review + MY PLAN 5A–5H + Slide 6 Benching + Slide 7 Chip Strategy: PASS")
+
+          _day3_slide7_forbidden = (
+              'FPL VORTEX — Clean Sheet Odds',
+              'CLEAN-SHEET OUTLOOK',
+              'five teams that stand out',
+              'Clean-sheet narration pacing drifted',
+              'narr_cs_ranked = (',
+              'CLEAN-SHEET LEADER •',
+          )
+          _day3_slide7_stale = [
+              marker for marker in _day3_slide7_forbidden
+              if marker in runtime_source_text
+          ]
+          if _day3_slide7_stale:
+              raise SystemExit(
+                  "Day 3_3 Slide 7 legacy clean-sheet presentation survived: "
+                  + " | ".join(_day3_slide7_stale)
+              )
+          if runtime_source_text.count('DAY 3_3 — SLIDE 7 • CHIP STRATEGY') != 1:
+              raise SystemExit("Day 3_3 must contain exactly one Slide 7 builder")
+          print("Day 3_3 Slide 7 legacy clean-sheet code/cache removal: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
@@ -7477,6 +7921,10 @@ CACHE.pop("02_fdr", None)
               root / "SLIDE" / "transfer_decision_desk_scene_4k.png",
               root / "DATA" / "transfer_decision_desk.json",
               root / "DATA" / "benching_dilemma.json",
+              root / "SLIDE" / "clean_sheet_scene_4k.png",
+              root / "DATA" / "chip_strategy.json",
+              root / "MP3" / "04_clean_sheets.mp3",
+              root / "MP4" / "04_clean_sheets.mp4",
               root / "MP4" / "02_fdr.mp4",
               root / "MP4" / "03_projected_goals.mp4",
               root / "MP4" / "03_defcon.mp4",
@@ -7486,12 +7934,6 @@ CACHE.pop("02_fdr", None)
           for section_file in section_files:
               if not section_file.is_file() or section_file.stat().st_size <= 0:
                   raise SystemExit(f"Day 3_3 section output is missing: {section_file}")
-
-          obsolete_clean_sheet = root / "SLIDE" / "clean_sheet_scene_4k.png"
-          if obsolete_clean_sheet.exists():
-              raise SystemExit(
-                  "Standalone clean-sheet slide survived even though it is merged into 02_fdr"
-              )
 
           section_narr = json.loads(narration_path.read_text(encoding="utf-8"))
           for key, required_phrases in {
@@ -7503,14 +7945,57 @@ CACHE.pop("02_fdr", None)
                   "Transfer Decision Desk", "First up", "Now the holds",
                   "Finally", "Your move"
               ),
+              "04_clean_sheets": (
+                  "chip strategy", "Free Hit", "Wildcard", "Triple Captain",
+                  "Bench Boost", "My remaining chips", "This week"
+              ),
           }.items():
               script = str((section_narr.get(key) or {}).get("script") or "")
               lowered = script.lower()
               missing = [phrase for phrase in required_phrases if phrase.lower() not in lowered]
               if missing:
                   raise SystemExit(f"{key} Day 3_3 narration missing: {missing}")
-          if "04_clean_sheets" in section_narr:
-              raise SystemExit("Duplicate standalone clean-sheet narration survived in Day 3_3")
+          chip_info = section_narr.get("04_clean_sheets") or {}
+          chip_duration = float(chip_info.get("duration") or 0.0)
+          if not 90.0 <= chip_duration <= 110.0:
+              raise SystemExit(
+                  f"Slide 7 Chip Strategy must be 90–110 seconds, found {chip_duration:.2f}s"
+              )
+          chip_manifest_path = root / "DATA" / "chip_strategy.json"
+          chip_manifest = json.loads(chip_manifest_path.read_text(encoding="utf-8"))
+          if int(chip_manifest.get("scene_number") or 0) != 7:
+              raise SystemExit("Chip Strategy manifest is not labelled Slide 7")
+          if int(chip_manifest.get("total_active_managers") or 0) <= 0:
+              raise SystemExit("Slide 7 total active managers is invalid")
+          chip_usage = list(chip_manifest.get("usage") or [])
+          if [str(row.get("code") or "") for row in chip_usage] != [
+              "bboost","3xc","wildcard","freehit"
+          ]:
+              raise SystemExit(f"Slide 7 chip usage ordering is wrong: {chip_usage}")
+          for row in chip_usage:
+              if int(row.get("managers") or 0) < 0 or float(row.get("percentage") or 0.0) < 0:
+                  raise SystemExit(f"Slide 7 chip usage contains invalid values: {row}")
+              if not str(row.get("asset_drive_id") or ""):
+                  raise SystemExit(f"Slide 7 chip usage is missing Drive artwork: {row}")
+          expected_chip_asset_ids = {
+              "1BzqSRdeHNNtOv6lPEON-_uSv_QeosYR9",
+              "12SlsuTm4AVBOKTlG-dOlswoQre_GcbI1",
+              "13hCnmdw2lAilJfNafZPoVAo0VPBoJ_MB",
+              "1gMjLzNh60n33TwdpBm3F6WHJvxPXWyUo",
+          }
+          if {str(row.get("asset_drive_id") or "") for row in chip_usage} != expected_chip_asset_ids:
+              raise SystemExit("Slide 7 is not using the four requested Drive chip assets")
+          valid_chip_codes = {"bboost","3xc","wildcard","freehit"}
+          if not set(chip_manifest.get("remaining_codes") or []).issubset(valid_chip_codes):
+              raise SystemExit("Slide 7 remaining-chip state contains an unknown chip")
+          if str(chip_manifest.get("recommendation") or "") not in {
+              "NO CHIP","WILDCARD","FREE HIT","TRIPLE CAPTAIN","BENCH BOOST"
+          }:
+              raise SystemExit("Slide 7 recommendation is invalid")
+          print(
+              f"Day 3_3 Slide 7 CHIP STRATEGY PNG/MP3/MP4/dynamic-data contract: PASS "
+              f"({chip_duration:.2f}s)"
+          )
 
           bench_info = section_narr.get("02_fdr") or {}
           bench_duration = float(bench_info.get("duration") or 0.0)
@@ -7846,6 +8331,7 @@ CACHE.pop("02_fdr", None)
               "gw_review",
               *selected_plan_keys,
               "02_fdr",
+              "04_clean_sheets",
           ]
           positions = []
           for scene_key in required_master_order:
@@ -7862,7 +8348,7 @@ CACHE.pop("02_fdr", None)
               "Day 3_3 Projected Goals + DEFCON + Final Shortlists + Transfer Decision Desk + "
               "Slide 5 Gameweek Review + "
               + ", ".join(plan_specs[key]["label"] for key in selected_plan_keys)
-              + " + Slide 6 Benching Dilemma PNG/MP4/narration contract: PASS"
+              + " + Slide 6 Benching Dilemma + Slide 7 Chip Strategy PNG/MP3/MP4/narration contract: PASS"
           )
 
           final_mp4s = [
