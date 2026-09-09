@@ -1564,6 +1564,278 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
               "Day 3 build MY PLAN 5A from copied GW Review animation",
           )
 
+          _day3_plan5a_render_block = r'''
+# ------------------------------------------------------------
+# DAY 3_3 — MY PLAN 5A RENDER
+# Reuse the already-defined GW Review DOM capture/QA functions.
+# ------------------------------------------------------------
+if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
+    _d3_plan_render_helpers = (
+        "_vx17_capture_dom",
+        "_vx17_validate",
+        "_vx17_sha256",
+        "_vx17_write_json_atomic",
+        "_vx17_concat_quote",
+        "vx_media_duration",
+        "vx_frame_plan",
+    )
+    _d3_plan_render_missing = [
+        name for name in _d3_plan_render_helpers if name not in globals()
+    ]
+    if _d3_plan_render_missing:
+        raise RuntimeError(
+            "MY PLAN 5A requires the preserved GW Review Cell 17 renderer helpers: "
+            + ", ".join(_d3_plan_render_missing)
+        )
+
+    MANIFEST = TIMING / "my_plan_5a_roll_animation_manifest.json"
+    FINAL_MP4 = VIDEO / "05a_my_plan_roll.mp4"
+    LOCAL_MP4 = WORK / "my_plan_5a_roll_html_master.mp4"
+    SILENT_MP4 = WORK / "my_plan_5a_roll_html_silent.mp4"
+    FRAME_DIR = WORK / "my_plan_5a_roll_html_frames"
+    CONCAT_FILE = FRAME_DIR / "frames.ffconcat"
+    FINAL_PREVIEW = SLIDES / "my_plan_5a_roll_animated_final.png"
+    UPLOAD_MP4 = VIDEO / ".05a_my_plan_roll.uploading.mp4"
+    RENDER_QA = TIMING / "my_plan_5a_roll_render.json"
+    RENDERER_VERSION = "VX17-MY-PLAN-5A-GW-REVIEW-COPY-V1"
+
+    if not MANIFEST.is_file():
+        raise FileNotFoundError("MY PLAN 5A animation manifest is missing. Run Cell 16 first.")
+
+    _vx17_manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    ANIM_HTML = Path(str(_vx17_manifest.get("html") or ""))
+    AUDIO = Path(str(_vx17_manifest.get("audio") or ""))
+    if not ANIM_HTML.is_file() or ANIM_HTML.stat().st_size < 100_000:
+        raise FileNotFoundError(f"MY PLAN 5A animated HTML is missing/incomplete: {ANIM_HTML}")
+    if not AUDIO.is_file() or AUDIO.stat().st_size < 10_000:
+        raise FileNotFoundError(f"MY PLAN 5A Ryan MP3 is missing/incomplete: {AUDIO}")
+
+    _vx17_canvas = list(_vx17_manifest.get("canvas") or [])
+    if _vx17_canvas != [3840, 2160]:
+        raise RuntimeError(f"MY PLAN 5A canvas must be [3840, 2160], got {_vx17_canvas}")
+    DESIGN_W, DESIGN_H = map(int, _vx17_canvas)
+
+    _vx17_timeline = dict(_vx17_manifest.get("timeline") or {})
+    _vx17_motion_windows = list(_vx17_manifest.get("motion_windows") or [])
+    _vx17_metric_times = dict(_vx17_manifest.get("metric_times") or {})
+    _vx17_segments = list(_vx17_manifest.get("segments") or [])
+    if not (_vx17_timeline and _vx17_motion_windows and _vx17_metric_times and _vx17_segments):
+        raise RuntimeError("MY PLAN 5A manifest is missing timeline/motion/metric/segment data")
+    if str(_vx17_manifest.get("scenario")) != "A_ROLL":
+        raise RuntimeError(f"MY PLAN 5A manifest scenario mismatch: {_vx17_manifest.get('scenario')}")
+    if int(_vx17_manifest.get("starting_xi") or 0) != 11:
+        raise RuntimeError("MY PLAN 5A must contain exactly 11 starters")
+    if int(_vx17_manifest.get("bench") or 0) != 4:
+        raise RuntimeError("MY PLAN 5A must contain exactly 4 substitutes")
+    if float(_vx17_manifest.get("final_hold_seconds") or 0.0) < 3.0 - 1e-6:
+        raise RuntimeError("MY PLAN 5A final completed composition hold must be at least 3 seconds")
+
+    _vx17_first_id = int(_vx17_manifest.get("first_starter_id") or 0)
+    _vx17_first_segment = next(
+        (
+            segment for segment in _vx17_segments
+            if int(segment.get("player_id") or 0) == _vx17_first_id
+        ),
+        None,
+    )
+    if _vx17_first_segment is None:
+        raise RuntimeError("MY PLAN 5A goalkeeper segment is missing")
+    if abs(
+        float(_vx17_first_segment["reveal_at"])
+        - float(_vx17_timeline["first_player_at"])
+    ) > 1e-6:
+        raise RuntimeError("MY PLAN 5A goalkeeper is not aligned to the copied 0:08 reveal")
+    if abs(
+        float(_vx17_first_segment["hero_exit_at"])
+        - float(_vx17_timeline["goalkeeper_card_out"])
+    ) > 1e-6:
+        raise RuntimeError("MY PLAN 5A goalkeeper card is not aligned to the copied 0:23 exit")
+
+    W = int(globals().get("VIDEO_WIDTH", 3840))
+    H = int(globals().get("VIDEO_HEIGHT", 2160))
+    FPS = int(globals().get("VIDEO_FPS", 24))
+    MOTION_CAPTURE_FPS = int(
+        globals().get("GW_REVIEW_MOTION_CAPTURE_FPS", min(FPS, 20))
+    )
+    MOTION_CAPTURE_FPS = max(1, min(MOTION_CAPTURE_FPS, FPS))
+    JPEG_QUALITY = int(globals().get("GW_REVIEW_JPEG_QUALITY", 94))
+    JPEG_QUALITY = max(82, min(JPEG_QUALITY, 100))
+    if W * 9 != H * 16:
+        raise ValueError(f"MY PLAN 5A output must stay 16:9; received {W}×{H}")
+
+    AUDIO_DURATION = float(vx_media_duration(AUDIO))
+    MANIFEST_DURATION = float(_vx17_manifest.get("duration") or 0.0)
+    if abs(AUDIO_DURATION - MANIFEST_DURATION) > 0.15:
+        raise RuntimeError(
+            f"MY PLAN 5A audio/manifest duration drift: "
+            f"{AUDIO_DURATION:.3f}s vs {MANIFEST_DURATION:.3f}s"
+        )
+    if not 260.0 <= AUDIO_DURATION <= 280.0:
+        raise RuntimeError(
+            f"MY PLAN 5A target is about 4:30; audio is {AUDIO_DURATION:.2f}s"
+        )
+
+    FRAME_PLAN = vx_frame_plan(AUDIO_DURATION, FPS)
+    N_FRAMES = int(FRAME_PLAN["frames"])
+    VIDEO_GRID_DURATION = float(FRAME_PLAN["grid_duration"])
+
+    _vx17_replaced_existing = FINAL_MP4.exists()
+    _vx17_html_sha256 = _vx17_sha256(ANIM_HTML)
+    _vx17_manifest_sha256 = _vx17_sha256(MANIFEST)
+    _vx17_audio_sha256 = _vx17_sha256(AUDIO)
+
+    LOCAL_MP4.unlink(missing_ok=True)
+    SILENT_MP4.unlink(missing_ok=True)
+    UPLOAD_MP4.unlink(missing_ok=True)
+    if FRAME_DIR.exists():
+        shutil.rmtree(FRAME_DIR)
+    FRAME_DIR.mkdir(parents=True, exist_ok=False)
+
+    try:
+        (
+            _vx17_sampled_times,
+            _vx17_frame_paths,
+            _vx17_checkpoint_states,
+            _vx17_distinct_keyframes,
+        ) = await _vx17_capture_dom()
+
+        _vx17_concat_lines = ["ffconcat version 1.0"]
+        for _vx17_index in range(len(_vx17_frame_paths) - 1):
+            _vx17_delta = max(
+                1e-6,
+                _vx17_sampled_times[_vx17_index + 1]
+                - _vx17_sampled_times[_vx17_index],
+            )
+            _vx17_concat_lines.append(
+                f"file '{_vx17_concat_quote(_vx17_frame_paths[_vx17_index])}'"
+            )
+            _vx17_concat_lines.append(f"duration {_vx17_delta:.9f}")
+        _vx17_concat_lines.append(
+            f"file '{_vx17_concat_quote(_vx17_frame_paths[-1])}'"
+        )
+        _vx17_concat_lines.append(
+            f"file '{_vx17_concat_quote(_vx17_frame_paths[-1])}'"
+        )
+        CONCAT_FILE.write_text(
+            "\n".join(_vx17_concat_lines) + "\n",
+            encoding="utf-8",
+        )
+
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-v", "error",
+                "-f", "concat", "-safe", "0", "-i", str(CONCAT_FILE),
+                "-an",
+                "-vf",
+                (
+                    f"fps={FPS}:round=near,"
+                    f"scale={W}:{H}:flags=lanczos,"
+                    "setsar=1,format=yuv420p"
+                ),
+                "-frames:v", str(N_FRAMES),
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                str(SILENT_MP4),
+            ],
+            check=True,
+        )
+
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-v", "error",
+                "-i", str(SILENT_MP4), "-i", str(AUDIO),
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-c:v", "copy",
+                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                "-af", "aresample=48000:async=1:first_pts=0,apad",
+                "-t", f"{VIDEO_GRID_DURATION:.9f}",
+                "-movflags", "+faststart",
+                str(LOCAL_MP4),
+            ],
+            check=True,
+        )
+
+        _vx17_local_media = _vx17_validate(LOCAL_MP4)
+        _vx17_local_sha256 = _vx17_sha256(LOCAL_MP4)
+
+        shutil.copy2(LOCAL_MP4, UPLOAD_MP4)
+        _vx17_validate(UPLOAD_MP4)
+        if _vx17_sha256(UPLOAD_MP4) != _vx17_local_sha256:
+            raise RuntimeError("MY PLAN 5A staged Drive copy failed byte validation")
+
+        os.replace(UPLOAD_MP4, FINAL_MP4)
+        _vx17_final_media = _vx17_validate(FINAL_MP4)
+        _vx17_final_sha256 = _vx17_sha256(FINAL_MP4)
+        if _vx17_final_sha256 != _vx17_local_sha256:
+            raise RuntimeError("MY PLAN 5A final Drive replacement failed read-back validation")
+    finally:
+        LOCAL_MP4.unlink(missing_ok=True)
+        SILENT_MP4.unlink(missing_ok=True)
+        UPLOAD_MP4.unlink(missing_ok=True)
+        CONCAT_FILE.unlink(missing_ok=True)
+        if FRAME_DIR.exists():
+            shutil.rmtree(FRAME_DIR)
+
+    _vx17_report = {
+        "passed":True,
+        "renderer_version":RENDERER_VERSION,
+        "scenario":"A_ROLL",
+        "visual_source":"COPIED_GW_REVIEW_ANIMATED_DOM_HTML",
+        "original_gw_review_preserved":True,
+        "animated_html":str(ANIM_HTML),
+        "animated_html_sha256":_vx17_html_sha256,
+        "manifest":str(MANIFEST),
+        "manifest_sha256":_vx17_manifest_sha256,
+        "audio":str(AUDIO),
+        "audio_sha256":_vx17_audio_sha256,
+        "audio_duration":AUDIO_DURATION,
+        "frame_grid_duration":VIDEO_GRID_DURATION,
+        "browser_keyframes":len(_vx17_sampled_times),
+        "distinct_browser_keyframes":_vx17_distinct_keyframes,
+        "motion_capture_fps":MOTION_CAPTURE_FPS,
+        "output_frames":N_FRAMES,
+        "timeline":_vx17_timeline,
+        "motion_windows":_vx17_motion_windows,
+        "dom_checkpoints":_vx17_checkpoint_states,
+        "final_preview":str(FINAL_PREVIEW),
+        "final_file":str(FINAL_MP4),
+        "final_sha256":_vx17_final_sha256,
+        "output":_vx17_final_media,
+    }
+    _vx17_write_json_atomic(RENDER_QA, _vx17_report)
+
+    print("\n" + "=" * 70)
+    print("✅ MY PLAN 5A — ROLL — ANIMATED GW REVIEW COPY RENDER PASSED")
+    print("=" * 70)
+    print(f"✅ Graphics : {ANIM_HTML}")
+    print(f"✅ Output   : {FINAL_MP4}")
+    print(f"✅ Duration : {_vx17_final_media['duration']:.3f}s")
+    print("✅ Transfer : 0 • hit 0 • chip none")
+    print("✅ Original GW Review render remains untouched")
+'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _gw_review_render_cell,
+              '''    display(
+        Video(
+            str(FINAL_MP4),
+            embed=False,
+            width=1200,
+        )
+    )''',
+              '''    display(
+        Video(
+            str(FINAL_MP4),
+            embed=False,
+            width=1200,
+        )
+    )
+
+''' + _day3_plan5a_render_block,
+              1,
+              "Day 3 render MY PLAN 5A through copied GW Review engine",
+          )
+
           _day3_design_block = r"""
 # ============================================================
 # DAY 3_3 ONLY — PROJECTED GOALS + CLEAN SHEET ODDS / DEFCON
