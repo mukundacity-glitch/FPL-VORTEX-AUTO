@@ -6837,47 +6837,6 @@ jobs:
               "Day 3 projection narration QA label",
           )
 
-          runtime_source_text = _day3_replace_in_cell(
-              runtime_source_text,
-              _narr_cell,
-              '    if key=="05_outro":\n        for _attempt in range(2):',
-              '''    if key=="02_fdr":
-                  for _attempt in range(3):
-                      _d=float(manifest[key]["duration"])
-                      if 120.0 <= _d <= 180.0:
-                          break
-                      _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
-                      _current_speed=max(0.20,1.0+_current_rate/100.0)
-                      _target_seconds=150.0
-                      _needed_speed=_current_speed*(_d/_target_seconds)
-                      _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
-                      print(
-                          f"↻ Slide 6 Benching Dilemma Ryan pacing correction: {_d:.2f}s at "
-                          f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
-                      )
-                      manifest[key]=await make_audio(key,text,rate_override=_new_rate)
-
-              if key=="04_final_shortlists":
-                  for _attempt in range(3):
-                      _d=float(manifest[key]["duration"])
-                      if 260.0 <= _d <= 270.0:
-                          break
-                      _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
-                      _current_speed=max(0.20,1.0+_current_rate/100.0)
-                      _target_seconds=265.0
-                      _needed_speed=_current_speed*(_d/_target_seconds)
-                      _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
-                      print(
-                          f"↻ Final Shortlists Ryan pacing correction: {_d:.2f}s at "
-                          f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
-                      )
-                      manifest[key]=await make_audio(key,text,rate_override=_new_rate)
-
-              if key=="05_outro":
-                  for _attempt in range(2):''',
-              1,
-              "Day 3 lock Final Shortlists Ryan narration to 4:20–4:30",
-          )
 
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
@@ -6885,21 +6844,21 @@ jobs:
               'if "05_outro" in manifest:\n',
               '''if "02_fdr" in manifest:
               _bench_duration=float(manifest["02_fdr"]["duration"])
-              if not 120.0 <= _bench_duration <= 180.0:
+              if _bench_duration <= 0.0:
                   raise RuntimeError(
-                      f"Slide 6 Benching Dilemma narration must be 2–3 minutes; "
+                      f"Slide 6 Benching Dilemma narration duration is invalid; "
                       f"current duration is {_bench_duration:.2f}s"
                   )
-              print(f"✅ Slide 6 Benching Dilemma narration locked: {_bench_duration:.2f}s")
+              print(f"✅ Slide 6 Benching Dilemma natural narration: {_bench_duration:.2f}s")
 
           if "04_final_shortlists" in manifest:
               _shortlist_duration=float(manifest["04_final_shortlists"]["duration"])
-              if not 260.0 <= _shortlist_duration <= 270.0:
+              if _shortlist_duration <= 0.0:
                   raise RuntimeError(
-                      f"Final Shortlists narration must be 4:20–4:30; "
+                      f"Final Shortlists narration duration is invalid; "
                       f"current duration is {_shortlist_duration:.2f}s"
                   )
-              print(f"✅ Final Shortlists narration locked: {_shortlist_duration:.2f}s")
+              print(f"✅ Final Shortlists natural narration: {_shortlist_duration:.2f}s")
 
           if "05_outro" in manifest:
           ''',
@@ -6908,86 +6867,10 @@ jobs:
           )
 
 
-          runtime_source_text = _day3_replace_in_cell(
-              runtime_source_text,
-              _narr_cell,
-              '    if key=="05_outro":\n        for _attempt in range(2):',
-              '''    if key=="05_transfer_decision_desk":
-                  for _attempt in range(3):
-                      _d=float(manifest[key]["duration"])
-                      if 278.0 <= _d <= 282.0:
-                          break
-                      _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
-                      _current_speed=max(0.20,1.0+_current_rate/100.0)
-                      _target_seconds=280.0
-                      _needed_speed=_current_speed*(_d/_target_seconds)
-                      _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
-                      print(
-                          f"↻ Transfer Decision Desk Ryan pacing correction: {_d:.2f}s at "
-                          f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
-                      )
-                      manifest[key]=await make_audio(key,text,rate_override=_new_rate)
-
-              if key=="05_outro":
-                  for _attempt in range(2):''',
-              1,
-              "Day 3 lock Transfer Decision Desk Ryan narration to 4:40",
-          )
 
 
-          runtime_source_text = _day3_replace_in_cell(
-              runtime_source_text,
-              _narr_cell,
-              '    if key=="05_outro":\n        for _attempt in range(2):',
-              '''    if key=="04_clean_sheets":
-                  for _attempt in range(3):
-                      _d=float(manifest[key]["duration"])
-                      if 90.0 <= _d <= 110.0:
-                          break
-                      _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
-                      _current_speed=max(0.20,1.0+_current_rate/100.0)
-                      _target_seconds=100.0
-                      _needed_speed=_current_speed*(_d/_target_seconds)
-                      _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
-                      print(
-                          f"↻ Slide 7 Chip Strategy Ryan pacing correction: {_d:.2f}s at "
-                          f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
-                      )
-                      manifest[key]=await make_audio(key,text,rate_override=_new_rate)
-
-              if key=="05_outro":
-                  for _attempt in range(2):''',
-              1,
-              "Day 3 lock Slide 7 Ryan narration to 90–110 seconds",
-          )
 
 
-          _day3_elite_outro_pacing = r'''    if key=="05_outro":
-                  for _attempt in range(3):
-                      _d=float(manifest[key]["duration"])
-                      if 55.0 <= _d <= 65.0:
-                          break
-                      _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
-                      _current_speed=max(0.20,1.0+_current_rate/100.0)
-                      _target_seconds=60.0
-                      _needed_speed=_current_speed*(_d/_target_seconds)
-                      _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
-                      print(
-                          f"↻ Elite Outro Ryan pacing correction: {_d:.2f}s at "
-                          f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
-                      )
-                      manifest[key]=await make_audio(key,text,rate_override=_new_rate)
-
-              print(
-                  f"✅ {key:<20}"'''
-          runtime_source_text = _day3_replace_range_in_cell(
-              runtime_source_text,
-              _narr_cell,
-              '    if key=="05_outro":\n        for _attempt in range(2):\n            _d=float(manifest[key]["duration"])\n            if 20.0 <= _d <= 25.8:',
-              '    print(\n        f"✅ {key:<20}"',
-              _day3_elite_outro_pacing,
-              "Day 3 replace old 20–25 second outro pacing with 55–65 second elite outro",
-          )
 
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
@@ -6996,9 +6879,9 @@ jobs:
               '''if "05_transfer_decision_desk" in manifest:
               _desk_info=manifest["05_transfer_decision_desk"]
               _desk_duration=float(_desk_info["duration"])
-              if not 278.0 <= _desk_duration <= 282.0:
+              if _desk_duration <= 0.0:
                   raise RuntimeError(
-                      f"Transfer Decision Desk narration must be about 4:40; "
+                      f"Transfer Decision Desk narration duration is invalid; "
                       f"current duration is {_desk_duration:.2f}s"
                   )
               _desk_words=_desk_info["words"]
@@ -7008,21 +6891,16 @@ jobs:
                   "sell":vx_phrase_time(_desk_words,"Finally the sells",required=True,context="desk SELL"),
                   "close":vx_phrase_time(_desk_words,"That is the desk",required=True,context="desk close"),
               }
-              _desk_ranges={
-                  "buy":(12.0,30.0),
-                  "hold":(86.0,116.0),
-                  "sell":(164.0,198.0),
-                  "close":(246.0,274.0),
-              }
-              for _label,_time in _desk_marks.items():
-                  _lo,_hi=_desk_ranges[_label]
-                  if not _lo <= float(_time) <= _hi:
-                      raise RuntimeError(
-                          f"Transfer Desk {_label} timing drifted: {_time:.2f}s "
-                          f"not in {_lo:.0f}-{_hi:.0f}s"
-                      )
+              _desk_anchor_times=list(_desk_marks.values())
+              if (
+                  _desk_anchor_times != sorted(_desk_anchor_times)
+                  or len(set(_desk_anchor_times)) != len(_desk_anchor_times)
+              ):
+                  raise RuntimeError(
+                      f"Transfer Desk narration section order is invalid: {_desk_marks}"
+                  )
               print(
-                  f"✅ Transfer Decision Desk narration locked: {_desk_duration:.2f}s • "
+                  f"✅ Transfer Decision Desk natural narration: {_desk_duration:.2f}s • "
                   f"BUY {_desk_marks['buy']:.1f}s • HOLD {_desk_marks['hold']:.1f}s • "
                   f"SELL {_desk_marks['sell']:.1f}s • CLOSE {_desk_marks['close']:.1f}s"
               )
@@ -7049,9 +6927,9 @@ jobs:
               '''if "04_clean_sheets" in manifest:
               _chip_info=manifest["04_clean_sheets"]
               _chip_duration=float(_chip_info["duration"])
-              if not 90.0 <= _chip_duration <= 110.0:
+              if _chip_duration <= 0.0:
                   raise RuntimeError(
-                      f"Slide 7 Chip Strategy narration must be 90–110 seconds; "
+                      f"Slide 7 Chip Strategy narration duration is invalid; "
                       f"current duration is {_chip_duration:.2f}s"
                   )
               _chip_words=_chip_info["words"]
@@ -7068,7 +6946,7 @@ jobs:
               ]
               if _chip_anchors != sorted(_chip_anchors) or len(set(_chip_anchors)) != len(_chip_anchors):
                   raise RuntimeError(f"Slide 7 narration section order is invalid: {_chip_anchors}")
-              print(f"✅ Slide 7 Chip Strategy narration locked: {_chip_duration:.2f}s")
+              print(f"✅ Slide 7 Chip Strategy natural narration: {_chip_duration:.2f}s")
 
           if "05_outro" in manifest:
           ''',
@@ -7080,8 +6958,8 @@ jobs:
           _day3_elite_outro_duration_qa = r'''if "05_outro" in manifest:
               _outro_info=manifest["05_outro"]
               _outro_duration=float(_outro_info["duration"])
-              if not 55.0 <= _outro_duration <= 65.0:
-                  raise RuntimeError(f"Elite outro duration must be 55–65 seconds; current audio is {_outro_duration:.2f}s")
+              if _outro_duration <= 0.0:
+                  raise RuntimeError(f"Elite outro narration duration is invalid; current audio is {_outro_duration:.2f}s")
               _ow=_outro_info["words"]
               _oa=[
                   vx_phrase_time(_ow,"Final takeaways for Gameweek",required=True,context="Elite outro open"),
@@ -7095,7 +6973,7 @@ jobs:
               ]
               if _oa != sorted(_oa) or len(set(_oa)) != len(_oa):
                   raise RuntimeError(f"Elite outro narration order is invalid: {_oa}")
-              print(f"✅ Elite Outro duration locked: {_outro_duration:.2f}s")
+              print(f"✅ Elite Outro natural duration: {_outro_duration:.2f}s")
 
           OUT=TIMING'''
           runtime_source_text = _day3_replace_range_in_cell(
@@ -7750,8 +7628,8 @@ jobs:
               'my_plan_5h_transfer_tc_scene_4k.png',
               'DAY3_MY_PLAN_5A_PACKAGE',
               'DAY3_MY_PLAN_5B_PACKAGE',
-              'Final Shortlists narration locked:',
-              'Transfer Decision Desk narration locked:',
+              'Final Shortlists natural narration:',
+              'Transfer Decision Desk natural narration:',
               'DAY3_DEFCON_TARGETS',
               'DAY3_SHORTLISTS',
               'DAY3_TRANSFER_DESK',
@@ -7773,7 +7651,7 @@ jobs:
               'D3_ELITE_OUTRO_DATA',
               'ELITE TAKEAWAYS',
               'CALL TO ACTION',
-              'Elite Outro duration locked:',
+              'Elite Outro natural duration:',
               '_VX_ELITE_OUTRO_MOTION',
               'CACHE.pop("05_outro", None)',
           )
@@ -7851,10 +7729,10 @@ jobs:
           )
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text, _narr_cell,
-              '    if key=="02_fdr":\n',
+              '    if key=="05_outro":\n        for _attempt in range(2):\n',
               '    print(\n        f"✅ {key:<20}"',
               '    print(\n        f"✅ {key:<20}"',
-              "Day 3 remove all duration-forced Ryan pacing loops",
+              "Day 3 remove original duration-forced Ryan outro pacing loop",
           )
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text, _narr_cell,
@@ -7868,11 +7746,6 @@ jobs:
                   'if abs((float(W) / float(H)) - (16.0 / 9.0)) > 0.01:',
               )
           _day3_duration_condition_replacements = {
-              'if not 120.0 <= _bench_duration <= 180.0:': 'if _bench_duration <= 0.0:',
-              'if not 260.0 <= _shortlist_duration <= 270.0:': 'if _shortlist_duration <= 0.0:',
-              'if not 278.0 <= _desk_duration <= 282.0:': 'if _desk_duration <= 0.0:',
-              'if not 90.0 <= _chip_duration <= 110.0:': 'if _chip_duration <= 0.0:',
-              'if not 55.0 <= _outro_duration <= 65.0:': 'if _outro_duration <= 0.0:',
               'if not 265.0 <= _d3_plan_total <= 275.0:': 'if _d3_plan_total <= 0.0:',
               'if not 265.0 <= AUDIO_DURATION <= 275.0:': 'if AUDIO_DURATION <= 0.0:',
           }
