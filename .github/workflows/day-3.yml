@@ -1445,6 +1445,51 @@ f"""'''
               "Day 3 projection narration QA label",
           )
 
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '    if key=="05_outro":\n        for _attempt in range(2):',
+              '''    if key=="04_final_shortlists":
+        for _attempt in range(3):
+            _d=float(manifest[key]["duration"])
+            if 260.0 <= _d <= 270.0:
+                break
+            _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
+            _current_speed=max(0.20,1.0+_current_rate/100.0)
+            _target_seconds=265.0
+            _needed_speed=_current_speed*(_d/_target_seconds)
+            _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
+            print(
+                f"↻ Final Shortlists Ryan pacing correction: {_d:.2f}s at "
+                f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
+            )
+            manifest[key]=await make_audio(key,text,rate_override=_new_rate)
+
+    if key=="05_outro":
+        for _attempt in range(2):''',
+              1,
+              "Day 3 lock Final Shortlists Ryan narration to 4:20–4:30",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              'if "05_outro" in manifest:\n',
+              '''if "04_final_shortlists" in manifest:
+    _shortlist_duration=float(manifest["04_final_shortlists"]["duration"])
+    if not 260.0 <= _shortlist_duration <= 270.0:
+        raise RuntimeError(
+            f"Final Shortlists narration must be 4:20–4:30; "
+            f"current duration is {_shortlist_duration:.2f}s"
+        )
+    print(f"✅ Final Shortlists narration locked: {_shortlist_duration:.2f}s")
+
+if "05_outro" in manifest:
+''',
+              1,
+              "Day 3 validate Final Shortlists narration duration",
+          )
+
           _day3_anim_scene_anchor = '''    "03_projected_goals": (
         "projected_goals_scene_4k.html",
         "projected_goals_scene_4k_animated.html"
@@ -1550,10 +1595,11 @@ f"""'''
               runtime_source_text,
               _assembly_cell,
               '("03_projected_goals", "PROJECTED GOALS",  VIDEO / "03_projected_goals.mp4"),',
-              '''("03_defcon",          "DEFCON",           VIDEO / "03_defcon.mp4"),
+              '''("03_projected_goals", "PROJECTED GOALS",  VIDEO / "03_projected_goals.mp4"),
+    ("03_defcon",          "DEFCON",           VIDEO / "03_defcon.mp4"),
     ("04_final_shortlists", "FINAL SHORTLISTS", VIDEO / "04_final_shortlists.mp4"),''',
               1,
-              "Day 3 master adds DEFCON/Final Shortlists; original Projected Goals MP4 remains preserved separately",
+              "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists",
           )
 
           _day3_section_required = (
@@ -1567,8 +1613,10 @@ f"""'''
               '"defcon_scene_4k.html"',
               '"final_shortlists_scene_4k.html"',
               '"PROJECTED GOALS + CS ODDS"',
+              '"03_projected_goals", "PROJECTED GOALS"',
               '"03_defcon",          "DEFCON"',
               '"04_final_shortlists", "FINAL SHORTLISTS"',
+              'Final Shortlists narration locked:',
               'DAY3_PROJ_ATTACK_TARGETS',
               'DAY3_DEFCON_TARGETS',
               'DAY3_SHORTLISTS',
@@ -2165,6 +2213,34 @@ f"""'''
           )
           if "For DEFCON" in projected_goals_script:
               raise SystemExit("Original Projected Goals narration was overwritten by DEFCON")
+
+          shortlist_duration = float(
+              (section_narr.get("04_final_shortlists") or {}).get("duration") or 0.0
+          )
+          if not 260.0 <= shortlist_duration <= 270.0:
+              raise SystemExit(
+                  f"Final Shortlists narration must be 4:20–4:30, "
+                  f"found {shortlist_duration:.2f}s"
+              )
+
+          scene_keys = list(qa.get("scene_keys") or [])
+          required_master_order = [
+              "02_fdr",
+              "03_projected_goals",
+              "03_defcon",
+              "04_final_shortlists",
+          ]
+          positions = []
+          for scene_key in required_master_order:
+              if scene_key not in scene_keys:
+                  raise SystemExit(
+                      f"Day 3 combined master is missing required scene: {scene_key}"
+                  )
+              positions.append(scene_keys.index(scene_key))
+          if positions != sorted(positions):
+              raise SystemExit(
+                  f"Day 3 combined master scene order is wrong: {positions}"
+              )
           print(
               "Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists "
               "PNG/MP4/narration contract: PASS"
