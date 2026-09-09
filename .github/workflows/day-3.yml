@@ -550,25 +550,35 @@ MY_PLAN_MANUAL_FREE_TRANSFERS = 1  # @param [0, 1, 2, 3, 4, 5]
 # @markdown **Transfer count control is reserved for 5B / 5G / 5H.**
 MY_PLAN_TRANSFER_COUNT = "AUTO BEST 1–5"  # @param ["AUTO BEST 1–5", "1", "2", "3", "4", "5"]
 
+# @markdown **5B — transfer selection**
+MY_PLAN_TRANSFER_SELECTION = "AUTO MODEL"  # @param ["AUTO MODEL", "MANUAL OUT / IN IDS"]
+MY_PLAN_MANUAL_OUT_PLAYER_IDS = ""  # @param {type:"string"}
+MY_PLAN_MANUAL_IN_PLAYER_IDS = ""  # @param {type:"string"}
+MY_PLAN_FREE_TRANSFERS_OVERRIDE = "AUTO"  # @param ["AUTO", "0", "1", "2", "3", "4", "5"]
+
 MY_PLAN_SCENARIOS = tuple(MY_PLAN_SCENARIO_MAP.values())
-MY_PLAN_IMPLEMENTED_SCENARIOS = {"A_ROLL"}
+MY_PLAN_IMPLEMENTED_SCENARIOS = {"A_ROLL", "B_TRANSFER_1_TO_5"}
 
 if MY_PLAN_VIDEO_MODE not in {"SELECTED ONLY", "ALL 8 SCENARIOS"}:
     raise ValueError(f"Unknown MY_PLAN_VIDEO_MODE: {MY_PLAN_VIDEO_MODE!r}")
 if MY_PLAN_VIDEO_MODE == "ALL 8 SCENARIOS":
     raise NotImplementedError(
-        "MY PLAN ALL 8 is intentionally blocked until scenarios 5B–5H are built. "
-        "For now select A • ROLL."
+        "MY PLAN ALL 8 is intentionally blocked until scenarios 5C–5H are built. "
+        "For now select A • ROLL or B • TRANSFER 1–5."
     )
 if MY_PLAN_SCENARIO_KEY not in MY_PLAN_IMPLEMENTED_SCENARIOS:
     raise NotImplementedError(
         f"MY PLAN scenario {MY_PLAN_SCENARIO} is not built yet. "
-        "Only A • ROLL is enabled in this Slide 5A pass."
+        "Only A • ROLL and B • TRANSFER 1–5 are enabled in this pass."
     )
 
 MY_PLAN_RENDER_5A = bool(
     MY_PLAN_VIDEO_MODE == "SELECTED ONLY"
     and MY_PLAN_SCENARIO_KEY == "A_ROLL"
+)
+MY_PLAN_RENDER_5B = bool(
+    MY_PLAN_VIDEO_MODE == "SELECTED ONLY"
+    and MY_PLAN_SCENARIO_KEY == "B_TRANSFER_1_TO_5"
 )
 '''
           runtime_source_text = _day3_replace_in_cell(
@@ -590,6 +600,7 @@ SELECTED_SCENES = ['''
     "04_final_shortlists": True,
     "05_transfer_decision_desk": True,
     "05a_my_plan_roll": MY_PLAN_RENDER_5A,
+    "05b_my_plan_transfer": MY_PLAN_RENDER_5B,
     "05_outro": SLIDE_06_OUTRO,
 }
 
@@ -600,7 +611,7 @@ SELECTED_SCENES = ['''
               _day3_selection_anchor,
               _day3_selection_replacement,
               1,
-              "Day 3 add DEFCON, Final Shortlists, Transfer Decision Desk and MY PLAN 5A scene selections",
+              "Day 3 add DEFCON, Final Shortlists, Transfer Decision Desk and MY PLAN 5A/5B scene selections",
           )
 
 
