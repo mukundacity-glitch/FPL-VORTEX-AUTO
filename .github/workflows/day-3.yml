@@ -482,9 +482,11 @@ jobs:
 
 
           # ------------------------------------------------------------
-          # DAY 3_3 ONLY — TWO-SLIDE PROJECTIONS / DEFCON SECTION
+          # DAY 3_3 ONLY — PROJECTIONS / DEFCON / FINAL SHORTLISTS SECTION
           # 02_fdr becomes the combined Projected Goals + Clean Sheet Odds slide.
-          # 03_projected_goals becomes DEFCON and uses defcon_scene_4k.html.
+          # 03_projected_goals stays intact: original PNG, Ryan narration and MP4 are preserved.
+          # 03_defcon is a separate DEFCON scene.
+          # 04_final_shortlists copies the Projected Goals scene shell with new content.
           # 04_clean_sheets is disabled in this temporary clone only.
           # ------------------------------------------------------------
           _cell0 = "# CELL 0 — FPL VORTEX WEEKLY MANUAL CONTROLS"
@@ -500,6 +502,27 @@ jobs:
               'SLIDE_05_CLEAN_SHEETS = False  # Day 3_3: merged into 02_fdr',
               1,
               "Day 3 disable duplicate standalone clean-sheet slide",
+          )
+
+          _day3_selection_anchor = '''    "04_clean_sheets": SLIDE_05_CLEAN_SHEETS,
+    "05_outro": SLIDE_06_OUTRO,
+}
+
+SELECTED_SCENES = ['''
+          _day3_selection_replacement = '''    "04_clean_sheets": SLIDE_05_CLEAN_SHEETS,
+    "03_defcon": True,
+    "04_final_shortlists": True,
+    "05_outro": SLIDE_06_OUTRO,
+}
+
+SELECTED_SCENES = ['''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              _day3_selection_anchor,
+              _day3_selection_replacement,
+              1,
+              "Day 3 add DEFCON and Final Shortlists scene selections",
           )
 
           _day3_design_block = r'''
@@ -944,31 +967,272 @@ _d3_defcon_html = vx_apply_pl_lockup(_d3_defcon_html)
 _d3_defcon_html = vx_polish_branding(_d3_defcon_html)
 DEFCON_HTML_PATH.write_text(_d3_defcon_html, encoding="utf-8")
 
+# -----------------------------
+# SLIDE 3 — FINAL SHORTLISTS
+# Copy the Projected Goals scene shell; change heading/content only.
+# All player values come from the existing Phase-10 pipeline.
+# -----------------------------
+_D3_SHORT_REQUIRED = {
+    "gameweek", "player_id", "player_name", "team_id", "position", "price",
+    "expected_minutes", "appearance_probability", "appearance_points",
+    "goal_points", "assist_points", "clean_sheet_points", "save_points",
+    "penalty_save_points", "defcon_points", "bonus_points",
+    "fixture_expected_points", "calculation_status",
+}
+_d3_short_src = phase10_player_fixture_expected_points.copy()
+_d3_short_missing = sorted(_D3_SHORT_REQUIRED - set(_d3_short_src.columns))
+if _d3_short_missing:
+    raise RuntimeError(
+        f"Day 3_3 Final Shortlists missing Phase-10 fields: {_d3_short_missing}"
+    )
+
+_d3_short_src = _d3_short_src.loc[
+    pd.to_numeric(_d3_short_src["gameweek"], errors="coerce").eq(int(NEXT_GW))
+].copy()
+if _d3_short_src.empty:
+    raise RuntimeError(f"Day 3_3 Final Shortlists has no player rows for GW{int(NEXT_GW)}")
+
+_d3_short_numeric = (
+    "price", "expected_minutes", "appearance_probability", "appearance_points",
+    "goal_points", "assist_points", "clean_sheet_points", "save_points",
+    "penalty_save_points", "defcon_points", "bonus_points",
+    "fixture_expected_points",
+)
+for _col in _d3_short_numeric:
+    _d3_short_src[_col] = pd.to_numeric(_d3_short_src[_col], errors="coerce")
+
+_d3_short_src = _d3_short_src.loc[
+    _d3_short_src["calculation_status"].astype(str).eq("READY")
+].dropna(subset=["player_id", "team_id", "position", "fixture_expected_points"]).copy()
+if _d3_short_src.empty:
+    raise RuntimeError("Day 3_3 Final Shortlists has no READY Phase-10 player rows")
+
+_d3_short_agg = (
+    _d3_short_src.groupby(
+        ["player_id", "player_name", "team_id", "position"], as_index=False
+    )
+    .agg(
+        price=("price", "max"),
+        xmins=("expected_minutes", "sum"),
+        appearance_probability=("appearance_probability", "max"),
+        appearance_pts=("appearance_points", "sum"),
+        goal_pts=("goal_points", "sum"),
+        assist_pts=("assist_points", "sum"),
+        clean_sheet_pts=("clean_sheet_points", "sum"),
+        save_pts=("save_points", "sum"),
+        penalty_save_pts=("penalty_save_points", "sum"),
+        defcon_pts=("defcon_points", "sum"),
+        bonus_pts=("bonus_points", "sum"),
+        xpts=("fixture_expected_points", "sum"),
+    )
+)
+
+_d3_avail = phase10_player_features[[
+    "player_id", "availability_probability", "start_probability"
+]].copy()
+for _col in ("availability_probability", "start_probability"):
+    _d3_avail[_col] = pd.to_numeric(_d3_avail[_col], errors="coerce")
+_d3_avail = _d3_avail.drop_duplicates("player_id", keep="last")
+_d3_short_agg = _d3_short_agg.merge(
+    _d3_avail, on="player_id", how="left", validate="one_to_one"
+)
+_d3_short_agg["availability_probability"] = (
+    _d3_short_agg["availability_probability"].fillna(
+        _d3_short_agg["appearance_probability"]
+    ).clip(0.0, 1.0)
+)
+_d3_short_agg["start_probability"] = (
+    _d3_short_agg["start_probability"].fillna(0.0).clip(0.0, 1.0)
+)
+_d3_short_agg["attack_pts"] = (
+    _d3_short_agg["goal_pts"].fillna(0.0)
+    + _d3_short_agg["assist_pts"].fillna(0.0)
+)
+_d3_short_agg["defence_pts"] = (
+    _d3_short_agg["clean_sheet_pts"].fillna(0.0)
+    + _d3_short_agg["save_pts"].fillna(0.0)
+    + _d3_short_agg["penalty_save_pts"].fillna(0.0)
+    + _d3_short_agg["defcon_pts"].fillna(0.0)
+)
+_d3_short_agg["value"] = np.where(
+    pd.to_numeric(_d3_short_agg["price"], errors="coerce").gt(0),
+    _d3_short_agg["xpts"] / _d3_short_agg["price"],
+    np.nan,
+)
+
+DAY3_SHORTLIST_MIN_XMINS = float(
+    globals().get("DAY3_SHORTLIST_MIN_XMINS", 45.0)
+)
+DAY3_SHORTLIST_PER_POSITION = int(
+    globals().get("DAY3_SHORTLIST_PER_POSITION", 8)
+)
+if DAY3_SHORTLIST_MIN_XMINS < 0 or DAY3_SHORTLIST_PER_POSITION < 1:
+    raise RuntimeError("Day 3_3 shortlist policy is invalid")
+
+_d3_short_valid = _d3_short_agg.loc[
+    pd.to_numeric(_d3_short_agg["xmins"], errors="coerce").ge(
+        DAY3_SHORTLIST_MIN_XMINS
+    )
+].copy()
+if _d3_short_valid.empty:
+    raise RuntimeError(
+        f"Day 3_3 Final Shortlists has no players at xMins >= {DAY3_SHORTLIST_MIN_XMINS:g}"
+    )
+
+_d3_pos_order = ("GK", "DEF", "MID", "FWD")
+DAY3_SHORTLISTS = {}
+for _pos in _d3_pos_order:
+    _pool = _d3_short_valid.loc[
+        _d3_short_valid["position"].astype(str).str.upper().eq(_pos)
+    ].copy()
+    _pool = _pool.sort_values(
+        ["xpts", "value", "xmins", "player_name"],
+        ascending=[False, False, False, True],
+        na_position="last",
+    ).reset_index(drop=True)
+    if _pool.empty:
+        raise RuntimeError(f"Day 3_3 Final Shortlists has no validated {_pos} players")
+    DAY3_SHORTLISTS[_pos] = _pool.head(DAY3_SHORTLIST_PER_POSITION).copy()
+
+_d3_short_ids = [
+    int(pid)
+    for _frame in DAY3_SHORTLISTS.values()
+    for pid in _frame["player_id"].tolist()
+]
+if len(_d3_short_ids) != len(set(_d3_short_ids)):
+    raise RuntimeError("Day 3_3 Final Shortlists contains duplicate players across positions")
+
+def _d3_short_team(team_id):
+    _tid = int(team_id)
+    if _tid in _d3_proj_by_id.index:
+        return str(_d3_proj_by_id.loc[_tid]["team_short"]).upper()
+    return str(_tid)
+
+def _d3_short_rows(frame):
+    _rows = []
+    for _rank, (_, _row) in enumerate(frame.iterrows(), 1):
+        _team = _d3_short_team(_row["team_id"])
+        _avail = 100.0 * float(_row["availability_probability"])
+        _value = float(_row["value"]) if np.isfinite(_row["value"]) else 0.0
+        _rows.append(
+            f'<div class="d3ShortRow{" d3Elite" if _rank <= 3 else ""}">'
+            f'<span class="d3ShortRank">{_rank:02d}</span>'
+            '<div class="d3ShortPlayer">'
+            f'<strong>{_d3_escape(str(_row["player_name"]))}</strong>'
+            f'<small>{_d3_escape(_team)} • {_avail:.0f}% AVAILABLE</small>'
+            '</div>'
+            f'<span>£{float(_row["price"]):.1f}</span>'
+            f'<span>{float(_row["xmins"]):.0f}</span>'
+            f'<strong class="d3XPts">{float(_row["xpts"]):.1f}</strong>'
+            f'<span>{_value:.2f}</span>'
+            '</div>'
+        )
+    return "".join(_rows)
+
+_d3_short_columns = []
+for _pos in _d3_pos_order:
+    _d3_short_columns.append(
+        '<section class="d3ShortPos">'
+        f'<div class="d3ShortPosHead">{_pos}</div>'
+        '<div class="d3ShortCols"><span>PLAYER</span><span>£</span>'
+        '<span>xMINS</span><span>xPTS</span><span>VAL</span></div>'
+        f'{_d3_short_rows(DAY3_SHORTLISTS[_pos])}'
+        '</section>'
+    )
+
+_d3_short_panel = (
+    '<section class="board d3ShortBoard">'
+    '<div class="d3Formula">'
+    '<strong>PLAYER xPTS</strong>'
+    '<span>PLAYING PROBABILITY × EXPECTED RETURNS + APPEARANCE + BONUS</span>'
+    '</div>'
+    '<div class="d3Criteria">'
+    f'<span>xMINS ≥ {DAY3_SHORTLIST_MIN_XMINS:g}</span>'
+    '<span>OFFICIAL AVAILABILITY</span>'
+    '<span>ATTACK + DEFENCE + DEFCON</span>'
+    '<span>PRICE + VALUE</span>'
+    '<span>CURRENT GW FIXTURE</span>'
+    '<span>READY MODEL ROWS ONLY</span>'
+    '</div>'
+    f'<div class="d3ShortGrid">{"".join(_d3_short_columns)}</div>'
+    '</section>'
+)
+
+_d3_short_css = r'''
+.tables{flex:1!important;min-height:0!important;display:grid!important;grid-template-columns:1fr!important;gap:0!important;padding-bottom:10px!important}
+.d3ShortBoard{min-height:0;border-radius:24px;overflow:hidden;background:rgba(2,10,22,.96);border:1px solid rgba(255,255,255,.13);box-shadow:0 18px 44px rgba(0,0,0,.34);padding:18px}
+.d3Formula{height:78px;border-radius:18px;display:flex;align-items:center;justify-content:center;gap:34px;background:linear-gradient(110deg,rgba(0,245,160,.12),rgba(25,213,242,.10));border:1px solid rgba(53,230,255,.30)}
+.d3Formula strong{font-size:32px;color:#22e7c0;letter-spacing:2px}.d3Formula span{font-family:Arial,sans-serif;font-size:25px;font-weight:1000;color:#eaf8ff;letter-spacing:1px}
+.d3Criteria{height:66px;display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:center;padding:10px 0}
+.d3Criteria span{height:42px;border-radius:999px;display:grid;place-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);font-family:Arial,sans-serif;font-size:14px;font-weight:1000;color:#a9c3d7;letter-spacing:.8px}
+.d3ShortGrid{height:calc(100% - 144px);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.d3ShortPos{min-width:0;border:1px solid rgba(255,255,255,.11);background:linear-gradient(145deg,rgba(11,29,50,.98),rgba(4,15,29,.99));overflow:hidden}
+.d3ShortPosHead{height:58px;display:grid;place-items:center;background:rgba(0,245,160,.10);border-bottom:1px solid rgba(255,255,255,.12);font-size:28px;font-weight:1000;letter-spacing:3px;color:#eafff7}
+.d3ShortCols{height:40px;display:grid;grid-template-columns:minmax(0,1fr) 64px 78px 72px 64px;gap:4px;align-items:center;padding:0 10px 0 48px;font-family:Arial,sans-serif;font-size:11px;font-weight:1000;color:#718ba0;letter-spacing:.5px;text-align:center}
+.d3ShortCols span:first-child{text-align:left}
+.d3ShortRow{height:calc((100% - 98px)/8);min-height:72px;display:grid;grid-template-columns:38px minmax(0,1fr) 64px 78px 72px 64px;gap:4px;align-items:center;padding:0 9px;border-top:1px solid rgba(255,255,255,.07);font-family:Arial,sans-serif;font-size:16px;text-align:center}
+.d3ShortRow.d3Elite{background:rgba(255,212,71,.055)}
+.d3ShortRank{font-size:13px;color:#6f8799}.d3ShortPlayer{min-width:0;text-align:left;display:flex;flex-direction:column;gap:3px}.d3ShortPlayer strong{font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d3ShortPlayer small{font-size:10px;color:#7f9bb0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d3XPts{height:38px;display:grid;place-items:center;background:rgba(0,245,160,.16);color:#9fffd8;border-radius:8px;font-size:19px}
+'''
+
+FINAL_SHORTLISTS_HTML_PATH = HTML_DIR / "final_shortlists_scene_4k.html"
+FINAL_SHORTLISTS_PNG_PATH = PNG_DIR / "final_shortlists_scene_4k.png"
+_d3_short_html = scene_template.substitute(
+    document_title="FPL VORTEX — Final Shortlists",
+    vortex_logo=vortex_logo_html,
+    header_kicker='<span style="position:relative;left:-560px;">PLAYER DECISION MODEL</span>',
+    title_first="FINAL SHORTLISTS",
+    title_second="VALIDATED PLAYERS • FINAL DECISION POOL",
+    subtitle=f"GW{int(NEXT_GW)} • xMINS FILTER • xPTS RANK • PRICE + VALUE",
+    scale_heading="GK • DEF • MID • FWD",
+    left_panel=_d3_short_panel,
+    right_panel="",
+    source_text="VORTEX PHASE 10 PLAYER MODEL",
+    youtube_icon=youtube_icon,
+    x_icon=x_icon,
+    data_updated=data_updated,
+)
+_d3_short_html = _d3_short_html.replace("</style>", _d3_short_css + "\n</style>", 1)
+_d3_short_html = vx_apply_pl_lockup(_d3_short_html)
+_d3_short_html = vx_polish_branding(_d3_short_html)
+FINAL_SHORTLISTS_HTML_PATH.write_text(_d3_short_html, encoding="utf-8")
+
 if "export_4k_png" not in globals():
     raise RuntimeError("Day 3_3 requires the shared 4K renderer")
 await export_4k_png(FDR_HTML_PATH, FDR_PNG_PATH)
 await export_4k_png(DEFCON_HTML_PATH, DEFCON_PNG_PATH)
+await export_4k_png(FINAL_SHORTLISTS_HTML_PATH, FINAL_SHORTLISTS_PNG_PATH)
 
-# Delete only obsolete Day 3_3 presentation files after all original model logic
-# has run. No underlying FDR/xG/CS calculation logic is removed or rewritten.
-for _obsolete in (
-    XG_HTML_PATH, CS_HTML_PATH, XG_PNG_PATH, CS_PNG_PATH,
-):
+# Preserve projected_goals_scene_4k exactly as generated by the original logic.
+# Only the now-merged standalone clean-sheet presentation file is removed.
+for _obsolete in (CS_HTML_PATH, CS_PNG_PATH):
     Path(_obsolete).unlink(missing_ok=True)
 
-for _required in (FDR_HTML_PATH, FDR_PNG_PATH, DEFCON_HTML_PATH, DEFCON_PNG_PATH):
+for _required in (
+    FDR_HTML_PATH, FDR_PNG_PATH,
+    XG_HTML_PATH, XG_PNG_PATH,
+    DEFCON_HTML_PATH, DEFCON_PNG_PATH,
+    FINAL_SHORTLISTS_HTML_PATH, FINAL_SHORTLISTS_PNG_PATH,
+):
     if not Path(_required).is_file() or Path(_required).stat().st_size <= 0:
-        raise RuntimeError(f"Day 3_3 two-slide section output missing: {_required}")
+        raise RuntimeError(f"Day 3_3 section output missing: {_required}")
 
 if FDR_HTML_PATH.read_text(encoding="utf-8").count("PROJECTED GOALS") < 1:
     raise RuntimeError("Day 3_3 combined projection slide heading is missing")
+if XG_HTML_PATH.read_text(encoding="utf-8").count("PROJECTED") < 1:
+    raise RuntimeError("Original projected_goals_scene_4k.html was not preserved")
 if DEFCON_HTML_PATH.read_text(encoding="utf-8").count("d3DefRow") < 20:
     raise RuntimeError("Day 3_3 DEFCON slide does not contain all 20 ranked teams")
+if FINAL_SHORTLISTS_HTML_PATH.read_text(encoding="utf-8").count("d3ShortPos") < 4:
+    raise RuntimeError("Day 3_3 Final Shortlists slide is missing position columns")
 
-print("✅ DAY 3_3 TWO-SLIDE SECTION READY")
-print("✅ 1. fdr_scene_4k.png = Projected Goals + Clean Sheet Odds")
-print("✅ 2. defcon_scene_4k.png = DEFCON")
-print("✅ Top 4 targets + bottom 3 avoids are dynamic and shared with narration")
+print("✅ DAY 3_3 SECTION READY")
+print("✅ fdr_scene_4k.png = Projected Goals + Clean Sheet Odds")
+print("✅ projected_goals_scene_4k.png = ORIGINAL PRESERVED")
+print("✅ defcon_scene_4k.png = DEFCON")
+print("✅ final_shortlists_scene_4k.png = Final Shortlists")
+print("✅ Final Shortlists uses dynamic xMins/xPts/price/value from Phase 10")
 '''
           # Preserve every existing FDR / Projected Goals / Clean Sheet data/model
           # calculation in Cell 14B. The original slide files may be created transiently,
@@ -991,13 +1255,17 @@ print("✅ Top 4 targets + bottom 3 avoids are dynamic and shared with narration
               1,
               "Day 3 preview combined projection label",
           )
+          _day3_preview_anchor = '("03_projected_goals", "PROJECTED GOALS", "projected_goals_scene_4k.html"),'
+          _day3_preview_extra = _day3_preview_anchor + '''
+    ("03_defcon", "DEFCON", "defcon_scene_4k.html"),
+    ("04_final_shortlists", "FINAL SHORTLISTS", "final_shortlists_scene_4k.html"),'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _preview_cell,
-              '("03_projected_goals", "PROJECTED GOALS", "projected_goals_scene_4k.html"),',
-              '("03_projected_goals", "DEFCON", "defcon_scene_4k.html"),',
+              _day3_preview_anchor,
+              _day3_preview_extra,
               1,
-              "Day 3 preview DEFCON source",
+              "Day 3 preview preserve Projected Goals and add DEFCON/Final Shortlists",
           )
 
           _day3_narr_helpers = r'''
@@ -1005,7 +1273,7 @@ print("✅ Top 4 targets + bottom 3 avoids are dynamic and shared with narration
 for _name in (
     "DAY3_PROJ_ATTACK_TARGETS", "DAY3_PROJ_ATTACK_AVOIDS",
     "DAY3_DEFCON_TARGETS", "DAY3_DEFCON_AVOIDS",
-    "DAY3_TOP_PLAYER_BY_TEAM",
+    "DAY3_TOP_PLAYER_BY_TEAM", "DAY3_SHORTLISTS",
 ):
     if _name not in globals():
         raise RuntimeError(f"Day 3_3 narration missing {_name}; run Cell 14B first")
@@ -1037,6 +1305,14 @@ def _d3_defcon_reason(frame, i):
         f"Their leading current DEFCON player is {str(row['top_player'])} at "
         f"{100.0 * float(row['top_player_prob']):.0f} percent model probability, "
         f"with {str(row['next_fixture'])} next."
+    )
+
+def _d3_short_narr(pos, i=0):
+    frame = DAY3_SHORTLISTS[str(pos).upper()]
+    row = frame.iloc[int(i)]
+    return (
+        f"{str(row['player_name'])}, {float(row['xmins']):.0f} expected minutes, "
+        f"{float(row['xpts']):.1f} expected points, at {float(row['price']):.1f} million"
     )
 '''
           runtime_source_text = _day3_replace_in_cell(
@@ -1086,40 +1362,68 @@ So this slide is the Gameweek map: target the strongest team environments, avoid
               "Day 3 combined projection narration",
           )
 
-          _day3_defcon_script = r'''"03_projected_goals":
+          _day3_extra_scripts = r'''"03_defcon":
 f"""
-For DEFCON, this second page ranks all twenty clubs using the approved defensive-contribution evidence already inside the VORTEX player pipeline. The table shows the last match, rolling thirty-eight-match averages, the recent contribution trend, the opponent's profile, the next fixture, and each club's strongest current DEFCON player.
+For DEFCON, this page ranks all twenty clubs using the approved defensive-contribution evidence already inside the VORTEX player pipeline. The table shows the last match, rolling thirty-eight-match averages, the recent contribution trend, the opponent profile, the next fixture, and each club's strongest current DEFCON player.
 
 The four teams to target are {str(DAY3_DEFCON_TARGETS.iloc[0]['team'])}, {str(DAY3_DEFCON_TARGETS.iloc[1]['team'])}, {str(DAY3_DEFCON_TARGETS.iloc[2]['team'])}, and {str(DAY3_DEFCON_TARGETS.iloc[3]['team'])}.
 
-First: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,0)} High team contribution volume plus a strong individual DEFCON probability gives us two independent reasons to care. This is especially useful for defenders and midfielders who can collect points without needing a goal or assist.
+First: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,0)} High team contribution volume plus a strong individual DEFCON probability gives us two independent reasons to care.
 
 Second: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,1)} The rolling team signal says defensive work is consistently available, while the player signal tells us who is most likely to convert that workload into Fantasy points.
 
-Third: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,2)} This is another team where the contribution floor matters. If clean-sheet odds are only average, DEFCON can still give a defender or midfielder an extra route to points.
+Third: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,2)} This is another team where the contribution floor matters. DEFCON gives defenders and midfielders another route to points even when clean-sheet odds are only average.
 
-Fourth: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,3)} They complete the target group. I would prioritise the named player when expected minutes are secure, because probability without minutes is not a usable Fantasy pick.
+Fourth: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,3)} They complete the target group. Minutes still come first, because probability without minutes is not a usable Fantasy pick.
 
 The three teams to avoid on DEFCON are {str(DAY3_DEFCON_AVOIDS.iloc[0]['team'])}, {str(DAY3_DEFCON_AVOIDS.iloc[1]['team'])}, and {str(DAY3_DEFCON_AVOIDS.iloc[2]['team'])}.
 
-{_d3_defcon_reason(DAY3_DEFCON_AVOIDS,0)} The rolling contribution volume is the weakest of the group. That makes DEFCON a poor reason on its own to buy a player from this team.
+{_d3_defcon_reason(DAY3_DEFCON_AVOIDS,0)} The rolling contribution volume is the weakest of the group, so DEFCON alone is not a reason to buy.
 
-{_d3_defcon_reason(DAY3_DEFCON_AVOIDS,1)} The current player probability also needs to be read in context: a single high-workload player cannot fully compensate for a weak team contribution environment if minutes or role are uncertain.
+{_d3_defcon_reason(DAY3_DEFCON_AVOIDS,1)} A single high-workload player cannot fully compensate for a weak team contribution environment when minutes or role are uncertain.
 
 {_d3_defcon_reason(DAY3_DEFCON_AVOIDS,2)} They are the final avoid team. I would only go there when another part of the model, such as clean-sheet probability, attacking threat, or overall expected points, provides the stronger case.
 
-The decision rule is straightforward: use DEFCON as an additional floor, not as a replacement for the rest of the model. The best picks are the players where minutes, team defensive workload, individual DEFCON probability, and the next fixture all point in the same direction.
+Use DEFCON as an additional floor, not as a replacement for the rest of the model. The best picks are where minutes, team defensive workload, individual DEFCON probability, and the next fixture all agree.
+
+""".strip(),
+
+"04_final_shortlists":
+f"""
+Now we move from team environments to the final player decision pool.
+
+Step one is expected minutes. Every player already has availability, start probability, and expected minutes from the current VORTEX pipeline. For this shortlist I keep only model-ready players with at least {DAY3_SHORTLIST_MIN_XMINS:.0f} expected minutes. That removes most injury doubts, bench-only options, and players whose rotation risk is too high for a starting-eleven decision.
+
+Step two is expected points. The model builds the total from the existing components: appearance points, goal and assist expectation, clean-sheet and save expectation where relevant, defensive-contribution points, and bonus expectation. Those components are already adjusted by role, expected minutes, availability, and the Gameweek fixture model. That total is the xPts number on the slide.
+
+The leading goalkeeper is {_d3_short_narr("GK",0)}. At goalkeeper I care about secure minutes first, then clean-sheet probability, saves, penalty-save upside, price, and value.
+
+The leading defenders are {_d3_short_narr("DEF",0)}, {_d3_short_narr("DEF",1)}, and {_d3_short_narr("DEF",2)}. For defenders the model combines clean-sheet probability, attacking involvement, DEFCON, minutes, and bonus. A cheaper defender with several routes to points can outrank a more famous player.
+
+The leading midfielders are {_d3_short_narr("MID",0)}, {_d3_short_narr("MID",1)}, and {_d3_short_narr("MID",2)}. Here the attacking share matters more, but the same minutes filter still applies. A good fixture does not help a player who is likely to play only a short cameo.
+
+The leading forwards are {_d3_short_narr("FWD",0)}, {_d3_short_narr("FWD",1)}, and {_d3_short_narr("FWD",2)}. I want the strongest combination of expected minutes, team goal environment, individual goal involvement, bonus, and price efficiency.
+
+Step three is ranking. Inside each position the slide sorts validated players by next-Gameweek xPts, then value, then minutes. That gives us a clean goalkeeper, defender, midfielder, and forward pool instead of one mixed list that ignores formation rules.
+
+Step four is squad optimisation. The decision engine can maximise those expected points under the real FPL constraints: the budget, two goalkeepers, five defenders, five midfielders, three forwards, and no more than three players from one club. From the legal fifteen, the starting eleven is the highest-xPts legal formation, the other four form the bench, and captaincy starts with the highest expected-points player before we consider ceiling and risk.
+
+Step five is chip context. Free Hit or Wildcard can rebuild from the current numbers. Bench Boost raises the importance of every bench player's minutes and fixture. Triple Captain concentrates the decision on the strongest captaincy ceiling. Normal transfers compare the current squad with the legal moves that improve the Gameweek and future horizon.
+
+The shortlist refreshes from the same pipeline after injuries, press conferences, prices, and role information update. No player name on this slide is hard-coded. If the data changes, the decision pool changes with it.
+
+This is the final shortlist: validated minutes, model xPts, price and value, organised by position. From here we move to the transfer decision desk and turn the pool into actual buys, holds, sells, and avoids.
 
 """.strip(),
 
 "04_clean_sheets":'''
-          runtime_source_text = _day3_replace_range_in_cell(
+          runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _narr_cell,
-              '"03_projected_goals":\n',
-              '"04_clean_sheets":\n',
-              _day3_defcon_script,
-              "Day 3 DEFCON narration",
+              '"04_clean_sheets":',
+              _day3_extra_scripts,
+              1,
+              "Day 3 preserve Projected Goals narration and add DEFCON/Final Shortlists",
           )
 
           runtime_source_text = _day3_replace_in_cell(
@@ -1130,22 +1434,27 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
               1,
               "Day 3 projection narration QA label",
           )
-          runtime_source_text = _day3_replace_in_cell(
-              runtime_source_text,
-              _narr_cell,
-              'f"✅ Projected Goals narration: {_goals_word_count} words • "',
-              'f"✅ DEFCON narration: {_goals_word_count} words • "',
-              1,
-              "Day 3 DEFCON narration QA label",
-          )
 
+          _day3_anim_scene_anchor = '''    "03_projected_goals": (
+        "projected_goals_scene_4k.html",
+        "projected_goals_scene_4k_animated.html"
+    ),'''
+          _day3_anim_scene_extra = _day3_anim_scene_anchor + '''
+    "03_defcon": (
+        "defcon_scene_4k.html",
+        "defcon_scene_4k_animated.html"
+    ),
+    "04_final_shortlists": (
+        "final_shortlists_scene_4k.html",
+        "final_shortlists_scene_4k_animated.html"
+    ),'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _anim_cell,
-              '"03_projected_goals": (\n        "projected_goals_scene_4k.html",\n        "projected_goals_scene_4k_animated.html"\n    ),',
-              '"03_projected_goals": (\n        "defcon_scene_4k.html",\n        "defcon_scene_4k_animated.html"\n    ),',
+              _day3_anim_scene_anchor,
+              _day3_anim_scene_extra,
               1,
-              "Day 3 animation DEFCON HTML mapping",
+              "Day 3 animation preserve Projected Goals and add DEFCON/Final Shortlists",
           )
 
           _day3_fdr_events = r'''    if key=="02_fdr":
@@ -1168,9 +1477,9 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
               "Day 3 projection animation events",
           )
 
-          _day3_defcon_events = r'''    if key=="03_projected_goals":
+          _day3_extra_events = r'''    if key=="03_defcon":
         panel_at=vx_phrase_time(
-            words, "For DEFCON", required=True, context="03 DEFCON Day 3 body"
+            words, "For DEFCON", required=True, context="03_defcon Day 3 body"
         )
         return [
             {"sel":".header,.hero,.main-title","at":0,"dur":0.65,"stagger":0.05,"fx":"left"},
@@ -1178,14 +1487,45 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
             {"sel":".d3DefRow","at":panel_at+0.35,"dur":0.30,"stagger":0.035,"fx":"left"},
         ]
 
+    if key=="04_final_shortlists":
+        panel_at=vx_phrase_time(
+            words, "Now we move from team environments", required=True,
+            context="04_final_shortlists Day 3 body"
+        )
+        return [
+            {"sel":".header,.hero,.main-title","at":0,"dur":0.65,"stagger":0.05,"fx":"left"},
+            {"sel":".board,.d3ShortBoard","at":panel_at,"dur":0.62,"stagger":0,"fx":"rise"},
+            {"sel":".d3Formula,.d3Criteria","at":panel_at+0.25,"dur":0.45,"stagger":0.05,"fx":"rise"},
+            {"sel":".d3ShortPos","at":panel_at+0.55,"dur":0.45,"stagger":0.10,"fx":"left"},
+            {"sel":".d3ShortRow","at":panel_at+0.85,"dur":0.28,"stagger":0.025,"fx":"left"},
+        ]
+
     if key=="04_clean_sheets":'''
-          runtime_source_text = _day3_replace_range_in_cell(
+          runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _anim_cell,
-              '    if key=="03_projected_goals":\n',
               '    if key=="04_clean_sheets":',
-              _day3_defcon_events,
-              "Day 3 DEFCON animation events",
+              _day3_extra_events,
+              1,
+              "Day 3 add DEFCON and Final Shortlists animation events",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    elif key in {"02_fdr","03_projected_goals","04_clean_sheets"}:',
+              '    elif key in {"02_fdr","03_projected_goals","03_defcon","04_final_shortlists","04_clean_sheets"}:',
+              1,
+              "Day 3 animation body-event scene set",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _render_cell,
+              '        "03_projected_goals",\n        "04_clean_sheets",',
+              '        "03_projected_goals",\n        "03_defcon",\n        "04_final_shortlists",\n        "04_clean_sheets",',
+              1,
+              "Day 3 render preserved Projected Goals plus DEFCON/Final Shortlists",
           )
 
           runtime_source_text = _day3_replace_in_cell(
@@ -1200,20 +1540,28 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
               runtime_source_text,
               _assembly_cell,
               '("03_projected_goals", "PROJECTED GOALS",  VIDEO / "03_projected_goals.mp4"),',
-              '("03_projected_goals", "DEFCON",           VIDEO / "03_projected_goals.mp4"),',
+              '''("03_defcon",          "DEFCON",           VIDEO / "03_defcon.mp4"),
+    ("04_final_shortlists", "FINAL SHORTLISTS", VIDEO / "04_final_shortlists.mp4"),''',
               1,
-              "Day 3 final assembly DEFCON label",
+              "Day 3 master adds DEFCON/Final Shortlists; original Projected Goals MP4 remains preserved separately",
           )
 
           _day3_section_required = (
               'SLIDE_05_CLEAN_SHEETS = False',
+              '"03_defcon": True',
+              '"04_final_shortlists": True',
               'fdr_scene_4k.png = Projected Goals + Clean Sheet Odds',
+              'projected_goals_scene_4k.png = ORIGINAL PRESERVED',
               'defcon_scene_4k.png = DEFCON',
+              'final_shortlists_scene_4k.png = Final Shortlists',
               '"defcon_scene_4k.html"',
+              '"final_shortlists_scene_4k.html"',
               '"PROJECTED GOALS + CS ODDS"',
-              '"DEFCON",           VIDEO / "03_projected_goals.mp4"',
+              '"03_defcon",          "DEFCON"',
+              '"04_final_shortlists", "FINAL SHORTLISTS"',
               'DAY3_PROJ_ATTACK_TARGETS',
               'DAY3_DEFCON_TARGETS',
+              'DAY3_SHORTLISTS',
               '<span>GLS</span><span>CS%</span>',
               '<b>GLS</b><b>CS%</b>',
               '# 21. BUILD PROJECTED GOALS HTML',
@@ -1231,7 +1579,7 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
                   "Day 3_3 two-slide runtime patch incomplete: "
                   + " | ".join(_day3_section_missing)
               )
-          print("Day 3_3 Projected Goals/CS + DEFCON runtime override: PASS")
+          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists runtime override: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
@@ -1769,29 +2117,30 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
 
           section_files = (
               root / "SLIDE" / "fdr_scene_4k.png",
+              root / "SLIDE" / "projected_goals_scene_4k.png",
               root / "SLIDE" / "defcon_scene_4k.png",
+              root / "SLIDE" / "final_shortlists_scene_4k.png",
               root / "MP4" / "02_fdr.mp4",
               root / "MP4" / "03_projected_goals.mp4",
+              root / "MP4" / "03_defcon.mp4",
+              root / "MP4" / "04_final_shortlists.mp4",
           )
           for section_file in section_files:
               if not section_file.is_file() or section_file.stat().st_size <= 0:
-                  raise SystemExit(f"Day 3_3 two-slide section output is missing: {section_file}")
+                  raise SystemExit(f"Day 3_3 section output is missing: {section_file}")
 
-          duplicate_legacy_slides = (
-              root / "SLIDE" / "projected_goals_scene_4k.png",
-              root / "SLIDE" / "clean_sheet_scene_4k.png",
-          )
-          survivors = [str(path) for path in duplicate_legacy_slides if path.exists()]
-          if survivors:
+          obsolete_clean_sheet = root / "SLIDE" / "clean_sheet_scene_4k.png"
+          if obsolete_clean_sheet.exists():
               raise SystemExit(
-                  "Duplicate legacy projection/clean-sheet slides survived in Day 3_3: "
-                  + " | ".join(survivors)
+                  "Standalone clean-sheet slide survived even though it is merged into 02_fdr"
               )
 
           section_narr = json.loads(narration_path.read_text(encoding="utf-8"))
           for key, required_phrases in {
               "02_fdr": ("four attacks to target", "three attacks to avoid", "clean-sheet ranking"),
-              "03_projected_goals": ("four teams to target", "three teams to avoid", "DEFCON"),
+              "03_projected_goals": ("Projected goals tell you", "Over the next six Gameweeks"),
+              "03_defcon": ("four teams to target", "three teams to avoid", "DEFCON"),
+              "04_final_shortlists": ("expected minutes", "expected points", "final shortlist"),
           }.items():
               script = str((section_narr.get(key) or {}).get("script") or "")
               lowered = script.lower()
@@ -1800,7 +2149,16 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
                   raise SystemExit(f"{key} Day 3_3 narration missing: {missing}")
           if "04_clean_sheets" in section_narr:
               raise SystemExit("Duplicate standalone clean-sheet narration survived in Day 3_3")
-          print("Day 3_3 Projected Goals/CS + DEFCON PNG/MP4/narration contract: PASS")
+
+          projected_goals_script = str(
+              (section_narr.get("03_projected_goals") or {}).get("script") or ""
+          )
+          if "For DEFCON" in projected_goals_script:
+              raise SystemExit("Original Projected Goals narration was overwritten by DEFCON")
+          print(
+              "Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists "
+              "PNG/MP4/narration contract: PASS"
+          )
 
           final_mp4s = [
               path for path in (root / "MP4").glob("*COMBINED*.mp4")
