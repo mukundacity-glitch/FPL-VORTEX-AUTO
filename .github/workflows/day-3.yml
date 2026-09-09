@@ -511,10 +511,10 @@ jobs:
           _day3_plan_controls = r'''
 # @markdown ---
 # @markdown ### 🧠 MY PLAN
-# @markdown **Choose one Gameweek plan. ALL 8 will unlock after 5C–5H are built.**
+# @markdown **Render one active Gameweek plan, or render all eight comparison scenarios.**
 MY_PLAN_VIDEO_MODE = "SELECTED ONLY"  # @param ["SELECTED ONLY", "ALL 8 SCENARIOS"]
 
-# @markdown **MY PLAN — scenario**
+# @markdown **MY PLAN — active scenario**
 MY_PLAN_SCENARIO = "A • ROLL"  # @param ["A • ROLL", "B • TRANSFER 1–5", "C • FREE HIT", "D • WILDCARD • 5 GW", "E • ROLL + BENCH BOOST", "F • ROLL + TRIPLE CAPTAIN", "G • TRANSFER 1–5 + BENCH BOOST", "H • TRANSFER 1–5 + TRIPLE CAPTAIN"]
 
 MY_PLAN_SCENARIO_MAP = {
@@ -531,7 +531,18 @@ MY_PLAN_SCENARIO_KEY = MY_PLAN_SCENARIO_MAP.get(MY_PLAN_SCENARIO)
 if MY_PLAN_SCENARIO_KEY is None:
     raise ValueError(f"Unknown MY PLAN scenario: {MY_PLAN_SCENARIO!r}")
 
-# @markdown **Current-team source for MY PLAN**
+MY_PLAN_SCENARIO_META = {
+    "A_ROLL": {"user_number":"5A","scene_key":"05a_my_plan_roll","chip":"NONE","transfer_mode":"ROLL"},
+    "B_TRANSFER_1_TO_5": {"user_number":"5B","scene_key":"05b_my_plan_transfer","chip":"NONE","transfer_mode":"TRANSFER"},
+    "C_FREE_HIT": {"user_number":"5C","scene_key":"05c_my_plan_free_hit","chip":"FREE HIT","transfer_mode":"REBUILD"},
+    "D_WILDCARD_5GW": {"user_number":"5D","scene_key":"05d_my_plan_wildcard","chip":"WILDCARD","transfer_mode":"REBUILD"},
+    "E_ROLL_BENCH_BOOST": {"user_number":"5E","scene_key":"05e_my_plan_roll_bb","chip":"BENCH BOOST","transfer_mode":"ROLL"},
+    "F_ROLL_TRIPLE_CAPTAIN": {"user_number":"5F","scene_key":"05f_my_plan_roll_tc","chip":"TRIPLE CAPTAIN","transfer_mode":"ROLL"},
+    "G_TRANSFER_1_TO_5_BENCH_BOOST": {"user_number":"5G","scene_key":"05g_my_plan_transfer_bb","chip":"BENCH BOOST","transfer_mode":"TRANSFER"},
+    "H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN": {"user_number":"5H","scene_key":"05h_my_plan_transfer_tc","chip":"TRIPLE CAPTAIN","transfer_mode":"TRANSFER"},
+}
+
+# @markdown **Current-team source**
 MY_PLAN_TEAM_SOURCE = "MODEL INPUT FILE"  # @param ["MODEL INPUT FILE", "FPL ENTRY VISIBLE", "MANUAL 15 PLAYER IDS"]
 MY_PLAN_TEAM_SOURCE_MAP = {
     "MODEL INPUT FILE": "MODEL_INPUT_FILE",
@@ -547,41 +558,51 @@ MY_PLAN_MANUAL_PLAYER_IDS = ""  # @param {type:"string"}
 MY_PLAN_MANUAL_BANK = 0.0  # @param {type:"number"}
 MY_PLAN_MANUAL_FREE_TRANSFERS = 1  # @param [0, 1, 2, 3, 4, 5]
 
-# @markdown **Transfer count control is reserved for 5B / 5G / 5H.**
+# @markdown ---
+# @markdown #### 🔁 5B / 5G / 5H — TRANSFER CONTROLS
 MY_PLAN_TRANSFER_COUNT = "AUTO BEST 1–5"  # @param ["AUTO BEST 1–5", "1", "2", "3", "4", "5"]
-
-# @markdown **5B — transfer selection**
 MY_PLAN_TRANSFER_SELECTION = "AUTO MODEL"  # @param ["AUTO MODEL", "MANUAL OUT / IN IDS"]
+MY_PLAN_MANUAL_POSITION_FILTER = "MID"  # @param ["GK", "DEF", "MID", "FWD"]
+# @markdown **OUT — current-squad player IDs. IN — same-position incoming IDs.**
+# @markdown **Dynamic candidate audit: GK 5 • DEF 20 • MID 20 • FWD 5, ranked by VORTEX + official market trend.**
 MY_PLAN_MANUAL_OUT_PLAYER_IDS = ""  # @param {type:"string"}
 MY_PLAN_MANUAL_IN_PLAYER_IDS = ""  # @param {type:"string"}
 MY_PLAN_FREE_TRANSFERS_OVERRIDE = "AUTO"  # @param ["AUTO", "0", "1", "2", "3", "4", "5"]
 
-MY_PLAN_SCENARIOS = tuple(MY_PLAN_SCENARIO_MAP.values())
-MY_PLAN_IMPLEMENTED_SCENARIOS = {"A_ROLL", "B_TRANSFER_1_TO_5"}
+# @markdown ---
+# @markdown #### 🧩 5C / 5D — FULL-SQUAD REBUILD CONTROLS
+MY_PLAN_REBUILD_SELECTION = "AUTO MODEL"  # @param ["AUTO MODEL", "MANUAL FINAL 15 IDS"]
+MY_PLAN_REBUILD_PLAYER_IDS = ""  # @param {type:"string"}
+MY_PLAN_WILDCARD_HORIZON_GWS = 5  # @param {type:"integer"}
 
+# @markdown ---
+# @markdown #### ⭐ 5F / 5H — TRIPLE CAPTAIN CONTROLS
+MY_PLAN_TC_PLAYER_MODE = "AUTO"  # @param ["AUTO", "MANUAL PLAYER ID"]
+MY_PLAN_TC_PLAYER_ID = 0  # @param {type:"integer"}
+
+MY_PLAN_SCENARIOS = tuple(MY_PLAN_SCENARIO_MAP.values())
 if MY_PLAN_VIDEO_MODE not in {"SELECTED ONLY", "ALL 8 SCENARIOS"}:
     raise ValueError(f"Unknown MY_PLAN_VIDEO_MODE: {MY_PLAN_VIDEO_MODE!r}")
-if MY_PLAN_VIDEO_MODE == "ALL 8 SCENARIOS":
-    raise NotImplementedError(
-        "MY PLAN ALL 8 is intentionally blocked until scenarios 5C–5H are built. "
-        "For now select A • ROLL or B • TRANSFER 1–5."
-    )
-if MY_PLAN_SCENARIO_KEY not in MY_PLAN_IMPLEMENTED_SCENARIOS:
-    raise NotImplementedError(
-        f"MY PLAN scenario {MY_PLAN_SCENARIO} is not built yet. "
-        "Only A • ROLL and B • TRANSFER 1–5 are enabled in this pass."
+
+def _my_plan_render(scenario_key):
+    return bool(
+        MY_PLAN_VIDEO_MODE == "ALL 8 SCENARIOS"
+        or MY_PLAN_SCENARIO_KEY == scenario_key
     )
 
-MY_PLAN_RENDER_5A = bool(
-    MY_PLAN_VIDEO_MODE == "SELECTED ONLY"
-    and MY_PLAN_SCENARIO_KEY == "A_ROLL"
-)
-MY_PLAN_RENDER_5B = bool(
-    MY_PLAN_VIDEO_MODE == "SELECTED ONLY"
-    and MY_PLAN_SCENARIO_KEY == "B_TRANSFER_1_TO_5"
-)
+MY_PLAN_RENDER_5A = _my_plan_render("A_ROLL")
+MY_PLAN_RENDER_5B = _my_plan_render("B_TRANSFER_1_TO_5")
+MY_PLAN_RENDER_5C = _my_plan_render("C_FREE_HIT")
+MY_PLAN_RENDER_5D = _my_plan_render("D_WILDCARD_5GW")
+MY_PLAN_RENDER_5E = _my_plan_render("E_ROLL_BENCH_BOOST")
+MY_PLAN_RENDER_5F = _my_plan_render("F_ROLL_TRIPLE_CAPTAIN")
+MY_PLAN_RENDER_5G = _my_plan_render("G_TRANSFER_1_TO_5_BENCH_BOOST")
+MY_PLAN_RENDER_5H = _my_plan_render("H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN")
 '''
           runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              'SLIDE_06_OUTRO = True          runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _cell0,
               'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\\n',
@@ -601,6 +622,12 @@ SELECTED_SCENES = ['''
     "05_transfer_decision_desk": True,
     "05a_my_plan_roll": MY_PLAN_RENDER_5A,
     "05b_my_plan_transfer": MY_PLAN_RENDER_5B,
+    "05c_my_plan_free_hit": MY_PLAN_RENDER_5C,
+    "05d_my_plan_wildcard": MY_PLAN_RENDER_5D,
+    "05e_my_plan_roll_bb": MY_PLAN_RENDER_5E,
+    "05f_my_plan_roll_tc": MY_PLAN_RENDER_5F,
+    "05g_my_plan_transfer_bb": MY_PLAN_RENDER_5G,
+    "05h_my_plan_transfer_tc": MY_PLAN_RENDER_5H,
     "05_outro": SLIDE_06_OUTRO,
 }
 
@@ -2286,16 +2313,856 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
               'print(f"✅ Scenario: {_d3_5b_transfer_count} transfers • hit {_d3_5b_hit_cost} • no chip")',
           )
 
+
+          # ------------------------------------------------------------
+          # DAY 3_3 — MY PLAN 5C–5H
+          # All variants reuse the exact 5A/5B copied GW Review HTML,
+          # player-card DOM, Ryan exact-sync path and renderer.
+          # ------------------------------------------------------------
+
+          _day3_rebuild_engine = r'''
+    # ------------------------------------------------------------
+    # FULL-SQUAD REBUILD ENGINE — used by 5C FREE HIT / 5D WILDCARD
+    # No player names or model values are hard-coded.
+    # ------------------------------------------------------------
+    if "_vx_phase11_best_lineup" not in globals():
+        raise RuntimeError("MY PLAN rebuild requires the Phase-11 legal-lineup optimiser")
+
+    _d3_rebuild_base = phase11_current_squad_state.copy()
+    _d3_rebuild_pool = phase11_player_decision_pool.copy()
+    if len(_d3_rebuild_base) != 15:
+        raise RuntimeError(
+            f"MY PLAN rebuild requires exactly 15 current players, found {len(_d3_rebuild_base)}"
+        )
+
+    def _d3_rebuild_num(value, default=0.0):
+        value = pd.to_numeric(value, errors="coerce")
+        return float(value) if pd.notna(value) else float(default)
+
+    _required_rebuild_cols = {"player_id","team_id","position","price","final_gameweek_xpts"}
+    _missing_rebuild_cols = sorted(_required_rebuild_cols - set(_d3_rebuild_pool.columns))
+    if _missing_rebuild_cols:
+        raise RuntimeError(
+            "MY PLAN rebuild pool is missing: " + ", ".join(_missing_rebuild_cols)
+        )
+
+    for _frame in (_d3_rebuild_base, _d3_rebuild_pool):
+        for _col in ("player_id","team_id","price","final_gameweek_xpts"):
+            _frame[_col] = pd.to_numeric(_frame[_col], errors="coerce")
+        if "phase11_weighted_horizon_xpts" not in _frame.columns:
+            _frame["phase11_weighted_horizon_xpts"] = np.nan
+        _frame["phase11_weighted_horizon_xpts"] = pd.to_numeric(
+            _frame["phase11_weighted_horizon_xpts"], errors="coerce"
+        )
+
+    _d3_rebuild_base = _d3_rebuild_base.dropna(
+        subset=["player_id","team_id","price","final_gameweek_xpts"]
+    ).copy()
+    _d3_rebuild_pool = _d3_rebuild_pool.dropna(
+        subset=["player_id","team_id","price","final_gameweek_xpts"]
+    ).copy()
+    _d3_rebuild_base["player_id"] = _d3_rebuild_base["player_id"].astype(int)
+    _d3_rebuild_base["team_id"] = _d3_rebuild_base["team_id"].astype(int)
+    _d3_rebuild_pool["player_id"] = _d3_rebuild_pool["player_id"].astype(int)
+    _d3_rebuild_pool["team_id"] = _d3_rebuild_pool["team_id"].astype(int)
+    _d3_rebuild_base["position"] = (
+        _d3_rebuild_base["position"].astype(str).str.upper().replace({"GKP":"GK"})
+    )
+    _d3_rebuild_pool["position"] = (
+        _d3_rebuild_pool["position"].astype(str).str.upper().replace({"GKP":"GK"})
+    )
+    _d3_rebuild_pool = _d3_rebuild_pool.drop_duplicates("player_id").copy()
+
+    if "selling_price" not in _d3_rebuild_base.columns:
+        _d3_rebuild_base["selling_price"] = _d3_rebuild_base["price"]
+    _d3_rebuild_base["selling_price"] = pd.to_numeric(
+        _d3_rebuild_base["selling_price"], errors="coerce"
+    ).fillna(_d3_rebuild_base["price"])
+    _d3_rebuild_bank = _d3_rebuild_num(globals().get("PHASE11_BANK"), 0.0)
+    _d3_rebuild_budget = (
+        float(_d3_rebuild_base["selling_price"].sum()) + float(_d3_rebuild_bank)
+    )
+
+    _d3_rebuild_mode = "__REBUILD_MODE__"
+    _d3_rebuild_weight_sum = (
+        float(sum(float(v) for v in globals().get("_gw_weights", {}).values()))
+        if isinstance(globals().get("_gw_weights"), dict) and globals().get("_gw_weights")
+        else 1.0
+    )
+    _d3_rebuild_pool["_horizon_avg"] = (
+        pd.to_numeric(
+            _d3_rebuild_pool["phase11_weighted_horizon_xpts"], errors="coerce"
+        ) / max(1e-9, _d3_rebuild_weight_sum)
+    )
+    _d3_rebuild_pool["_horizon_avg"] = _d3_rebuild_pool["_horizon_avg"].fillna(
+        _d3_rebuild_pool["final_gameweek_xpts"]
+    )
+    if _d3_rebuild_mode == "GW":
+        _d3_rebuild_pool["_plan_utility"] = (
+            0.92 * _d3_rebuild_pool["final_gameweek_xpts"]
+            + 0.08 * _d3_rebuild_pool["_horizon_avg"]
+        )
+    else:
+        _d3_rebuild_pool["_plan_utility"] = (
+            0.25 * _d3_rebuild_pool["final_gameweek_xpts"]
+            + 0.75 * _d3_rebuild_pool["_horizon_avg"]
+        )
+
+    _d3_rebuild_pool = _d3_rebuild_pool.loc[
+        _d3_rebuild_pool["position"].isin(["GK","DEF","MID","FWD"])
+    ].copy()
+    if "decision_pool_ready" in _d3_rebuild_pool.columns:
+        _ready_mask = _d3_rebuild_pool["decision_pool_ready"].fillna(False).astype(bool)
+        _current_mask = _d3_rebuild_pool["player_id"].isin(
+            set(_d3_rebuild_base["player_id"].astype(int))
+        )
+        _d3_rebuild_pool = _d3_rebuild_pool.loc[
+            _ready_mask | _current_mask
+        ].copy()
+
+    _rebuild_market = players[[
+        "id","transfers_in_event","transfers_out_event"
+    ]].copy() if {
+        "id","transfers_in_event","transfers_out_event"
+    }.issubset(players.columns) else pd.DataFrame()
+    _rebuild_market_net = {}
+    if not _rebuild_market.empty:
+        _rebuild_market["id"] = pd.to_numeric(_rebuild_market["id"], errors="coerce")
+        _rebuild_market = _rebuild_market.dropna(subset=["id"]).copy()
+        _rebuild_market["id"] = _rebuild_market["id"].astype(int)
+        _rebuild_market["net_transfers"] = (
+            pd.to_numeric(_rebuild_market["transfers_in_event"], errors="coerce").fillna(0)
+            - pd.to_numeric(_rebuild_market["transfers_out_event"], errors="coerce").fillna(0)
+        )
+        _rebuild_market_net = _rebuild_market.set_index("id")["net_transfers"].to_dict()
+    _d3_rebuild_pool["net_transfers"] = _d3_rebuild_pool["player_id"].map(
+        lambda pid: float(_rebuild_market_net.get(int(pid),0.0))
+    )
+
+    _rebuild_caps = {"GK":10,"DEF":24,"MID":24,"FWD":16}
+    _rebuild_candidates = {}
+    _rebuild_candidate_rows = []
+    for _pos,_cap in _rebuild_caps.items():
+        _grp = _d3_rebuild_pool.loc[
+            _d3_rebuild_pool["position"].eq(_pos)
+        ].sort_values(
+            ["_plan_utility","final_gameweek_xpts","net_transfers","player_name"],
+            ascending=[False,False,False,True],
+            na_position="last",
+        ).head(int(_cap)).reset_index(drop=True)
+        if len(_grp) < {"GK":2,"DEF":5,"MID":5,"FWD":3}[_pos]:
+            raise RuntimeError(
+                f"MY PLAN rebuild has too few {_pos} candidates: {len(_grp)}"
+            )
+        _rebuild_candidates[_pos] = _grp
+        for _,_row in _grp.iterrows():
+            _rebuild_candidate_rows.append({
+                "position":_pos,
+                "player_id":int(_row["player_id"]),
+                "player_name":str(_row.get("player_name") or ""),
+                "price":round(float(_row["price"]),2),
+                "xpts":round(float(_row["final_gameweek_xpts"]),3),
+                "horizon":round(float(_row["_horizon_avg"]),3),
+                "net_transfers":int(round(float(_row.get("net_transfers",0) or 0))),
+            })
+    (Path(TIMING) / "__REBUILD_PREFIX___candidates.json").write_text(
+        _d3_json.dumps(_rebuild_candidate_rows, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    def _d3_rebuild_validate(frame):
+        if len(frame) != 15 or frame["player_id"].duplicated().any():
+            return False
+        counts = frame["position"].value_counts().to_dict()
+        if counts != {"GK":2,"DEF":5,"MID":5,"FWD":3}:
+            return False
+        club_counts = frame.groupby("team_id").size()
+        if not club_counts.empty and int(club_counts.max()) > 3:
+            return False
+        if float(frame["price"].sum()) > float(_d3_rebuild_budget) + 1e-8:
+            return False
+        return True
+
+    def _d3_rebuild_exact(frame):
+        if not _d3_rebuild_validate(frame):
+            return None
+        xi,bench = _vx_phase11_best_lineup(frame, "final_gameweek_xpts")
+        if len(xi) != 11 or len(bench) != 4:
+            return None
+        cap_rank = xi.sort_values(
+            ["final_gameweek_xpts","phase11_weighted_horizon_xpts"],
+            ascending=[False,False],
+            na_position="last",
+        ).reset_index(drop=True)
+        cap = cap_rank.iloc[0]
+        gw_score = float(pd.to_numeric(
+            xi["final_gameweek_xpts"], errors="coerce"
+        ).fillna(0).sum()) + float(cap["final_gameweek_xpts"])
+        bench_score = float(pd.to_numeric(
+            bench["final_gameweek_xpts"], errors="coerce"
+        ).fillna(0).sum())
+        horizon_score = float(pd.to_numeric(
+            frame["_plan_utility"], errors="coerce"
+        ).fillna(0).sum())
+        objective = (
+            gw_score + 0.08 * bench_score
+            if _d3_rebuild_mode == "GW"
+            else horizon_score + 0.10 * gw_score
+        )
+        return {
+            "squad":frame.copy(),
+            "xi":xi.copy(),
+            "bench":bench.copy(),
+            "captain_id":int(cap["player_id"]),
+            "vice_id":int(cap_rank.iloc[1]["player_id"]),
+            "gw_score":float(gw_score),
+            "bench_score":float(bench_score),
+            "objective":float(objective),
+        }
+
+    _rebuild_selection = str(
+        globals().get("MY_PLAN_REBUILD_SELECTION","AUTO MODEL")
+    ).upper()
+    if _rebuild_selection.startswith("MANUAL"):
+        _parts = [
+            part for part in re.split(
+                r"[,;\s]+",
+                str(globals().get("MY_PLAN_REBUILD_PLAYER_IDS","") or "").strip()
+            )
+            if part
+        ]
+        try:
+            _manual_ids = [int(part) for part in _parts]
+        except Exception as exc:
+            raise ValueError("MY_PLAN_REBUILD_PLAYER_IDS contains a non-integer ID") from exc
+        if len(_manual_ids) != 15 or len(set(_manual_ids)) != 15:
+            raise ValueError(
+                "MY_PLAN_REBUILD_PLAYER_IDS must contain exactly 15 unique official FPL IDs"
+            )
+        _manual_frame = _d3_rebuild_pool.loc[
+            _d3_rebuild_pool["player_id"].isin(_manual_ids)
+        ].copy()
+        if set(_manual_frame["player_id"].astype(int)) != set(_manual_ids):
+            missing = sorted(set(_manual_ids)-set(_manual_frame["player_id"].astype(int)))
+            raise ValueError(f"MY PLAN rebuild manual IDs are not model-ready: {missing}")
+        _chosen_rebuild = _d3_rebuild_exact(_manual_frame)
+        if _chosen_rebuild is None:
+            raise ValueError(
+                "MY PLAN rebuild manual final fifteen is illegal for budget/position/club rules"
+            )
+    else:
+        _sequence = ["GK","GK"] + ["DEF"]*5 + ["MID"]*5 + ["FWD"]*3
+        _beam = [{
+            "ids":tuple(),
+            "rows":[],
+            "cost":0.0,
+            "utility":0.0,
+            "clubs":{},
+            "last":{"GK":-1,"DEF":-1,"MID":-1,"FWD":-1},
+        }]
+        _beam_width = 700
+        for _pos in _sequence:
+            _generated = {}
+            _grp = _rebuild_candidates[_pos]
+            for _state in _beam:
+                for _rank,_row in _grp.iterrows():
+                    _rank = int(_rank)
+                    if _rank <= int(_state["last"][_pos]):
+                        continue
+                    _pid = int(_row["player_id"])
+                    if _pid in _state["ids"]:
+                        continue
+                    _tid = int(_row["team_id"])
+                    if int(_state["clubs"].get(_tid,0)) >= 3:
+                        continue
+                    _cost = float(_state["cost"]) + float(_row["price"])
+                    if _cost > float(_d3_rebuild_budget) + 1e-8:
+                        continue
+                    _clubs = dict(_state["clubs"])
+                    _clubs[_tid] = int(_clubs.get(_tid,0)) + 1
+                    _last = dict(_state["last"])
+                    _last[_pos] = _rank
+                    _ids = tuple(sorted(_state["ids"] + (_pid,)))
+                    _next = {
+                        "ids":_ids,
+                        "rows":_state["rows"]+[_row.copy()],
+                        "cost":_cost,
+                        "utility":float(_state["utility"])+float(_row["_plan_utility"]),
+                        "clubs":_clubs,
+                        "last":_last,
+                    }
+                    _old = _generated.get(_ids)
+                    if _old is None or _next["utility"] > _old["utility"]:
+                        _generated[_ids] = _next
+            if not _generated:
+                raise RuntimeError(
+                    f"MY PLAN rebuild search exhausted while selecting {_pos}"
+                )
+            _beam = sorted(
+                _generated.values(),
+                key=lambda state:(state["utility"],-state["cost"]),
+                reverse=True,
+            )[:_beam_width]
+
+        _rebuild_exact_states = []
+        for _state in _beam[:350]:
+            _frame = pd.DataFrame(_state["rows"]).copy()
+            _exact = _d3_rebuild_exact(_frame)
+            if _exact is not None:
+                _rebuild_exact_states.append(_exact)
+        if not _rebuild_exact_states:
+            raise RuntimeError("MY PLAN rebuild produced no legal 15-player squad")
+        _chosen_rebuild = max(
+            _rebuild_exact_states,
+            key=lambda state:state["objective"],
+        )
+
+    _d3_rebuild_squad = _chosen_rebuild["squad"].copy()
+    _d3_rebuild_xi = _chosen_rebuild["xi"].copy()
+    _d3_rebuild_bench = _chosen_rebuild["bench"].copy()
+    _d3_rebuild_cap_id = int(_chosen_rebuild["captain_id"])
+    _d3_rebuild_vice_id = int(_chosen_rebuild["vice_id"])
+    _d3_rebuild_cost = float(_d3_rebuild_squad["price"].sum())
+    _d3_rebuild_remaining_bank = float(_d3_rebuild_budget - _d3_rebuild_cost)
+    _d3_rebuild_current_ids = sorted(
+        int(pid) for pid in phase11_current_squad_state["player_id"].astype(int)
+    )
+    _d3_rebuild_final_ids = sorted(
+        int(pid) for pid in _d3_rebuild_squad["player_id"].astype(int)
+    )
+
+    _bench_gk = _d3_rebuild_bench.loc[
+        _d3_rebuild_bench["position"].astype(str).str.upper().eq("GK")
+    ].copy()
+    _bench_out = _d3_rebuild_bench.loc[
+        ~_d3_rebuild_bench["position"].astype(str).str.upper().eq("GK")
+    ].sort_values("final_gameweek_xpts",ascending=False).copy()
+    _bench_out["bench_order"] = np.arange(1,len(_bench_out)+1)
+    if not _bench_gk.empty:
+        _bench_gk["bench_order"] = 4
+    _d3_rebuild_bench = pd.concat([_bench_out,_bench_gk],ignore_index=True)
+'''
+
+          def _d3_make_rebuild_variant(mode):
+              if mode == "GW":
+                  block = _day3_plan5a_block
+                  replacements = (
+                      ("05a_my_plan_roll", "05c_my_plan_free_hit"),
+                      ("my_plan_5a_roll", "my_plan_5c_free_hit"),
+                      ("MY PLAN 5A", "MY PLAN 5C"),
+                      ("SLIDE 5A • MY PLAN • ROLL", "SLIDE 5C • MY PLAN • FREE HIT"),
+                      ('"scenario":"A_ROLL"', '"scenario":"C_FREE_HIT"'),
+                      ("DAY3_MY_PLAN_5A_PACKAGE", "DAY3_MY_PLAN_5C_PACKAGE"),
+                      ("DAY3_MY_PLAN_5A_MANIFEST", "DAY3_MY_PLAN_5C_MANIFEST"),
+                  )
+                  plan_name = "FREE HIT"
+                  scenario_letter = "C"
+                  scenario_key = "C_FREE_HIT"
+                  prefix = "my_plan_5c_free_hit"
+                  chip = "FREE HIT"
+              else:
+                  block = _day3_plan5a_block
+                  replacements = (
+                      ("05a_my_plan_roll", "05d_my_plan_wildcard"),
+                      ("my_plan_5a_roll", "my_plan_5d_wildcard"),
+                      ("MY PLAN 5A", "MY PLAN 5D"),
+                      ("SLIDE 5A • MY PLAN • ROLL", "SLIDE 5D • MY PLAN • WILDCARD"),
+                      ('"scenario":"A_ROLL"', '"scenario":"D_WILDCARD_5GW"'),
+                      ("DAY3_MY_PLAN_5A_PACKAGE", "DAY3_MY_PLAN_5D_PACKAGE"),
+                      ("DAY3_MY_PLAN_5A_MANIFEST", "DAY3_MY_PLAN_5D_MANIFEST"),
+                  )
+                  plan_name = "WILDCARD"
+                  scenario_letter = "D"
+                  scenario_key = "D_WILDCARD_5GW"
+                  prefix = "my_plan_5d_wildcard"
+                  chip = "WILDCARD"
+              for old,new in replacements:
+                  block = block.replace(old,new)
+
+              engine = (
+                  _day3_rebuild_engine
+                  .replace("__REBUILD_MODE__", mode)
+                  .replace("__REBUILD_PREFIX__", prefix)
+              )
+              block = _d3_copy_replace(
+                  block,
+                  '''    _d3_squad = phase11_current_squad_state.copy()
+    _d3_xi = phase11_recommended_lineup.copy()
+    _d3_bench = phase11_bench_order.copy()
+    _d3_pool = phase11_player_decision_pool.copy()
+''',
+                  engine + '''    _d3_squad = _d3_rebuild_squad.copy()
+    _d3_xi = _d3_rebuild_xi.copy()
+    _d3_bench = _d3_rebuild_bench.copy()
+    _d3_pool = phase11_player_decision_pool.copy()
+''',
+                  f"Day 3 MY PLAN 5{scenario_letter} rebuild-engine insertion",
+              )
+              block = _d3_copy_replace(
+                  block,
+                  '''    _d3_cap_raw = (
+        (PHASE11_BEST_CAPTAIN or {}).get("player_id")
+        if isinstance(PHASE11_BEST_CAPTAIN, dict) else 0
+    )
+    _d3_vice_raw = (
+        (PHASE11_BEST_VICE or {}).get("player_id")
+        if isinstance(PHASE11_BEST_VICE, dict) else 0
+    )
+''',
+                  '''    _d3_cap_raw = int(_d3_rebuild_cap_id)
+    _d3_vice_raw = int(_d3_rebuild_vice_id)
+''',
+                  f"Day 3 MY PLAN 5{scenario_letter} rebuild captain",
+              )
+              block = _d3_copy_replace(
+                  block,
+                  '    _d3_bank = _d3_plan_number(globals().get("PHASE11_BANK"), 0.0)',
+                  '    _d3_bank = float(_d3_rebuild_remaining_bank)',
+                  f"Day 3 MY PLAN 5{scenario_letter} rebuild bank",
+              )
+
+              narration = f'''    def _d3_plan_player_text(p, bench=False, first_goalkeeper=False):
+        name = vx_narration_player(int(p["id"]))
+        if first_goalkeeper:
+            return (
+                f"{{name}}. He starts in goal in my {plan_name.title()} squad. VORTEX projects "
+                f"{{p['xpts']:.1f}} points from {{p['xmins']:.0f}} expected minutes against "
+                f"{{_d3_plan_spoken_fixture(p)}}."
+            )
+        if bench:
+            return (
+                f"{{name}}. He completes the fifteen on the bench. The model gives "
+                f"{{p['xpts']:.1f}} expected points from {{p['xmins']:.0f}} minutes against "
+                f"{{_d3_plan_spoken_fixture(p)}}. The squad build still values bench depth, "
+                "but the strongest legal eleven starts."
+            )
+        captain_note = (
+            " He is also the model captain, so his expected return is counted twice."
+            if p["captain"] else
+            " He is the vice captain and captaincy fallback."
+            if p["vice"] else ""
+        )
+        return (
+            f"{{name}}. He starts in the {{p['pos']}} line. VORTEX projects {{p['xpts']:.1f}} "
+            f"points from {{p['xmins']:.0f}} expected minutes against {{_d3_plan_spoken_fixture(p)}}. "
+            "His place comes from the legal full-squad rebuild rather than a hard-coded pick."
+            f"{{captain_note}}"
+        )
+
+    _d3_plan_segments = [{{
+        "id":"headline",
+        "text":(
+            "This is my plan. Scenario {scenario_letter}: {plan_name}. "
+            "{'One Gameweek only: rebuild the full fifteen for the immediate slate.' if mode == 'GW' else 'Rebuild the full fifteen with the five-Gameweek horizon carrying most of the weight.'}"
+        ),
+    }}]
+
+    for _i,_p in enumerate(_d3_plan_starters):
+        _d3_plan_segments.append({{
+            "id":f"plan_player_{{_p['id']}}",
+            "player_id":int(_p["id"]),
+            "name":vx_narration_player(int(_p["id"])),
+            "kind":"starter",
+            "text":_d3_plan_player_text(
+                _p,bench=False,
+                first_goalkeeper=(_i==0 and _p["pos"]=="GK"),
+            ),
+        }})
+
+    _d3_plan_segments.append({{
+        "id":"bench_intro",
+        "text":(
+            "Now the substitutes. The model has completed the legal fifteen and orders the "
+            "four bench places behind the strongest starting eleven."
+        ),
+    }})
+    for _p in _d3_plan_bench:
+        _d3_plan_segments.append({{
+            "id":f"plan_player_{{_p['id']}}",
+            "player_id":int(_p["id"]),
+            "name":vx_narration_player(int(_p["id"])),
+            "kind":"bench",
+            "text":_d3_plan_player_text(_p,bench=True),
+        }})
+
+    _d3_plan_segments += [
+        {{"id":"metrics_intro","text":"With the full fifteen placed, here is the Scenario {scenario_letter} decision board."}},
+        {{"id":"metric_points","text":f"The optimized starting eleven projects for {{_d3_projected_score:.1f}} points after captaincy."}},
+        {{"id":"metric_orank","text":f"The legal formation is {{_d3_formation}}, selected from the rebuilt fifteen."}},
+        {{"id":"metric_gwrank","text":f"The starting squad budget was {{_d3_rebuild_budget:.1f}} million and the final cost is {{_d3_rebuild_cost:.1f}} million."}},
+        {{"id":"metric_captain","text":f"The model captain is {{vx_narration_player(_d3_cap_id)}}, projected for {{_d3_cap['xpts']:.1f}} raw points. {{vx_narration_player(_d3_vice_id)}} is vice captain."}},
+        {{"id":"metric_bench","text":f"The four substitutes carry {{_d3_bench_xpts:.1f}} combined expected points."}},
+        {{"id":"metric_hit","text":f"There is no transfer hit inside the {plan_name.title()} scenario and the remaining budget is {{_d3_bank:.1f}} million."}},
+        {{"id":"review_close","text":"That is Scenario {scenario_letter}: {plan_name}. The squad is dynamic, legal, budget checked, club-limit checked and fully re-optimized."}},
+    ]
+
+'''
+              block = _d3_copy_replace_range(
+                  block,
+                  '    def _d3_plan_player_text(p, bench=False, first_goalkeeper=False):\n',
+                  '    _d3_plan_audio_dir = Path(\n',
+                  narration,
+                  f"Day 3 MY PLAN 5{scenario_letter} narration",
+              )
+              block = _d3_copy_replace(
+                  block,
+                  '            "chip":"NONE",',
+                  f'            "chip":"{chip}",',
+                  f"Day 3 MY PLAN 5{scenario_letter} chip",
+              )
+              block = _d3_copy_replace(
+                  block,
+                  '''            "current_squad_ids":sorted(
+                int(pid) for pid in _d3_squad["player_id"].astype(int).tolist()
+            ),
+''',
+                  '''            "current_squad_ids":list(_d3_rebuild_current_ids),
+            "final_squad_ids":list(_d3_rebuild_final_ids),
+            "rebuild_budget":round(float(_d3_rebuild_budget),2),
+            "rebuild_cost":round(float(_d3_rebuild_cost),2),
+''',
+                  f"Day 3 MY PLAN 5{scenario_letter} rebuild summary",
+              )
+              for old,new in (
+                  ('setText("#vsAvg", "ROLL • NO TRANSFER");', f'setText("#vsAvg", "{plan_name} • FULL REBUILD");'),
+                  ('setText("#gwPercentile", "FREE TRANSFERS AVAILABLE");', f'setText("#gwPercentile", "{plan_name} • NO HIT");'),
+                  ('if(chipSmall) chipSmall.textContent="SCENARIO 5A";', f'if(chipSmall) chipSmall.textContent="SCENARIO 5{scenario_letter}";'),
+                  ('const cards=[["A","ROLL","SELECTED"],["TR","TRANSFER","0"],["CH","CHIP","NONE"],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];', f'const cards=[["{scenario_letter}","{plan_name}","SELECTED"],["TR","TRANSFER HIT","0"],["CH","CHIP","{chip}"],["£","BANK",Number(ps.bank||0).toFixed(1)+"m"]];'),
+                  ('setText("#entryName", "ROLL • OPTIMISED XI");', f'setText("#entryName", "{plan_name} • OPTIMISED XI");'),
+                  ('["PLAN","ROLL","good"],', f'["PLAN","{plan_name}","good"],'),
+              ):
+                  block = _d3_copy_replace(
+                      block,old,new,f"Day 3 MY PLAN 5{scenario_letter} copied UI"
+                  )
+              block = block.replace(
+                  'print("✅ Scenario: zero transfers • zero hit • no chip")',
+                  f'print("✅ Scenario: {plan_name} • zero transfer hit")',
+              )
+              return block
+
+          _day3_plan5c_block = _d3_make_rebuild_variant("GW")
+          _day3_plan5d_block = _d3_make_rebuild_variant("HORIZON")
+
+          def _d3_make_roll_bb_variant():
+              block = _day3_plan5a_block
+              for old,new in (
+                  ("05a_my_plan_roll", "05e_my_plan_roll_bb"),
+                  ("my_plan_5a_roll", "my_plan_5e_roll_bb"),
+                  ("MY PLAN 5A", "MY PLAN 5E"),
+                  ("SLIDE 5A • MY PLAN • ROLL", "SLIDE 5E • MY PLAN • ROLL + BENCH BOOST"),
+                  ('"scenario":"A_ROLL"', '"scenario":"E_ROLL_BENCH_BOOST"'),
+                  ("DAY3_MY_PLAN_5A_PACKAGE", "DAY3_MY_PLAN_5E_PACKAGE"),
+                  ("DAY3_MY_PLAN_5A_MANIFEST", "DAY3_MY_PLAN_5E_MANIFEST"),
+              ):
+                  block = block.replace(old,new)
+              block = _d3_copy_replace(
+                  block,
+                  '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"])',
+                  '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) + _d3_bench_xpts',
+                  "Day 3 MY PLAN 5E Bench Boost score",
+              )
+              block = _d3_copy_replace(
+                  block,'            "chip":"NONE",','            "chip":"BENCH BOOST",',
+                  "Day 3 MY PLAN 5E chip",
+              )
+              block = block.replace("Scenario A","Scenario E")
+              block = block.replace("scenario A","scenario E")
+              block = block.replace(
+                  "No move and no chip; optimize the current fifteen.",
+                  "No transfer; Bench Boost is active, so all fifteen projected scores count.",
+              )
+              block = block.replace(
+                  "after applying the captain multiplier.",
+                  "after captaincy and Bench Boost, with all fifteen players included.",
+              )
+              for old,new in (
+                  ('setText("#vsAvg", "ROLL • NO TRANSFER");','setText("#vsAvg", "ROLL • BENCH BOOST");'),
+                  ('if(chipSmall) chipSmall.textContent="SCENARIO 5A";','if(chipSmall) chipSmall.textContent="SCENARIO 5E";'),
+                  ('const cards=[["A","ROLL","SELECTED"],["TR","TRANSFER","0"],["CH","CHIP","NONE"],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];','const cards=[["E","ROLL + BB","SELECTED"],["TR","TRANSFER","0"],["CH","CHIP","BENCH BOOST"],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];'),
+                  ('setText("#entryName", "ROLL • OPTIMISED XI");','setText("#entryName", "ROLL + BB • ALL 15");'),
+                  ('["PLAN","ROLL","good"],','["PLAN","ROLL + BB","good"],'),
+                  ('const labelText=["PROJECTED XI","FORMATION","FREE TRANSFERS","CAPTAIN xPTS","BENCH xPTS","TRANSFER COST"];','const labelText=["PROJECTED BB","FORMATION","FREE TRANSFERS","CAPTAIN xPTS","BENCH xPTS","TRANSFER COST"];'),
+              ):
+                  block = _d3_copy_replace(block,old,new,"Day 3 MY PLAN 5E copied UI")
+              block = block.replace(
+                  'print("✅ Scenario: zero transfers • zero hit • no chip")',
+                  'print("✅ Scenario: zero transfers • zero hit • BENCH BOOST")',
+              )
+              return block
+
+          _day3_plan5e_block = _d3_make_roll_bb_variant()
+
+          _d3_tc_force_block = r'''
+    _d3_tc_mode = str(globals().get("MY_PLAN_TC_PLAYER_MODE","AUTO")).upper()
+    _d3_tc_requested = 0
+    if _d3_tc_mode.startswith("MANUAL"):
+        _d3_tc_requested = int(globals().get("MY_PLAN_TC_PLAYER_ID",0) or 0)
+        if _d3_tc_requested not in set(_d3_squad["player_id"].astype(int)):
+            raise ValueError(
+                f"Manual Triple Captain player {_d3_tc_requested} is not in the final squad"
+            )
+        if _d3_tc_requested not in set(_d3_xi["player_id"].astype(int)):
+            import itertools as _d3_itertools
+            _best_force = None
+            _best_force_score = -1e18
+            _force_frame = _d3_squad.copy()
+            _force_frame["position"] = (
+                _force_frame["position"].astype(str).str.upper().replace({"GKP":"GK"})
+            )
+            _force_frame["final_gameweek_xpts"] = pd.to_numeric(
+                _force_frame["final_gameweek_xpts"], errors="coerce"
+            ).fillna(0.0)
+            _forms = ((3,4,3),(3,5,2),(4,3,3),(4,4,2),(4,5,1),(5,2,3),(5,3,2),(5,4,1))
+            _groups_force = {
+                pos:list(_force_frame.loc[_force_frame["position"].eq(pos),"player_id"].astype(int))
+                for pos in ("GK","DEF","MID","FWD")
+            }
+            _score_map_force = _force_frame.set_index("player_id")["final_gameweek_xpts"].to_dict()
+            for _d,_m,_f in _forms:
+                for _gk_ids in _d3_itertools.combinations(_groups_force["GK"],1):
+                    for _def_ids in _d3_itertools.combinations(_groups_force["DEF"],_d):
+                        for _mid_ids in _d3_itertools.combinations(_groups_force["MID"],_m):
+                            for _fwd_ids in _d3_itertools.combinations(_groups_force["FWD"],_f):
+                                _ids = tuple(_gk_ids+_def_ids+_mid_ids+_fwd_ids)
+                                if _d3_tc_requested not in _ids:
+                                    continue
+                                _score = sum(float(_score_map_force.get(pid,0.0)) for pid in _ids)
+                                if _score > _best_force_score:
+                                    _best_force_score = _score
+                                    _best_force = _ids
+            if not _best_force:
+                raise RuntimeError("Unable to build a legal XI containing the manual Triple Captain")
+            _d3_xi = _d3_squad.loc[
+                _d3_squad["player_id"].astype(int).isin(set(_best_force))
+            ].copy()
+            _d3_bench = _d3_squad.loc[
+                ~_d3_squad["player_id"].astype(int).isin(set(_best_force))
+            ].copy()
+            _gk_bench = _d3_bench.loc[
+                _d3_bench["position"].astype(str).str.upper().replace({"GKP":"GK"}).eq("GK")
+            ].copy()
+            _out_bench = _d3_bench.loc[
+                ~_d3_bench["player_id"].isin(_gk_bench["player_id"])
+            ].sort_values("final_gameweek_xpts",ascending=False).copy()
+            _out_bench["bench_order"] = np.arange(1,len(_out_bench)+1)
+            if not _gk_bench.empty:
+                _gk_bench["bench_order"] = 4
+            _d3_bench = pd.concat([_out_bench,_gk_bench],ignore_index=True)
+'''
+
+          def _d3_make_tc_variant(base, *, transfer):
+              block = base
+              if transfer:
+                  replacements = (
+                      ("05b_my_plan_transfer", "05h_my_plan_transfer_tc"),
+                      ("my_plan_5b_transfer", "my_plan_5h_transfer_tc"),
+                      ("MY PLAN 5B", "MY PLAN 5H"),
+                      ("SLIDE 5B • MY PLAN • TRANSFER", "SLIDE 5H • MY PLAN • TRANSFER + TRIPLE CAPTAIN"),
+                      ('"scenario":"B_TRANSFER_1_TO_5"', '"scenario":"H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN"'),
+                      ("DAY3_MY_PLAN_5B_PACKAGE", "DAY3_MY_PLAN_5H_PACKAGE"),
+                      ("DAY3_MY_PLAN_5B_MANIFEST", "DAY3_MY_PLAN_5H_MANIFEST"),
+                  )
+                  letter = "H"
+                  plan_text = "TRANSFER + TC"
+              else:
+                  replacements = (
+                      ("05a_my_plan_roll", "05f_my_plan_roll_tc"),
+                      ("my_plan_5a_roll", "my_plan_5f_roll_tc"),
+                      ("MY PLAN 5A", "MY PLAN 5F"),
+                      ("SLIDE 5A • MY PLAN • ROLL", "SLIDE 5F • MY PLAN • ROLL + TRIPLE CAPTAIN"),
+                      ('"scenario":"A_ROLL"', '"scenario":"F_ROLL_TRIPLE_CAPTAIN"'),
+                      ("DAY3_MY_PLAN_5A_PACKAGE", "DAY3_MY_PLAN_5F_PACKAGE"),
+                      ("DAY3_MY_PLAN_5A_MANIFEST", "DAY3_MY_PLAN_5F_MANIFEST"),
+                  )
+                  letter = "F"
+                  plan_text = "ROLL + TC"
+              for old,new in replacements:
+                  block = block.replace(old,new)
+
+              block = _d3_copy_replace(
+                  block,
+                  '    _d3_pool_by_id = _d3_pool.drop_duplicates("player_id").set_index("player_id")\n\n    _d3_xi_ids =',
+                  '    _d3_pool_by_id = _d3_pool.drop_duplicates("player_id").set_index("player_id")\n'
+                  + _d3_tc_force_block
+                  + '\n    _d3_xi_ids =',
+                  f"Day 3 MY PLAN 5{letter} TC forced-XI support",
+              )
+              if transfer:
+                  block = _d3_copy_replace(
+                      block,
+                      '''    _d3_cap_raw = int(_d3_5b_cap_id)
+    _d3_vice_raw = int(_d3_5b_vice_id)
+''',
+                      '''    _d3_cap_raw = (
+        int(_d3_tc_requested)
+        if _d3_tc_mode.startswith("MANUAL")
+        else int(_d3_5b_cap_id)
+    )
+    _d3_vice_raw = int(_d3_5b_vice_id)
+''',
+                      "Day 3 MY PLAN 5H TC captain",
+                  )
+                  block = _d3_copy_replace(
+                      block,
+                      '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) - float(_d3_5b_hit_cost)',
+                      '    _d3_projected_score = _d3_xi_xpts + 2.0 * float(_d3_cap["xpts"]) - float(_d3_5b_hit_cost)',
+                      "Day 3 MY PLAN 5H TC score",
+                  )
+              else:
+                  block = _d3_copy_replace(
+                      block,
+                      '''    _d3_cap_raw = (
+        (PHASE11_BEST_CAPTAIN or {}).get("player_id")
+        if isinstance(PHASE11_BEST_CAPTAIN, dict) else 0
+    )
+    _d3_vice_raw = (
+        (PHASE11_BEST_VICE or {}).get("player_id")
+        if isinstance(PHASE11_BEST_VICE, dict) else 0
+    )
+''',
+                      '''    _d3_cap_raw = (
+        int(_d3_tc_requested)
+        if _d3_tc_mode.startswith("MANUAL")
+        else (
+            (PHASE11_BEST_CAPTAIN or {}).get("player_id")
+            if isinstance(PHASE11_BEST_CAPTAIN, dict) else 0
+        )
+    )
+    _d3_vice_raw = (
+        (PHASE11_BEST_VICE or {}).get("player_id")
+        if isinstance(PHASE11_BEST_VICE, dict) else 0
+    )
+''',
+                      "Day 3 MY PLAN 5F TC captain",
+                  )
+                  block = _d3_copy_replace(
+                      block,
+                      '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"])',
+                      '    _d3_projected_score = _d3_xi_xpts + 2.0 * float(_d3_cap["xpts"])',
+                      "Day 3 MY PLAN 5F TC score",
+                  )
+              block = _d3_copy_replace(
+                  block,'            "chip":"NONE",','            "chip":"TRIPLE CAPTAIN",\n            "triple_captain_id":int(_d3_cap_id),',
+                  f"Day 3 MY PLAN 5{letter} TC summary",
+              )
+              block = block.replace("Scenario A",f"Scenario {letter}")
+              block = block.replace("Scenario B",f"Scenario {letter}")
+              block = block.replace("scenario A",f"scenario {letter}")
+              block = block.replace("scenario B",f"scenario {letter}")
+              if not transfer:
+                  block = block.replace(
+                      "No move and no chip; optimize the current fifteen.",
+                      "No transfer; Triple Captain is active and the selected captain counts three times.",
+                  )
+              block = block.replace(
+                  "after applying the captain multiplier.",
+                  "after applying the Triple Captain multiplier.",
+              )
+              block = block.replace(
+                  "after captaincy and transfer cost.",
+                  "after Triple Captain and transfer cost.",
+              )
+              for old,new in (
+                  ('if(chipSmall) chipSmall.textContent="SCENARIO 5A";',f'if(chipSmall) chipSmall.textContent="SCENARIO 5{letter}";'),
+                  ('if(chipSmall) chipSmall.textContent="SCENARIO 5B";',f'if(chipSmall) chipSmall.textContent="SCENARIO 5{letter}";'),
+                  ('setText("#entryName", "ROLL • OPTIMISED XI");',f'setText("#entryName", "{plan_text} • OPTIMISED XI");'),
+                  ('setText("#entryName", "TRANSFER • OPTIMISED XI");',f'setText("#entryName", "{plan_text} • OPTIMISED XI");'),
+                  ('["PLAN","ROLL","good"],',f'["PLAN","{plan_text}","good"],'),
+                  ('["PLAN","TRANSFER","good"],',f'["PLAN","{plan_text}","good"],'),
+              ):
+                  if old in block:
+                      block = _d3_copy_replace(block,old,new,f"Day 3 MY PLAN 5{letter} TC copied UI")
+              if transfer:
+                  block = _d3_copy_replace(
+                      block,
+                      'const cards=[["B","TRANSFER","SELECTED"],["TR","MOVES",String(ps.transfers_used||0)],["HIT","COST",String(ps.transfer_cost||0)],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];',
+                      'const cards=[["H","TRANSFER + TC","SELECTED"],["TR","MOVES",String(ps.transfers_used||0)],["CH","CHIP","TRIPLE CAPTAIN"],["HIT","COST",String(ps.transfer_cost||0)]];',
+                      "Day 3 MY PLAN 5H TC cards",
+                  )
+              else:
+                  block = _d3_copy_replace(
+                      block,
+                      'const cards=[["A","ROLL","SELECTED"],["TR","TRANSFER","0"],["CH","CHIP","NONE"],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];',
+                      'const cards=[["F","ROLL + TC","SELECTED"],["TR","TRANSFER","0"],["CH","CHIP","TRIPLE CAPTAIN"],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];',
+                      "Day 3 MY PLAN 5F TC cards",
+                  )
+                  block = _d3_copy_replace(
+                      block,
+                      'setText("#vsAvg", "ROLL • NO TRANSFER");',
+                      'setText("#vsAvg", "ROLL • TRIPLE CAPTAIN");',
+                      "Day 3 MY PLAN 5F TC status",
+                  )
+              block = block.replace(
+                  'print("✅ Scenario: zero transfers • zero hit • no chip")',
+                  'print("✅ Scenario: zero transfers • zero hit • TRIPLE CAPTAIN")',
+              )
+              block = block.replace(
+                  '" • chip none"',
+                  '" • chip TRIPLE CAPTAIN"',
+              )
+              return block
+
+          _day3_plan5f_block = _d3_make_tc_variant(_day3_plan5a_block, transfer=False)
+
+          def _d3_make_transfer_bb_variant():
+              block = _day3_plan5b_block
+              for old,new in (
+                  ("05b_my_plan_transfer", "05g_my_plan_transfer_bb"),
+                  ("my_plan_5b_transfer", "my_plan_5g_transfer_bb"),
+                  ("MY PLAN 5B", "MY PLAN 5G"),
+                  ("SLIDE 5B • MY PLAN • TRANSFER", "SLIDE 5G • MY PLAN • TRANSFER + BENCH BOOST"),
+                  ('"scenario":"B_TRANSFER_1_TO_5"', '"scenario":"G_TRANSFER_1_TO_5_BENCH_BOOST"'),
+                  ("DAY3_MY_PLAN_5B_PACKAGE", "DAY3_MY_PLAN_5G_PACKAGE"),
+                  ("DAY3_MY_PLAN_5B_MANIFEST", "DAY3_MY_PLAN_5G_MANIFEST"),
+              ):
+                  block = block.replace(old,new)
+              block = _d3_copy_replace(
+                  block,
+                  '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) - float(_d3_5b_hit_cost)',
+                  '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) + _d3_bench_xpts - float(_d3_5b_hit_cost)',
+                  "Day 3 MY PLAN 5G Bench Boost score",
+              )
+              block = _d3_copy_replace(
+                  block,'            "chip":"NONE",','            "chip":"BENCH BOOST",',
+                  "Day 3 MY PLAN 5G chip",
+              )
+              block = block.replace("Scenario B","Scenario G")
+              block = block.replace(
+                  "The projected score already includes any transfer hit.",
+                  "The projected score includes the transfer hit and Bench Boost scores from all fifteen.",
+              )
+              for old,new in (
+                  ('if(chipSmall) chipSmall.textContent="SCENARIO 5B";','if(chipSmall) chipSmall.textContent="SCENARIO 5G";'),
+                  ('const cards=[["B","TRANSFER","SELECTED"],["TR","MOVES",String(ps.transfers_used||0)],["HIT","COST",String(ps.transfer_cost||0)],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];','const cards=[["G","TRANSFER + BB","SELECTED"],["TR","MOVES",String(ps.transfers_used||0)],["CH","CHIP","BENCH BOOST"],["HIT","COST",String(ps.transfer_cost||0)]];'),
+                  ('setText("#entryName", "TRANSFER • OPTIMISED XI");','setText("#entryName", "TRANSFER + BB • ALL 15");'),
+                  ('["PLAN","TRANSFER","good"],','["PLAN","TRANSFER + BB","good"],'),
+                  ('const labelText=["PROJECTED XI","FORMATION","FREE TRANSFERS","CAPTAIN xPTS","BENCH xPTS","TRANSFER COST"];','const labelText=["PROJECTED BB","FORMATION","FREE TRANSFERS","CAPTAIN xPTS","BENCH xPTS","TRANSFER COST"];'),
+              ):
+                  block = _d3_copy_replace(block,old,new,"Day 3 MY PLAN 5G copied UI")
+              block = block.replace(
+                  '" • chip none"',
+                  '" • chip BENCH BOOST"',
+              )
+              return block
+
+          _day3_plan5g_block = _d3_make_transfer_bb_variant()
+          _day3_plan5h_block = _d3_make_tc_variant(_day3_plan5b_block, transfer=True)
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _gw_review_anim_cell,
               'print("✅ AUDIO:",MASTER_MP3)',
               'print("✅ AUDIO:",MASTER_MP3)\n'
               + _day3_plan5a_block
-              + "\n"
-              + _day3_plan5b_block,
+              + "\n" + _day3_plan5b_block
+              + "\n" + _day3_plan5c_block
+              + "\n" + _day3_plan5d_block
+              + "\n" + _day3_plan5e_block
+              + "\n" + _day3_plan5f_block
+              + "\n" + _day3_plan5g_block
+              + "\n" + _day3_plan5h_block,
               1,
-              "Day 3 build MY PLAN 5A/5B from copied GW Review animation",
+              "Day 3 build MY PLAN 5A–5H from copied GW Review animation",
           )
 
           _day3_plan5a_render_block = r'''
@@ -2578,6 +3445,96 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
               "Day 3 MY PLAN 5B renderer transfer summary",
           )
 
+          def _d3_make_plan_renderer(base, *, from_key, to_key, from_prefix, to_prefix, from_label, to_label, from_scenario, to_scenario, heading):
+              block = base
+              for old,new in (
+                  (from_key,to_key),
+                  (from_prefix,to_prefix),
+                  (from_label,to_label),
+                  (f'"scenario":"{from_scenario}"',f'"scenario":"{to_scenario}"'),
+                  (f'!= "{from_scenario}"',f'!= "{to_scenario}"'),
+                  ("VX17-MY-PLAN-5A-GW-REVIEW-COPY-V1",f"VX17-{to_label.replace(' ','-')}-GW-REVIEW-COPY-V1"),
+                  ("VX17-MY-PLAN-5B-GW-REVIEW-COPY-V1",f"VX17-{to_label.replace(' ','-')}-GW-REVIEW-COPY-V1"),
+              ):
+                  block = block.replace(old,new)
+              for old in (
+                  f'print("✅ {to_label} — ROLL — ANIMATED GW REVIEW COPY RENDER PASSED")',
+                  f'print("✅ {to_label} — TRANSFER — ANIMATED GW REVIEW COPY RENDER PASSED")',
+              ):
+                  if old in block:
+                      block = block.replace(
+                          old,
+                          f'print("✅ {to_label} — {heading} — ANIMATED GW REVIEW COPY RENDER PASSED")',
+                          1,
+                      )
+              if '    print("✅ Transfer : 0 • hit 0 • chip none")' in block:
+                  block = block.replace(
+                      '    print("✅ Transfer : 0 • hit 0 • chip none")',
+                      '''    _d3_render_summary = dict(_vx17_manifest.get("summary") or {})
+    print(
+        f"✅ Transfer : {int(_d3_render_summary.get('transfers_used') or 0)}"
+        f" • hit {int(_d3_render_summary.get('transfer_cost') or 0)}"
+        f" • chip {str(_d3_render_summary.get('chip') or 'NONE')}"
+    )''',
+                      1,
+                  )
+              if '" • chip none"' in block:
+                  block = block.replace(
+                      '" • chip none"',
+                      'f" • chip {str(_d3_5b_render_summary.get(\'chip\') or \'NONE\')}"',
+                      1,
+                  )
+              return block
+
+          _day3_plan5c_render_block = _d3_make_plan_renderer(
+              _day3_plan5a_render_block,
+              from_key="05a_my_plan_roll",to_key="05c_my_plan_free_hit",
+              from_prefix="my_plan_5a_roll",to_prefix="my_plan_5c_free_hit",
+              from_label="MY PLAN 5A",to_label="MY PLAN 5C",
+              from_scenario="A_ROLL",to_scenario="C_FREE_HIT",
+              heading="FREE HIT",
+          )
+          _day3_plan5d_render_block = _d3_make_plan_renderer(
+              _day3_plan5a_render_block,
+              from_key="05a_my_plan_roll",to_key="05d_my_plan_wildcard",
+              from_prefix="my_plan_5a_roll",to_prefix="my_plan_5d_wildcard",
+              from_label="MY PLAN 5A",to_label="MY PLAN 5D",
+              from_scenario="A_ROLL",to_scenario="D_WILDCARD_5GW",
+              heading="WILDCARD",
+          )
+          _day3_plan5e_render_block = _d3_make_plan_renderer(
+              _day3_plan5a_render_block,
+              from_key="05a_my_plan_roll",to_key="05e_my_plan_roll_bb",
+              from_prefix="my_plan_5a_roll",to_prefix="my_plan_5e_roll_bb",
+              from_label="MY PLAN 5A",to_label="MY PLAN 5E",
+              from_scenario="A_ROLL",to_scenario="E_ROLL_BENCH_BOOST",
+              heading="ROLL + BENCH BOOST",
+          )
+          _day3_plan5f_render_block = _d3_make_plan_renderer(
+              _day3_plan5a_render_block,
+              from_key="05a_my_plan_roll",to_key="05f_my_plan_roll_tc",
+              from_prefix="my_plan_5a_roll",to_prefix="my_plan_5f_roll_tc",
+              from_label="MY PLAN 5A",to_label="MY PLAN 5F",
+              from_scenario="A_ROLL",to_scenario="F_ROLL_TRIPLE_CAPTAIN",
+              heading="ROLL + TRIPLE CAPTAIN",
+          )
+          _day3_plan5g_render_block = _d3_make_plan_renderer(
+              _day3_plan5b_render_block,
+              from_key="05b_my_plan_transfer",to_key="05g_my_plan_transfer_bb",
+              from_prefix="my_plan_5b_transfer",to_prefix="my_plan_5g_transfer_bb",
+              from_label="MY PLAN 5B",to_label="MY PLAN 5G",
+              from_scenario="B_TRANSFER_1_TO_5",to_scenario="G_TRANSFER_1_TO_5_BENCH_BOOST",
+              heading="TRANSFER + BENCH BOOST",
+          )
+          _day3_plan5h_render_block = _d3_make_plan_renderer(
+              _day3_plan5b_render_block,
+              from_key="05b_my_plan_transfer",to_key="05h_my_plan_transfer_tc",
+              from_prefix="my_plan_5b_transfer",to_prefix="my_plan_5h_transfer_tc",
+              from_label="MY PLAN 5B",to_label="MY PLAN 5H",
+              from_scenario="B_TRANSFER_1_TO_5",to_scenario="H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN",
+              heading="TRANSFER + TRIPLE CAPTAIN",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _gw_review_render_cell,
@@ -2596,9 +3553,16 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
         )
     )
 
-''' + _day3_plan5a_render_block + "\n" + _day3_plan5b_render_block,
+''' + _day3_plan5a_render_block
+              + "\n" + _day3_plan5b_render_block
+              + "\n" + _day3_plan5c_render_block
+              + "\n" + _day3_plan5d_render_block
+              + "\n" + _day3_plan5e_render_block
+              + "\n" + _day3_plan5f_render_block
+              + "\n" + _day3_plan5g_render_block
+              + "\n" + _day3_plan5h_render_block,
               1,
-              "Day 3 render MY PLAN 5A/5B through copied GW Review engine",
+              "Day 3 render MY PLAN 5A–5H through copied GW Review engine",
           )
 
           _day3_design_block = r"""
@@ -4533,8 +5497,14 @@ if "05_outro" in manifest:
     ("03_defcon",          "DEFCON",           VIDEO / "03_defcon.mp4"),
     ("04_final_shortlists", "FINAL SHORTLISTS", VIDEO / "04_final_shortlists.mp4"),
     ("05_transfer_decision_desk", "TRANSFER DECISION DESK", VIDEO / "05_transfer_decision_desk.mp4"),
-    ("05a_my_plan_roll",   "MY PLAN • ROLL",   VIDEO / "05a_my_plan_roll.mp4"),
-    ("05b_my_plan_transfer","MY PLAN • TRANSFER", VIDEO / "05b_my_plan_transfer.mp4"),''',
+    ("05a_my_plan_roll",   "MY PLAN • ROLL", VIDEO / "05a_my_plan_roll.mp4"),
+    ("05b_my_plan_transfer","MY PLAN • TRANSFER", VIDEO / "05b_my_plan_transfer.mp4"),
+    ("05c_my_plan_free_hit","MY PLAN • FREE HIT", VIDEO / "05c_my_plan_free_hit.mp4"),
+    ("05d_my_plan_wildcard","MY PLAN • WILDCARD", VIDEO / "05d_my_plan_wildcard.mp4"),
+    ("05e_my_plan_roll_bb","MY PLAN • ROLL + BB", VIDEO / "05e_my_plan_roll_bb.mp4"),
+    ("05f_my_plan_roll_tc","MY PLAN • ROLL + TC", VIDEO / "05f_my_plan_roll_tc.mp4"),
+    ("05g_my_plan_transfer_bb","MY PLAN • TRANSFER + BB", VIDEO / "05g_my_plan_transfer_bb.mp4"),
+    ("05h_my_plan_transfer_tc","MY PLAN • TRANSFER + TC", VIDEO / "05h_my_plan_transfer_tc.mp4"),''',
               1,
               "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists/Transfer Desk/MY PLAN 5A/5B",
           )
@@ -4546,6 +5516,12 @@ if "05_outro" in manifest:
               '"05_transfer_decision_desk": True',
               '"05a_my_plan_roll": MY_PLAN_RENDER_5A',
               '"05b_my_plan_transfer": MY_PLAN_RENDER_5B',
+              '"05c_my_plan_free_hit": MY_PLAN_RENDER_5C',
+              '"05d_my_plan_wildcard": MY_PLAN_RENDER_5D',
+              '"05e_my_plan_roll_bb": MY_PLAN_RENDER_5E',
+              '"05f_my_plan_roll_tc": MY_PLAN_RENDER_5F',
+              '"05g_my_plan_transfer_bb": MY_PLAN_RENDER_5G',
+              '"05h_my_plan_transfer_tc": MY_PLAN_RENDER_5H',
               'fdr_scene_4k.png = Projected Goals + Clean Sheet Odds',
               'projected_goals_scene_4k.png = ORIGINAL PRESERVED',
               'defcon_scene_4k.png = DEFCON',
@@ -4568,6 +5544,18 @@ if "05_outro" in manifest:
               'my_plan_5b_transfer_scene_4k.png',
               'my_plan_5b_transfer_animation_manifest.json',
               'my_plan_5b_transfer_candidates.json',
+              '05c_my_plan_free_hit.mp4',
+              '05d_my_plan_wildcard.mp4',
+              '05e_my_plan_roll_bb.mp4',
+              '05f_my_plan_roll_tc.mp4',
+              '05g_my_plan_transfer_bb.mp4',
+              '05h_my_plan_transfer_tc.mp4',
+              'my_plan_5c_free_hit_scene_4k.png',
+              'my_plan_5d_wildcard_scene_4k.png',
+              'my_plan_5e_roll_bb_scene_4k.png',
+              'my_plan_5f_roll_tc_scene_4k.png',
+              'my_plan_5g_transfer_bb_scene_4k.png',
+              'my_plan_5h_transfer_tc_scene_4k.png',
               'DAY3_MY_PLAN_5A_PACKAGE',
               'DAY3_MY_PLAN_5B_PACKAGE',
               'Final Shortlists narration locked:',
@@ -5233,177 +6221,230 @@ if "05_outro" in manifest:
 
 
           scene_keys = list(qa.get("scene_keys") or [])
-          selected_plan_keys = [
-              key for key in ("05a_my_plan_roll", "05b_my_plan_transfer")
-              if key in scene_keys
-          ]
-          if len(selected_plan_keys) != 1:
+          plan_specs = {
+              "05a_my_plan_roll": {
+                  "prefix":"my_plan_5a_roll","scenario":"A_ROLL","label":"MY PLAN 5A",
+                  "audio":"05a_my_plan_roll.mp3","video":"05a_my_plan_roll.mp4",
+                  "chip":"NONE","mode":"ROLL","candidates":False,
+              },
+              "05b_my_plan_transfer": {
+                  "prefix":"my_plan_5b_transfer","scenario":"B_TRANSFER_1_TO_5","label":"MY PLAN 5B",
+                  "audio":"05b_my_plan_transfer.mp3","video":"05b_my_plan_transfer.mp4",
+                  "chip":"NONE","mode":"TRANSFER","candidates":True,
+              },
+              "05c_my_plan_free_hit": {
+                  "prefix":"my_plan_5c_free_hit","scenario":"C_FREE_HIT","label":"MY PLAN 5C",
+                  "audio":"05c_my_plan_free_hit.mp3","video":"05c_my_plan_free_hit.mp4",
+                  "chip":"FREE HIT","mode":"REBUILD","candidates":True,
+              },
+              "05d_my_plan_wildcard": {
+                  "prefix":"my_plan_5d_wildcard","scenario":"D_WILDCARD_5GW","label":"MY PLAN 5D",
+                  "audio":"05d_my_plan_wildcard.mp3","video":"05d_my_plan_wildcard.mp4",
+                  "chip":"WILDCARD","mode":"REBUILD","candidates":True,
+              },
+              "05e_my_plan_roll_bb": {
+                  "prefix":"my_plan_5e_roll_bb","scenario":"E_ROLL_BENCH_BOOST","label":"MY PLAN 5E",
+                  "audio":"05e_my_plan_roll_bb.mp3","video":"05e_my_plan_roll_bb.mp4",
+                  "chip":"BENCH BOOST","mode":"ROLL","candidates":False,
+              },
+              "05f_my_plan_roll_tc": {
+                  "prefix":"my_plan_5f_roll_tc","scenario":"F_ROLL_TRIPLE_CAPTAIN","label":"MY PLAN 5F",
+                  "audio":"05f_my_plan_roll_tc.mp3","video":"05f_my_plan_roll_tc.mp4",
+                  "chip":"TRIPLE CAPTAIN","mode":"ROLL","candidates":False,
+              },
+              "05g_my_plan_transfer_bb": {
+                  "prefix":"my_plan_5g_transfer_bb","scenario":"G_TRANSFER_1_TO_5_BENCH_BOOST","label":"MY PLAN 5G",
+                  "audio":"05g_my_plan_transfer_bb.mp3","video":"05g_my_plan_transfer_bb.mp4",
+                  "chip":"BENCH BOOST","mode":"TRANSFER","candidates":True,
+              },
+              "05h_my_plan_transfer_tc": {
+                  "prefix":"my_plan_5h_transfer_tc","scenario":"H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN","label":"MY PLAN 5H",
+                  "audio":"05h_my_plan_transfer_tc.mp3","video":"05h_my_plan_transfer_tc.mp4",
+                  "chip":"TRIPLE CAPTAIN","mode":"TRANSFER","candidates":True,
+              },
+          }
+          selected_plan_keys = [key for key in plan_specs if key in scene_keys]
+          if len(selected_plan_keys) not in {1,8}:
               raise SystemExit(
-                  "Day 3 selected-only MY PLAN must contain exactly one of 5A/5B; "
+                  "Day 3 MY PLAN must render exactly one selected scenario or all eight; "
                   f"found {selected_plan_keys}"
               )
-          selected_plan_key = selected_plan_keys[0]
-          if selected_plan_key == "05a_my_plan_roll":
-              plan_prefix = "my_plan_5a_roll"
-              expected_scenario = "A_ROLL"
-              expected_label = "MY PLAN 5A"
-          else:
-              plan_prefix = "my_plan_5b_transfer"
-              expected_scenario = "B_TRANSFER_1_TO_5"
-              expected_label = "MY PLAN 5B"
-
-          plan_specific_files = [
-              root / "SLIDE" / f"{plan_prefix}_scene_4k.png",
-              root / "DATA" / f"{plan_prefix}_package.json",
-              root / "DATA" / f"{plan_prefix}_animation_manifest.json",
-              root / "DATA" / f"{plan_prefix}_render.json",
-              root / "MP3" / (
-                  "05a_my_plan_roll.mp3"
-                  if selected_plan_key == "05a_my_plan_roll"
-                  else "05b_my_plan_transfer.mp3"
-              ),
-              root / "MP4" / (
-                  "05a_my_plan_roll.mp4"
-                  if selected_plan_key == "05a_my_plan_roll"
-                  else "05b_my_plan_transfer.mp4"
-              ),
-          ]
-          if selected_plan_key == "05b_my_plan_transfer":
-              plan_specific_files.append(
-                  root / "DATA" / "my_plan_5b_transfer_candidates.json"
-              )
-          for plan_file in plan_specific_files:
-              if not plan_file.is_file() or plan_file.stat().st_size <= 0:
-                  raise SystemExit(
-                      f"{expected_label} output is missing: {plan_file}"
-                  )
-
-          plan_package_path = root / "DATA" / f"{plan_prefix}_package.json"
-          plan_manifest_path = root / "DATA" / f"{plan_prefix}_animation_manifest.json"
-          plan_render_path = root / "DATA" / f"{plan_prefix}_render.json"
-          plan_package = json.loads(plan_package_path.read_text(encoding="utf-8"))
-          plan_manifest = json.loads(plan_manifest_path.read_text(encoding="utf-8"))
-          plan_render = json.loads(plan_render_path.read_text(encoding="utf-8"))
-
-          if str(plan_package.get("scenario")) != expected_scenario:
+          if len(selected_plan_keys) == 8 and selected_plan_keys != list(plan_specs):
               raise SystemExit(
-                  f"{expected_label} scenario is wrong: {plan_package.get('scenario')}"
-              )
-          plan_players = list(plan_package.get("players") or [])
-          plan_starters = list(plan_package.get("starters") or [])
-          plan_bench = list(plan_package.get("bench") or [])
-          if len(plan_players) != 15 or len(plan_starters) != 11 or len(plan_bench) != 4:
-              raise SystemExit(
-                  f"{expected_label} squad shape must be 15/11/4, found "
-                  f"{len(plan_players)}/{len(plan_starters)}/{len(plan_bench)}"
-              )
-          plan_ids = [int(row.get("id") or 0) for row in plan_players]
-          if len(set(plan_ids)) != 15 or any(pid <= 0 for pid in plan_ids):
-              raise SystemExit(
-                  f"{expected_label} contains duplicate/invalid player IDs: {plan_ids}"
+                  f"Day 3 ALL 8 scenario order is wrong: {selected_plan_keys}"
               )
 
-          plan_summary = dict(plan_package.get("summary") or {})
-          source_ids = sorted(
-              int(pid) for pid in plan_summary.get("current_squad_ids", [])
-          )
-          if len(source_ids) != 15 or len(set(source_ids)) != 15:
-              raise SystemExit(
-                  f"{expected_label} current-squad IDs are invalid: {source_ids}"
-              )
+          for selected_plan_key in selected_plan_keys:
+              spec = plan_specs[selected_plan_key]
+              plan_prefix = spec["prefix"]
+              expected_scenario = spec["scenario"]
+              expected_label = spec["label"]
 
-          transfers_used = int(plan_summary.get("transfers_used") or 0)
-          transfer_cost = int(plan_summary.get("transfer_cost") or 0)
-          if selected_plan_key == "05a_my_plan_roll":
-              if sorted(plan_ids) != source_ids:
-                  raise SystemExit(
-                      f"MY PLAN 5A ROLL changed the current 15: "
-                      f"plan={sorted(plan_ids)} source={source_ids}"
+              plan_specific_files = [
+                  root / "SLIDE" / f"{plan_prefix}_scene_4k.png",
+                  root / "DATA" / f"{plan_prefix}_package.json",
+                  root / "DATA" / f"{plan_prefix}_animation_manifest.json",
+                  root / "DATA" / f"{plan_prefix}_render.json",
+                  root / "MP3" / spec["audio"],
+                  root / "MP4" / spec["video"],
+              ]
+              if spec["candidates"]:
+                  plan_specific_files.append(
+                      root / "DATA" / f"{plan_prefix}_candidates.json"
                   )
-              if transfers_used != 0 or transfer_cost != 0:
+              for plan_file in plan_specific_files:
+                  if not plan_file.is_file() or plan_file.stat().st_size <= 0:
+                      raise SystemExit(f"{expected_label} output is missing: {plan_file}")
+
+              plan_package_path = root / "DATA" / f"{plan_prefix}_package.json"
+              plan_manifest_path = root / "DATA" / f"{plan_prefix}_animation_manifest.json"
+              plan_render_path = root / "DATA" / f"{plan_prefix}_render.json"
+              plan_package = json.loads(plan_package_path.read_text(encoding="utf-8"))
+              plan_manifest = json.loads(plan_manifest_path.read_text(encoding="utf-8"))
+              plan_render = json.loads(plan_render_path.read_text(encoding="utf-8"))
+
+              if str(plan_package.get("scenario")) != expected_scenario:
                   raise SystemExit(
-                      "MY PLAN 5A ROLL must use zero transfers and zero hit"
+                      f"{expected_label} scenario is wrong: {plan_package.get('scenario')}"
                   )
-          else:
-              final_ids = sorted(
-                  int(pid) for pid in plan_summary.get("final_squad_ids", [])
-              )
-              if sorted(plan_ids) != final_ids:
+              plan_players = list(plan_package.get("players") or [])
+              plan_starters = list(plan_package.get("starters") or [])
+              plan_bench = list(plan_package.get("bench") or [])
+              if len(plan_players) != 15 or len(plan_starters) != 11 or len(plan_bench) != 4:
                   raise SystemExit(
-                      f"MY PLAN 5B final squad mismatch: "
-                      f"plan={sorted(plan_ids)} summary={final_ids}"
+                      f"{expected_label} squad shape must be 15/11/4, found "
+                      f"{len(plan_players)}/{len(plan_starters)}/{len(plan_bench)}"
                   )
-              if not 1 <= transfers_used <= 5:
+              plan_ids = [int(row.get("id") or 0) for row in plan_players]
+              starter_ids = [int(row.get("id") or 0) for row in plan_starters]
+              if len(set(plan_ids)) != 15 or any(pid <= 0 for pid in plan_ids):
                   raise SystemExit(
-                      f"MY PLAN 5B must use 1–5 transfers, found {transfers_used}"
-                  )
-              transfer_rows = list(plan_summary.get("transfers") or [])
-              if len(transfer_rows) != transfers_used:
-                  raise SystemExit(
-                      f"MY PLAN 5B transfer rows/count mismatch: "
-                      f"{len(transfer_rows)} vs {transfers_used}"
-                  )
-              out_ids = [int(row.get("out_id") or 0) for row in transfer_rows]
-              in_ids = [int(row.get("in_id") or 0) for row in transfer_rows]
-              if (
-                  len(set(out_ids)) != transfers_used
-                  or len(set(in_ids)) != transfers_used
-                  or any(pid <= 0 for pid in out_ids + in_ids)
-              ):
-                  raise SystemExit(
-                      f"MY PLAN 5B transfer IDs are duplicate/invalid: "
-                      f"OUT={out_ids} IN={in_ids}"
-                  )
-              expected_final = sorted(
-                  (set(source_ids) - set(out_ids)) | set(in_ids)
-              )
-              if expected_final != final_ids:
-                  raise SystemExit(
-                      f"MY PLAN 5B transfer math does not produce final squad: "
-                      f"expected={expected_final} actual={final_ids}"
-                  )
-              ft = int(plan_summary.get("effective_free_transfers") or 0)
-              expected_hit = 4 * max(0, transfers_used - ft)
-              if transfer_cost != expected_hit:
-                  raise SystemExit(
-                      f"MY PLAN 5B hit is wrong: {transfer_cost} vs {expected_hit}"
+                      f"{expected_label} contains duplicate/invalid player IDs: {plan_ids}"
                   )
 
-          if str(plan_summary.get("chip") or "").upper() != "NONE":
-              raise SystemExit(f"{expected_label} must not activate a chip")
-          if not str(plan_summary.get("formation") or ""):
-              raise SystemExit(f"{expected_label} formation is missing")
-          if float(plan_summary.get("projected_score") or 0.0) <= 0:
-              raise SystemExit(
-                  f"{expected_label} projected score is missing/non-positive"
+              plan_summary = dict(plan_package.get("summary") or {})
+              source_ids = sorted(
+                  int(pid) for pid in plan_summary.get("current_squad_ids", [])
               )
+              if len(source_ids) != 15 or len(set(source_ids)) != 15:
+                  raise SystemExit(
+                      f"{expected_label} current-squad IDs are invalid: {source_ids}"
+                  )
 
-          plan_duration = float(plan_manifest.get("duration") or 0.0)
-          if not 265.0 <= plan_duration <= 275.0:
-              raise SystemExit(
-                  f"{expected_label} must stay within 4:25–4:35, "
-                  f"found {plan_duration:.2f}s"
-              )
-          if int(plan_manifest.get("starting_xi") or 0) != 11:
-              raise SystemExit(f"{expected_label} manifest lost its starting XI")
-          if int(plan_manifest.get("bench") or 0) != 4:
-              raise SystemExit(f"{expected_label} manifest lost its four substitutes")
-          if float(plan_manifest.get("final_hold_seconds") or 0.0) < 3.0:
-              raise SystemExit(
-                  f"{expected_label} final composition hold is under three seconds"
-              )
-          if plan_render.get("passed") is not True:
-              raise SystemExit(f"{expected_label} renderer QA did not pass")
-          if plan_render.get("visual_source") != "COPIED_GW_REVIEW_ANIMATED_DOM_HTML":
-              raise SystemExit(
-                  f"{expected_label} is not using the copied GW Review visual source"
-              )
-          if plan_render.get("original_gw_review_preserved") is not True:
-              raise SystemExit(
-                  f"{expected_label} renderer did not assert GW Review preservation"
-              )
+              transfers_used = int(plan_summary.get("transfers_used") or 0)
+              transfer_cost = int(plan_summary.get("transfer_cost") or 0)
+              mode = spec["mode"]
+              if mode == "ROLL":
+                  if sorted(plan_ids) != source_ids:
+                      raise SystemExit(
+                          f"{expected_label} ROLL changed the current 15: "
+                          f"plan={sorted(plan_ids)} source={source_ids}"
+                      )
+                  if transfers_used != 0 or transfer_cost != 0:
+                      raise SystemExit(
+                          f"{expected_label} ROLL must use zero transfers and zero hit"
+                      )
+              elif mode == "TRANSFER":
+                  final_ids = sorted(
+                      int(pid) for pid in plan_summary.get("final_squad_ids", [])
+                  )
+                  if sorted(plan_ids) != final_ids:
+                      raise SystemExit(
+                          f"{expected_label} final squad mismatch: "
+                          f"plan={sorted(plan_ids)} summary={final_ids}"
+                      )
+                  if not 1 <= transfers_used <= 5:
+                      raise SystemExit(
+                          f"{expected_label} must use 1–5 transfers, found {transfers_used}"
+                      )
+                  transfer_rows = list(plan_summary.get("transfers") or [])
+                  if len(transfer_rows) != transfers_used:
+                      raise SystemExit(
+                          f"{expected_label} transfer rows/count mismatch: "
+                          f"{len(transfer_rows)} vs {transfers_used}"
+                      )
+                  out_ids = [int(row.get("out_id") or 0) for row in transfer_rows]
+                  in_ids = [int(row.get("in_id") or 0) for row in transfer_rows]
+                  if (
+                      len(set(out_ids)) != transfers_used
+                      or len(set(in_ids)) != transfers_used
+                      or any(pid <= 0 for pid in out_ids + in_ids)
+                  ):
+                      raise SystemExit(
+                          f"{expected_label} transfer IDs are duplicate/invalid: "
+                          f"OUT={out_ids} IN={in_ids}"
+                      )
+                  expected_final = sorted((set(source_ids)-set(out_ids))|set(in_ids))
+                  if expected_final != final_ids:
+                      raise SystemExit(
+                          f"{expected_label} transfer math does not produce final squad: "
+                          f"expected={expected_final} actual={final_ids}"
+                      )
+                  ft = int(plan_summary.get("effective_free_transfers") or 0)
+                  expected_hit = 4 * max(0,transfers_used-ft)
+                  if transfer_cost != expected_hit:
+                      raise SystemExit(
+                          f"{expected_label} hit is wrong: {transfer_cost} vs {expected_hit}"
+                      )
+              else:
+                  final_ids = sorted(
+                      int(pid) for pid in plan_summary.get("final_squad_ids", [])
+                  )
+                  if sorted(plan_ids) != final_ids:
+                      raise SystemExit(
+                          f"{expected_label} rebuild final squad mismatch"
+                      )
+                  budget = float(plan_summary.get("rebuild_budget") or 0.0)
+                  cost = float(plan_summary.get("rebuild_cost") or 0.0)
+                  if budget <= 0 or cost <= 0 or cost > budget + 1e-6:
+                      raise SystemExit(
+                          f"{expected_label} rebuild budget/cost invalid: {budget}/{cost}"
+                      )
 
-          preserved_review_files = (
+              if str(plan_summary.get("chip") or "").upper() != spec["chip"]:
+                  raise SystemExit(
+                      f"{expected_label} chip mismatch: "
+                      f"{plan_summary.get('chip')} vs {spec['chip']}"
+                  )
+              if spec["chip"] == "TRIPLE CAPTAIN":
+                  tc_id = int(plan_summary.get("triple_captain_id") or 0)
+                  if tc_id <= 0 or tc_id not in starter_ids:
+                      raise SystemExit(
+                          f"{expected_label} Triple Captain is not in the starting XI: {tc_id}"
+                      )
+              if not str(plan_summary.get("formation") or ""):
+                  raise SystemExit(f"{expected_label} formation is missing")
+              if float(plan_summary.get("projected_score") or 0.0) <= 0:
+                  raise SystemExit(
+                      f"{expected_label} projected score is missing/non-positive"
+                  )
+
+              plan_duration = float(plan_manifest.get("duration") or 0.0)
+              if not 265.0 <= plan_duration <= 275.0:
+                  raise SystemExit(
+                      f"{expected_label} must stay within 4:25–4:35, "
+                      f"found {plan_duration:.2f}s"
+                  )
+              if int(plan_manifest.get("starting_xi") or 0) != 11:
+                  raise SystemExit(f"{expected_label} manifest lost its starting XI")
+              if int(plan_manifest.get("bench") or 0) != 4:
+                  raise SystemExit(f"{expected_label} manifest lost its four substitutes")
+              if float(plan_manifest.get("final_hold_seconds") or 0.0) < 3.0:
+                  raise SystemExit(
+                      f"{expected_label} final composition hold is under three seconds"
+                  )
+              if plan_render.get("passed") is not True:
+                  raise SystemExit(f"{expected_label} renderer QA did not pass")
+              if plan_render.get("visual_source") != "COPIED_GW_REVIEW_ANIMATED_DOM_HTML":
+                  raise SystemExit(
+                      f"{expected_label} is not using the copied GW Review visual source"
+                  )
+              if plan_render.get("original_gw_review_preserved") is not True:
+                  raise SystemExit(
+                      f"{expected_label} renderer did not assert GW Review preservation"
+                  )
+
+          preserved_review_files = (          preserved_review_files = (
               root / "SLIDE" / "gw_review_scene_4k.png",
               root / "MP3" / "gw_review.mp3",
               root / "MP4" / "gw_review.mp4",
@@ -5422,7 +6463,7 @@ if "05_outro" in manifest:
               "03_defcon",
               "04_final_shortlists",
               "05_transfer_decision_desk",
-              selected_plan_key,
+              *selected_plan_keys,
           ]
           positions = []
           for scene_key in required_master_order:
@@ -5437,7 +6478,9 @@ if "05_outro" in manifest:
               )
           print(
               "Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + "
-              f"Transfer Decision Desk + {expected_label} PNG/MP4/narration contract: PASS"
+              "Transfer Decision Desk + "
+              + ", ".join(plan_specs[key]["label"] for key in selected_plan_keys)
+              + " PNG/MP4/narration contract: PASS"
           )
 
           final_mp4s = [
