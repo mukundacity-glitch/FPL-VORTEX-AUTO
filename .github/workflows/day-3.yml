@@ -479,6 +479,748 @@ jobs:
                   + " | ".join(_day3_stale_runtime_markers)
               )
           print("Day 3_3 Slide 0 runtime override: PASS")
+
+
+          # ------------------------------------------------------------
+          # DAY 3_3 ONLY — TWO-SLIDE PROJECTIONS / DEFCON SECTION
+          # 02_fdr becomes the combined Projected Goals + Clean Sheet Odds slide.
+          # 03_projected_goals becomes DEFCON and uses defcon_scene_4k.html.
+          # 04_clean_sheets is disabled in this temporary clone only.
+          # ------------------------------------------------------------
+          _cell0 = "# CELL 0 — FPL VORTEX WEEKLY MANUAL CONTROLS"
+          _design_cell = "# CELL 14B — ORIGINAL WEEKLY FDR / PROJECTED GOALS / CLEAN SHEET DESIGN"
+          _preview_cell = "# CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
+          _render_cell = "# CELL 20 — RESUME-SAFE SHARED MP4 RENDERER"
+          _assembly_cell = "# CELL 21 — RESUME-SAFE FINAL ASSEMBLY + PUBLISH QA"
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              'SLIDE_05_CLEAN_SHEETS = True  # @param {type:"boolean"}',
+              'SLIDE_05_CLEAN_SHEETS = False  # Day 3_3: merged into 02_fdr',
+              1,
+              "Day 3 disable duplicate standalone clean-sheet slide",
+          )
+
+          _day3_design_block = r'''
+# ============================================================
+# DAY 3_3 ONLY — PROJECTED GOALS + CLEAN SHEET ODDS / DEFCON
+# Two full-page model slides. Existing VORTEX header/footer/template is reused.
+# ============================================================
+
+from html import escape as _d3_escape
+from zoneinfo import ZoneInfo as _D3ZoneInfo
+
+_D3_REQUIRED_PROJ = {
+    "team_id", "team", "team_short", "badge",
+    "gw1_opponent", "gw1_opponent_ids", "gw1_xg", "gw1_cs",
+}
+_d3_missing = sorted(_D3_REQUIRED_PROJ - set(team_projection_df.columns))
+if _d3_missing:
+    raise RuntimeError(f"Day 3_3 projection slide missing columns: {_d3_missing}")
+
+_d3_proj = team_projection_df.copy()
+_d3_proj["team_id"] = pd.to_numeric(_d3_proj["team_id"], errors="coerce")
+_d3_proj["gw1_xg"] = pd.to_numeric(_d3_proj["gw1_xg"], errors="coerce")
+_d3_proj["gw1_cs"] = pd.to_numeric(_d3_proj["gw1_cs"], errors="coerce")
+_d3_proj = _d3_proj.dropna(subset=["team_id", "gw1_xg", "gw1_cs"]).copy()
+_d3_proj["team_id"] = _d3_proj["team_id"].astype(int)
+if _d3_proj["team_id"].duplicated().any():
+    raise RuntimeError("Day 3_3 projection slide has duplicate team IDs")
+if len(_d3_proj) != 20:
+    raise RuntimeError(f"Day 3_3 projection slide requires 20 teams, found {len(_d3_proj)}")
+
+_d3_proj_by_id = _d3_proj.set_index("team_id", drop=False)
+
+# One current-GW player anchor per team from the existing Phase-10 xPts pipeline.
+_d3_player_next = player_fixture_xpts_df.copy() if isinstance(player_fixture_xpts_df, pd.DataFrame) else pd.DataFrame()
+_d3_player_by_team = {}
+if not _d3_player_next.empty and {"gw", "team_id", "player_id", "player_name", "xpts"}.issubset(_d3_player_next.columns):
+    _d3_player_next = _d3_player_next.loc[
+        pd.to_numeric(_d3_player_next["gw"], errors="coerce").eq(int(NEXT_GW))
+    ].copy()
+    _d3_player_next["xpts"] = pd.to_numeric(_d3_player_next["xpts"], errors="coerce")
+    _d3_player_next = _d3_player_next.dropna(subset=["team_id", "player_id", "xpts"])
+    if not _d3_player_next.empty:
+        _d3_player_agg = (
+            _d3_player_next.groupby(
+                ["player_id", "player_name", "team_id"], as_index=False
+            )["xpts"].sum(min_count=1)
+            .sort_values(["team_id", "xpts", "player_name"], ascending=[True, False, True])
+        )
+        for _tid, _group in _d3_player_agg.groupby("team_id", sort=False):
+            _row = _group.iloc[0]
+            _d3_player_by_team[int(_tid)] = {
+                "name": str(_row["player_name"]),
+                "xpts": float(_row["xpts"]),
+            }
+
+def _d3_team_badge(row, css="d3TeamBadge"):
+    src = str(row.get("badge", "") or "")
+    short = _d3_escape(str(row.get("team_short", "TEAM")).upper())
+    if src:
+        return f'<img class="{css}" src="{src}" alt="{short}">'
+    return f'<div class="{css} d3BadgeFallback">{short[:3]}</div>'
+
+def _d3_player_line(team_id):
+    info = _d3_player_by_team.get(int(team_id))
+    if not info:
+        return '<span class="d3PlayerAnchor">PLAYER MODEL • NO READY xPTS</span>'
+    return (
+        f'<span class="d3PlayerAnchor">{_d3_escape(info["name"])}'
+        f' • {info["xpts"]:.1f} xPTS</span>'
+    )
+
+def _d3_kickoff(value):
+    stamp = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(stamp):
+        return "KICKOFF TBD"
+    local = stamp.tz_convert(_D3ZoneInfo("America/New_York"))
+    return local.strftime("%a %d %b • %-I:%M %p %Z").upper()
+
+# -----------------------------
+# SLIDE 1 — FIXTURE CARDS
+# -----------------------------
+_d3_fx = fixtures_raw.copy()
+if "event" not in _d3_fx.columns:
+    raise RuntimeError("Day 3_3 projection slide requires fixtures_raw.event")
+_d3_fx = _d3_fx.loc[
+    pd.to_numeric(_d3_fx["event"], errors="coerce").eq(int(NEXT_GW))
+].copy()
+if _d3_fx.empty:
+    raise RuntimeError(f"Day 3_3 found no fixtures for GW{int(NEXT_GW)}")
+if "kickoff_time" in _d3_fx.columns:
+    _d3_fx["_kick"] = pd.to_datetime(_d3_fx["kickoff_time"], errors="coerce", utc=True)
+    _d3_fx = _d3_fx.sort_values(["_kick", "id"] if "id" in _d3_fx.columns else ["_kick"])
+
+_d3_fixture_cards = []
+for _, _fx in _d3_fx.iterrows():
+    try:
+        _hid = int(_fx["team_h"])
+        _aid = int(_fx["team_a"])
+    except Exception:
+        continue
+    if _hid not in _d3_proj_by_id.index or _aid not in _d3_proj_by_id.index:
+        continue
+    _home = _d3_proj_by_id.loc[_hid]
+    _away = _d3_proj_by_id.loc[_aid]
+    _kick = _d3_kickoff(_fx.get("kickoff_time"))
+
+    def _team_line(_row):
+        _tid = int(_row["team_id"])
+        return (
+            '<div class="d3FixtureTeam">'
+            f'{_d3_team_badge(_row)}'
+            '<div class="d3FixtureIdentity">'
+            f'<span class="d3FixtureName">{_d3_escape(str(_row["team_short"]).upper())}</span>'
+            f'{_d3_player_line(_tid)}'
+            '</div>'
+            f'<div class="d3Metric d3GoalMetric">{float(_row["gw1_xg"]):.2f}</div>'
+            f'<div class="d3Metric d3CsMetric">{float(_row["gw1_cs"]):.0f}%</div>'
+            '</div>'
+        )
+
+    _d3_fixture_cards.append(
+        '<article class="d3FixtureCard">'
+        f'<div class="d3FixtureKick">{_kick}</div>'
+        '<div class="d3FixtureCols"><span>TEAM</span><span>GOLS</span><span>CS%</span></div>'
+        f'{_team_line(_home)}{_team_line(_away)}'
+        '</article>'
+    )
+
+if not _d3_fixture_cards:
+    raise RuntimeError("Day 3_3 projection slide could not build fixture cards")
+
+_d3_attack_rank = _d3_proj.sort_values(
+    ["gw1_xg", "team_short"], ascending=[False, True]
+).reset_index(drop=True)
+_d3_cs_rank = _d3_proj.sort_values(
+    ["gw1_cs", "team_short"], ascending=[False, True]
+).reset_index(drop=True)
+
+DAY3_PROJ_ATTACK_TARGETS = _d3_attack_rank.head(4).copy()
+DAY3_PROJ_ATTACK_AVOIDS = _d3_attack_rank.tail(3).sort_values(
+    ["gw1_xg", "team_short"], ascending=[True, True]
+).reset_index(drop=True)
+DAY3_PROJ_CS_TARGETS = _d3_cs_rank.head(4).copy()
+DAY3_PROJ_CS_AVOIDS = _d3_cs_rank.tail(3).sort_values(
+    ["gw1_cs", "team_short"], ascending=[True, True]
+).reset_index(drop=True)
+DAY3_TOP_PLAYER_BY_TEAM = dict(_d3_player_by_team)
+
+def _d3_rank_rows(frame, metric):
+    rows = []
+    maximum = float(pd.to_numeric(
+        frame["gw1_xg" if metric == "xg" else "gw1_cs"], errors="coerce"
+    ).max())
+    for _idx, _row in frame.reset_index(drop=True).iterrows():
+        _tid = int(_row["team_id"])
+        _value = float(_row["gw1_xg"] if metric == "xg" else _row["gw1_cs"])
+        _width = 100.0 * _value / maximum if maximum > 0 else 0.0
+        _is_target = _idx < 4
+        _is_avoid = _idx >= len(frame) - 3
+        _cls = " d3Target" if _is_target else (" d3Avoid" if _is_avoid else "")
+        _display = f"{_value:.2f}" if metric == "xg" else f"{_value:.0f}%"
+        _opp = _d3_escape(str(_row.get("gw1_opponent", "TBD")).upper())
+        _player = _d3_player_by_team.get(_tid, {})
+        _player_text = (
+            f'{_d3_escape(str(_player.get("name", "")))} • {float(_player.get("xpts", 0)):.1f}'
+            if _player else "NO READY xPTS"
+        )
+        rows.append(
+            f'<div class="d3RankRow{_cls}" data-team="{_d3_escape(str(_row["team_short"]).upper())}">'
+            f'<span class="d3RankNo">{_idx + 1:02d}</span>'
+            f'{_d3_team_badge(_row, "d3RankBadge")}'
+            '<div class="d3RankIdentity">'
+            f'<span class="d3RankTeam">{_d3_escape(str(_row["team_short"]).upper())}</span>'
+            f'<small>{_opp} • {_player_text}</small>'
+            '</div>'
+            f'<div class="d3RankBar"><i style="width:{_width:.1f}%"></i></div>'
+            f'<strong>{_display}</strong>'
+            '</div>'
+        )
+    return "".join(rows)
+
+_d3_projection_left = (
+    '<section class="board d3FixtureBoard">'
+    '<div class="d3BoardHead"><span>GAMEWEEK FIXTURES</span>'
+    '<div class="d3MiniCols"><b>GOLS</b><b>CS%</b></div></div>'
+    f'<div class="d3FixtureGrid">{"".join(_d3_fixture_cards)}</div>'
+    '</section>'
+)
+_d3_projection_right = (
+    '<section class="board d3Rankings">'
+    '<div class="d3RankBlock"><div class="d3RankHeading">PROJECTED GOALS ↓</div>'
+    f'{_d3_rank_rows(_d3_attack_rank, "xg")}</div>'
+    '<div class="d3RankBlock"><div class="d3RankHeading">CLEAN SHEET % ↓</div>'
+    f'{_d3_rank_rows(_d3_cs_rank, "cs")}</div>'
+    '</section>'
+)
+
+_d3_projection_css = r'''
+.tables{flex:1!important;min-height:0!important;display:grid!important;grid-template-columns:1.14fr .86fr!important;gap:30px!important;padding-bottom:10px!important}
+.d3FixtureBoard,.d3Rankings{min-width:0;min-height:0;border-radius:24px;background:rgba(2,10,22,.94);border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 42px rgba(0,0,0,.32);overflow:hidden}
+.d3BoardHead{height:66px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.12);font-size:30px;font-weight:1000;letter-spacing:2px}
+.d3MiniCols{display:grid;grid-template-columns:110px 110px;gap:8px;color:#9fc2d5;font-size:22px;text-align:center}
+.d3FixtureGrid{height:calc(100% - 66px);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:12px;padding:12px}
+.d3FixtureCard{min-height:0;border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(11,29,50,.98),rgba(4,15,29,.99));overflow:hidden}
+.d3FixtureKick{height:38px;display:flex;align-items:center;padding:0 14px;background:rgba(255,255,255,.07);font-family:Arial,sans-serif;font-size:18px;font-weight:950;letter-spacing:1px;color:#c8d5e2}
+.d3FixtureCols{height:27px;display:grid;grid-template-columns:minmax(0,1fr) 110px 110px;padding:0 10px 0 82px;align-items:center;color:#8fa2b5;font-family:Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:1px}.d3FixtureCols span:nth-child(n+2){text-align:center}
+.d3FixtureTeam{height:calc((100% - 65px)/2);display:grid;grid-template-columns:66px minmax(0,1fr) 110px 110px;gap:8px;align-items:center;padding:5px 9px;border-top:1px solid rgba(255,255,255,.08)}
+.d3TeamBadge{width:52px;height:52px;object-fit:contain}.d3BadgeFallback{display:grid;place-items:center;border-radius:50%;background:#13263c;color:#fff;font-size:14px}
+.d3FixtureIdentity{min-width:0;display:flex;flex-direction:column;gap:3px}.d3FixtureName{font-size:30px;font-weight:1000;letter-spacing:1px}.d3PlayerAnchor{font-family:Arial,sans-serif;font-size:13px;font-weight:850;color:#8fb0c8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d3Metric{height:54px;display:grid;place-items:center;font-size:31px;font-weight:1000}.d3GoalMetric{background:#0d3d69;color:#dff4ff}.d3CsMetric{background:#783319;color:#fff4ea}
+.d3Rankings{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:12px}
+.d3RankBlock{min-width:0;display:flex;flex-direction:column}.d3RankHeading{height:52px;display:flex;align-items:center;padding:0 12px;border-bottom:2px solid rgba(255,255,255,.18);font-family:Arial,sans-serif;font-size:20px;font-weight:1000;letter-spacing:1px;color:#c8d5e2}
+.d3RankRow{height:calc((100% - 52px)/20);min-height:44px;display:grid;grid-template-columns:34px 42px 112px minmax(40px,1fr) 70px;gap:6px;align-items:center;border-bottom:1px solid rgba(255,255,255,.07);font-family:Arial,sans-serif}
+.d3RankNo{font-size:14px;color:#71869a;text-align:center}.d3RankBadge{width:32px;height:32px;object-fit:contain}.d3RankIdentity{min-width:0;display:flex;flex-direction:column}.d3RankTeam{font-size:20px;font-weight:1000}.d3RankIdentity small{font-size:9px;color:#71869a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d3RankBar{height:18px;background:#0b1420;overflow:hidden}.d3RankBar i{display:block;height:100%;background:#15558b}.d3RankRow:nth-child(n+1) strong{font-size:19px;text-align:right}.d3RankRow.d3Target{background:rgba(0,245,160,.07)}.d3RankRow.d3Target .d3RankBar i{background:#0a8a68}.d3RankRow.d3Avoid{background:rgba(255,77,94,.07)}.d3RankRow.d3Avoid .d3RankBar i{background:#8c2c3d}
+'''
+
+_d3_projection_html = scene_template.substitute(
+    document_title="FPL VORTEX — Projected Goals & Clean Sheet Odds",
+    vortex_logo=vortex_logo_html,
+    header_kicker='<span style="position:relative;left:-560px;">GAMEWEEK MODEL</span>',
+    title_first="PROJECTED GOALS",
+    title_second="& CLEAN SHEET ODDS",
+    subtitle=f"GW{int(NEXT_GW)} • FIXTURE-BY-FIXTURE MODEL • ALL 20 TEAMS",
+    scale_heading="TARGET TOP 4 • AVOID BOTTOM 3",
+    left_panel=_d3_projection_left,
+    right_panel=_d3_projection_right,
+    source_text="VORTEX PHASE 4 MODEL",
+    youtube_icon=youtube_icon,
+    x_icon=x_icon,
+    data_updated=data_updated,
+)
+_d3_projection_html = _d3_projection_html.replace("</style>", _d3_projection_css + "\n</style>", 1)
+_d3_projection_html = vx_apply_pl_lockup(_d3_projection_html)
+_d3_projection_html = vx_polish_branding(_d3_projection_html)
+FDR_HTML_PATH.write_text(_d3_projection_html, encoding="utf-8")
+
+# -----------------------------
+# SLIDE 2 — DEFCON TABLE
+# -----------------------------
+_D3_REQUIRED_DEFCON = {
+    "player_code", "season_team_code", "historical_position",
+    "defensive_contributions", "match_id",
+}
+if not isinstance(phase10_player_match_all, pd.DataFrame) or phase10_player_match_all.empty:
+    raise RuntimeError("Day 3_3 DEFCON slide requires Phase-10 player-match evidence")
+_d3_pm = phase10_player_match_all.copy()
+_d3_missing = sorted(_D3_REQUIRED_DEFCON - set(_d3_pm.columns))
+if _d3_missing:
+    raise RuntimeError(f"Day 3_3 DEFCON evidence missing fields: {_d3_missing}")
+if not {"id", "code", "short_name", "name"}.issubset(teams.columns):
+    raise RuntimeError("Day 3_3 DEFCON slide requires teams id/code/name/short_name")
+
+_d3_team_code_map = (
+    teams[["id", "code"]].dropna().assign(
+        id=lambda x: pd.to_numeric(x["id"], errors="coerce"),
+        code=lambda x: pd.to_numeric(x["code"], errors="coerce"),
+    ).dropna().set_index("code")["id"].astype(int).to_dict()
+)
+_d3_pm["team_id"] = pd.to_numeric(_d3_pm["season_team_code"], errors="coerce").map(_d3_team_code_map)
+_d3_pm = _d3_pm.dropna(subset=["team_id"]).copy()
+_d3_pm["team_id"] = _d3_pm["team_id"].astype(int)
+_d3_pm["dc"] = pd.to_numeric(_d3_pm["defensive_contributions"], errors="coerce").fillna(0.0)
+_d3_pm["position"] = _d3_pm["historical_position"].astype(str).str.upper().replace({
+    "GOALKEEPER":"GK","DEFENDER":"DEF","MIDFIELDER":"MID","FORWARD":"FWD"
+})
+_d3_thresholds = {"DEF":10.0, "MID":12.0, "FWD":12.0}
+_d3_pm["threshold"] = _d3_pm["position"].map(_d3_thresholds)
+_d3_pm["hit"] = (_d3_pm["threshold"].notna() & _d3_pm["dc"].ge(_d3_pm["threshold"])).astype(int)
+if "match_date" in _d3_pm.columns:
+    _d3_pm["match_date"] = pd.to_datetime(_d3_pm["match_date"], errors="coerce", utc=True)
+else:
+    _d3_pm["match_date"] = pd.NaT
+
+_d3_team_match = (
+    _d3_pm.groupby(["team_id", "match_id"], as_index=False)
+    .agg(match_date=("match_date","max"), hits=("hit","sum"), dc=("dc","sum"))
+)
+_d3_team_match = _d3_team_match.sort_values(["team_id", "match_date", "match_id"])
+
+# Current player-level DEFCON anchor.
+_d3_def_players = phase10_player_features.copy()
+_d3_def_players["defcon_probability"] = pd.to_numeric(
+    _d3_def_players["defcon_probability"], errors="coerce"
+)
+_d3_def_players["expected_minutes"] = pd.to_numeric(
+    _d3_def_players["expected_minutes"], errors="coerce"
+)
+_d3_def_players = _d3_def_players.loc[
+    _d3_def_players["position"].astype(str).str.upper().isin(["DEF","MID","FWD"])
+].dropna(subset=["team_id","defcon_probability"])
+_d3_def_player_by_team = {}
+for _tid, _group in _d3_def_players.groupby("team_id", sort=False):
+    _g = _group.sort_values(
+        ["defcon_probability","expected_minutes","player_name"],
+        ascending=[False,False,True]
+    )
+    if not _g.empty:
+        _r = _g.iloc[0]
+        _d3_def_player_by_team[int(_tid)] = {
+            "name": str(_r["player_name"]),
+            "prob": float(_r["defcon_probability"]),
+        }
+
+def _d3_spark(values):
+    vals = [float(v) for v in values if pd.notna(v)]
+    if not vals:
+        return '<svg class="d3Spark" viewBox="0 0 120 30"></svg>'
+    vals = vals[-10:]
+    lo, hi = min(vals), max(vals)
+    span = max(hi - lo, 1e-9)
+    pts = []
+    for i, v in enumerate(vals):
+        x = 4 + (112 * i / max(1, len(vals) - 1))
+        y = 26 - (22 * (v - lo) / span)
+        pts.append(f"{x:.1f},{y:.1f}")
+    return (
+        '<svg class="d3Spark" viewBox="0 0 120 30">'
+        f'<polyline points="{" ".join(pts)}" fill="none" stroke="currentColor" '
+        'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    )
+
+_d3_def_rows = []
+for _, _team_row in _d3_proj.sort_values("team_short").iterrows():
+    _tid = int(_team_row["team_id"])
+    _hist = _d3_team_match.loc[_d3_team_match["team_id"].eq(_tid)].tail(38).copy()
+    if _hist.empty:
+        _last_hits = _last_dc = _avg_hits = _avg_dc = 0.0
+        _trend = []
+    else:
+        _last = _hist.iloc[-1]
+        _last_hits = float(_last["hits"])
+        _last_dc = float(_last["dc"])
+        _avg_hits = float(_hist["hits"].mean())
+        _avg_dc = float(_hist["dc"].mean())
+        _trend = _hist["dc"].tail(10).tolist()
+
+    _opp_ids = _team_row.get("gw1_opponent_ids", [])
+    _opp_id = int(_opp_ids[0]) if isinstance(_opp_ids, list) and _opp_ids else None
+    _d3_def_rows.append({
+        "team_id": _tid,
+        "team": str(_team_row["team"]),
+        "team_short": str(_team_row["team_short"]),
+        "badge": str(_team_row.get("badge","") or ""),
+        "last_hits": _last_hits,
+        "last_dc": _last_dc,
+        "avg_hits": _avg_hits,
+        "avg_dc": _avg_dc,
+        "trend": _trend,
+        "opp_id": _opp_id,
+        "next_fixture": str(_team_row.get("gw1_opponent","TBD")),
+        "top_player": _d3_def_player_by_team.get(_tid,{}).get("name","NO READY PLAYER"),
+        "top_player_prob": float(_d3_def_player_by_team.get(_tid,{}).get("prob",0.0)),
+    })
+
+_d3_def = pd.DataFrame(_d3_def_rows)
+_d3_opponent_lookup = _d3_def.set_index("team_id")[["avg_hits","avg_dc"]].to_dict("index")
+_d3_def["opp_hits"] = _d3_def["opp_id"].map(
+    lambda x: float(_d3_opponent_lookup.get(int(x),{}).get("avg_hits",0.0)) if pd.notna(x) else 0.0
+)
+_d3_def["opp_dc"] = _d3_def["opp_id"].map(
+    lambda x: float(_d3_opponent_lookup.get(int(x),{}).get("avg_dc",0.0)) if pd.notna(x) else 0.0
+)
+_d3_def = _d3_def.sort_values(
+    ["avg_dc","avg_hits","team_short"], ascending=[False,False,True]
+).reset_index(drop=True)
+DAY3_DEFCON_TARGETS = _d3_def.head(4).copy()
+DAY3_DEFCON_AVOIDS = _d3_def.tail(3).sort_values(
+    ["avg_dc","avg_hits","team_short"], ascending=[True,True,True]
+).reset_index(drop=True)
+
+_d3_defcon_rows_html = []
+for _idx, _row in _d3_def.iterrows():
+    _rank = _idx + 1
+    _target = _rank <= 4
+    _avoid = _rank > len(_d3_def) - 3
+    _cls = " d3Target" if _target else (" d3Avoid" if _avoid else "")
+    _proj_row = _d3_proj_by_id.loc[int(_row["team_id"])]
+    _player_prob = 100.0 * float(_row["top_player_prob"])
+    _d3_defcon_rows_html.append(
+        f'<div class="d3DefRow{_cls}">'
+        f'<span class="d3DefRank">{_rank:02d}</span>'
+        f'{_d3_team_badge(_proj_row, "d3DefBadge")}'
+        '<div class="d3DefTeam">'
+        f'<strong>{_d3_escape(str(_row["team"]).upper())}</strong>'
+        f'<small>{_d3_escape(str(_row["top_player"]))} • {_player_prob:.0f}% PLAYER DEFCON</small>'
+        '</div>'
+        f'<span>{int(round(_row["last_hits"]))}</span>'
+        f'<span class="d3DcHot">{float(_row["last_dc"]):.0f}</span>'
+        f'<span>{float(_row["avg_hits"]):.1f}</span>'
+        f'<span class="d3DcAvg">{float(_row["avg_dc"]):.1f}</span>'
+        f'<span>{_d3_spark(_row["trend"])}</span>'
+        f'<span>{float(_row["opp_hits"]):.1f}</span>'
+        f'<span class="d3OppDc">{float(_row["opp_dc"]):.1f}</span>'
+        f'<span class="d3NextFx">{_d3_escape(str(_row["next_fixture"]).upper())}</span>'
+        '</div>'
+    )
+
+_d3_defcon_panel = (
+    '<section class="board d3DefconTable">'
+    '<div class="d3DefHeader">'
+    '<span>RANK</span><span>TEAM / TOP DEFCON PLAYER</span>'
+    '<span>HITS</span><span>DC</span><span>HITS/M</span><span>DC/M</span>'
+    '<span>DC TREND</span><span>OPP H/M</span><span>OPP DC/M</span><span>NEXT FIXTURE</span>'
+    '</div>'
+    f'{"".join(_d3_defcon_rows_html)}'
+    '</section>'
+)
+
+_d3_defcon_css = r'''
+.tables{flex:1!important;min-height:0!important;display:grid!important;grid-template-columns:1fr!important;gap:0!important;padding-bottom:10px!important}
+.d3DefconTable{min-height:0;border-radius:24px;overflow:hidden;background:rgba(2,10,22,.96);border:1px solid rgba(255,255,255,.13);box-shadow:0 18px 44px rgba(0,0,0,.34)}
+.d3DefHeader,.d3DefRow{display:grid;grid-template-columns:70px 78px minmax(440px,1.65fr) 80px 92px 100px 112px 150px 110px 125px 210px;align-items:center}
+.d3DefHeader{height:70px;padding:0 18px;background:rgba(255,255,255,.07);border-bottom:2px solid rgba(255,255,255,.17);font-family:Arial,sans-serif;font-size:17px;font-weight:1000;color:#aebdca;letter-spacing:.8px;text-align:center}
+.d3DefHeader span:nth-child(2){grid-column:2/4;text-align:left}
+.d3DefRow{height:calc((100% - 70px)/20);min-height:62px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.075);font-family:Arial,sans-serif;font-size:22px;text-align:center}
+.d3DefRank{font-size:17px;color:#70859a}.d3DefBadge{width:45px;height:45px;object-fit:contain;justify-self:center}.d3DefTeam{min-width:0;text-align:left;display:flex;flex-direction:column;gap:2px}.d3DefTeam strong{font-size:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d3DefTeam small{font-size:12px;color:#86a0b5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d3DcHot,.d3DcAvg,.d3OppDc{height:42px;display:grid;place-items:center;background:rgba(255,156,61,.23);color:#ffd5ae;font-weight:1000}.d3DcAvg{background:rgba(255,183,77,.32);color:#fff0cd}.d3OppDc{background:rgba(139,112,165,.28);color:#eee1ff}
+.d3Spark{width:120px;height:30px;color:#d9e4ee}.d3NextFx{font-weight:1000;color:#bfefff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d3DefRow.d3Target{background:rgba(0,245,160,.065)}.d3DefRow.d3Avoid{background:rgba(255,77,94,.065)}
+'''
+
+DEFCON_HTML_PATH = HTML_DIR / "defcon_scene_4k.html"
+DEFCON_PNG_PATH = PNG_DIR / "defcon_scene_4k.png"
+_d3_defcon_html = scene_template.substitute(
+    document_title="FPL VORTEX — DEFCON",
+    vortex_logo=vortex_logo_html,
+    header_kicker='<span style="position:relative;left:-560px;">DEFENSIVE CONTRIBUTION INTELLIGENCE</span>',
+    title_first="DEFCON",
+    title_second="TEAM + PLAYER SIGNALS",
+    subtitle=f"GW{int(NEXT_GW)} • LAST MATCH • ROLLING 38 • NEXT-OPPONENT PRESSURE",
+    scale_heading="TARGET TOP 4 • AVOID BOTTOM 3",
+    left_panel=_d3_defcon_panel,
+    right_panel="",
+    source_text="VORTEX PHASE 10 • FPL CORE DEFCON",
+    youtube_icon=youtube_icon,
+    x_icon=x_icon,
+    data_updated=data_updated,
+)
+_d3_defcon_html = _d3_defcon_html.replace("</style>", _d3_defcon_css + "\n</style>", 1)
+_d3_defcon_html = vx_apply_pl_lockup(_d3_defcon_html)
+_d3_defcon_html = vx_polish_branding(_d3_defcon_html)
+DEFCON_HTML_PATH.write_text(_d3_defcon_html, encoding="utf-8")
+
+if "export_4k_png" not in globals():
+    raise RuntimeError("Day 3_3 requires the shared 4K renderer")
+await export_4k_png(FDR_HTML_PATH, FDR_PNG_PATH)
+await export_4k_png(DEFCON_HTML_PATH, DEFCON_PNG_PATH)
+
+# No duplicate legacy section outputs in Day 3_3.
+for _obsolete in (
+    XG_HTML_PATH, CS_HTML_PATH, XG_PNG_PATH, CS_PNG_PATH,
+):
+    Path(_obsolete).unlink(missing_ok=True)
+
+for _required in (FDR_HTML_PATH, FDR_PNG_PATH, DEFCON_HTML_PATH, DEFCON_PNG_PATH):
+    if not Path(_required).is_file() or Path(_required).stat().st_size <= 0:
+        raise RuntimeError(f"Day 3_3 two-slide section output missing: {_required}")
+
+if FDR_HTML_PATH.read_text(encoding="utf-8").count("PROJECTED GOALS") < 1:
+    raise RuntimeError("Day 3_3 combined projection slide heading is missing")
+if DEFCON_HTML_PATH.read_text(encoding="utf-8").count("d3DefRow") < 20:
+    raise RuntimeError("Day 3_3 DEFCON slide does not contain all 20 ranked teams")
+
+print("✅ DAY 3_3 TWO-SLIDE SECTION READY")
+print("✅ 1. fdr_scene_4k.png = Projected Goals + Clean Sheet Odds")
+print("✅ 2. defcon_scene_4k.png = DEFCON")
+print("✅ Top 4 targets + bottom 3 avoids are dynamic and shared with narration")
+'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _design_cell,
+              "# 21. BUILD PROJECTED GOALS HTML",
+              'print("✅ ORIGINAL WEEKLY FDR / GOALS / CLEAN-SHEET HTML + PNG RESTORED")',
+              _day3_design_block,
+              "Day 3 replace legacy FDR/Goals/CS section with two-slide section",
+              end_through_line=True,
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _preview_cell,
+              '("02_fdr", "FIXTURE DIFFICULTY", "fdr_scene_4k.html"),',
+              '("02_fdr", "PROJECTED GOALS + CS ODDS", "fdr_scene_4k.html"),',
+              1,
+              "Day 3 preview combined projection label",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _preview_cell,
+              '("03_projected_goals", "PROJECTED GOALS", "projected_goals_scene_4k.html"),',
+              '("03_projected_goals", "DEFCON", "defcon_scene_4k.html"),',
+              1,
+              "Day 3 preview DEFCON source",
+          )
+
+          _day3_narr_helpers = r'''
+# DAY 3_3 narration helpers — consume the exact rankings built in Cell 14B.
+for _name in (
+    "DAY3_PROJ_ATTACK_TARGETS", "DAY3_PROJ_ATTACK_AVOIDS",
+    "DAY3_DEFCON_TARGETS", "DAY3_DEFCON_AVOIDS",
+    "DAY3_TOP_PLAYER_BY_TEAM",
+):
+    if _name not in globals():
+        raise RuntimeError(f"Day 3_3 narration missing {_name}; run Cell 14B first")
+
+def _d3_narr_team(frame, i):
+    return vx_narration_team(frame.iloc[i].get("team_id", frame.iloc[i].get("team")))
+
+def _d3_narr_player(team_id):
+    info = DAY3_TOP_PLAYER_BY_TEAM.get(int(team_id), {})
+    name = str(info.get("name", "")).strip()
+    xpts = float(info.get("xpts", 0.0) or 0.0)
+    return (name, xpts) if name else ("the highest-rated current player", 0.0)
+
+def _d3_proj_reason(frame, i):
+    row = frame.iloc[i]
+    player, xpts = _d3_narr_player(int(row["team_id"]))
+    opp = str(row.get("gw1_opponent", "the next opponent"))
+    return (
+        f"{_d3_narr_team(frame, i)} project for {float(row['gw1_xg']):.2f} goals "
+        f"against {opp}, with a {float(row['gw1_cs']):.0f} percent clean-sheet chance. "
+        f"{player} is the leading current player anchor at {xpts:.1f} expected points."
+    )
+
+def _d3_defcon_reason(frame, i):
+    row = frame.iloc[i]
+    return (
+        f"{str(row['team'])} average {float(row['avg_dc']):.1f} defensive contributions "
+        f"and {float(row['avg_hits']):.1f} threshold hits per match over the rolling evidence window. "
+        f"Their leading current DEFCON player is {str(row['top_player'])} at "
+        f"{100.0 * float(row['top_player_prob']):.0f} percent model probability, "
+        f"with {str(row['next_fixture'])} next."
+    )
+'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              "scripts = {\n",
+              _day3_narr_helpers + "\nscripts = {\n",
+              1,
+              "Day 3 narration ranking helpers",
+          )
+
+          _day3_fdr_script = r'''"02_fdr":
+f"""
+For the Gameweek model, this first page combines projected goals and clean sheet odds in one view. Every fixture is on the left, while the two rankings on the right show the full league from strongest to weakest.
+
+The four attacks to target are {_d3_narr_team(DAY3_PROJ_ATTACK_TARGETS,0)}, {_d3_narr_team(DAY3_PROJ_ATTACK_TARGETS,1)}, {_d3_narr_team(DAY3_PROJ_ATTACK_TARGETS,2)}, and {_d3_narr_team(DAY3_PROJ_ATTACK_TARGETS,3)}.
+
+Number one: {_d3_proj_reason(DAY3_PROJ_ATTACK_TARGETS,0)} The reason to target them is simple: the team-level chance creation is strongest, and the player model identifies the most direct route into that attack rather than asking us to buy a shirt blindly.
+
+Number two: {_d3_proj_reason(DAY3_PROJ_ATTACK_TARGETS,1)} This is a strong combination of fixture, team projection, and individual expected points. If the player anchor also has secure minutes, that is the profile I want on a shortlist.
+
+Number three: {_d3_proj_reason(DAY3_PROJ_ATTACK_TARGETS,2)} The projection is still high enough to create multiple-return upside, so this is a team to investigate before looking further down the table.
+
+Number four: {_d3_proj_reason(DAY3_PROJ_ATTACK_TARGETS,3)} They complete the target group. The gap to the middle of the league matters because transfers should follow the strongest environments first.
+
+The three attacks to avoid are {_d3_narr_team(DAY3_PROJ_ATTACK_AVOIDS,0)}, {_d3_narr_team(DAY3_PROJ_ATTACK_AVOIDS,1)}, and {_d3_narr_team(DAY3_PROJ_ATTACK_AVOIDS,2)}.
+
+{_d3_proj_reason(DAY3_PROJ_ATTACK_AVOIDS,0)} That is the weakest attacking environment on this page, so I would not chase a new attacker unless the individual role is exceptional.
+
+{_d3_proj_reason(DAY3_PROJ_ATTACK_AVOIDS,1)} The team projection is still below the main target zone. Existing assets can be held for other reasons, but this is not where I would spend a fresh attacking transfer first.
+
+{_d3_proj_reason(DAY3_PROJ_ATTACK_AVOIDS,2)} They are the final team in the avoid group. One return can always happen, but the model says stronger opportunities exist elsewhere.
+
+Use the clean-sheet ranking on the same page for goalkeeper and defender decisions. The top four defensive teams are {_d3_narr_team(DAY3_PROJ_CS_TARGETS,0)}, {_d3_narr_team(DAY3_PROJ_CS_TARGETS,1)}, {_d3_narr_team(DAY3_PROJ_CS_TARGETS,2)}, and {_d3_narr_team(DAY3_PROJ_CS_TARGETS,3)}. The bottom three are {_d3_narr_team(DAY3_PROJ_CS_AVOIDS,0)}, {_d3_narr_team(DAY3_PROJ_CS_AVOIDS,1)}, and {_d3_narr_team(DAY3_PROJ_CS_AVOIDS,2)}.
+
+So this slide is the Gameweek map: target the strongest team environments, avoid forcing transfers into the weakest ones, and use the player anchor to turn the team model into an actual FPL decision.
+
+""".strip(),
+
+"03_projected_goals":'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '"02_fdr":\n',
+              '"03_projected_goals":',
+              _day3_fdr_script,
+              "Day 3 combined projection narration",
+          )
+
+          _day3_defcon_script = r'''"03_projected_goals":
+f"""
+For DEFCON, this second page ranks all twenty clubs using the approved defensive-contribution evidence already inside the VORTEX player pipeline. The table shows the last match, rolling thirty-eight-match averages, the recent contribution trend, the opponent's profile, the next fixture, and each club's strongest current DEFCON player.
+
+The four teams to target are {str(DAY3_DEFCON_TARGETS.iloc[0]['team'])}, {str(DAY3_DEFCON_TARGETS.iloc[1]['team'])}, {str(DAY3_DEFCON_TARGETS.iloc[2]['team'])}, and {str(DAY3_DEFCON_TARGETS.iloc[3]['team'])}.
+
+First: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,0)} High team contribution volume plus a strong individual DEFCON probability gives us two independent reasons to care. This is especially useful for defenders and midfielders who can collect points without needing a goal or assist.
+
+Second: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,1)} The rolling team signal says defensive work is consistently available, while the player signal tells us who is most likely to convert that workload into Fantasy points.
+
+Third: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,2)} This is another team where the contribution floor matters. If clean-sheet odds are only average, DEFCON can still give a defender or midfielder an extra route to points.
+
+Fourth: {_d3_defcon_reason(DAY3_DEFCON_TARGETS,3)} They complete the target group. I would prioritise the named player when expected minutes are secure, because probability without minutes is not a usable Fantasy pick.
+
+The three teams to avoid on DEFCON are {str(DAY3_DEFCON_AVOIDS.iloc[0]['team'])}, {str(DAY3_DEFCON_AVOIDS.iloc[1]['team'])}, and {str(DAY3_DEFCON_AVOIDS.iloc[2]['team'])}.
+
+{_d3_defcon_reason(DAY3_DEFCON_AVOIDS,0)} The rolling contribution volume is the weakest of the group. That makes DEFCON a poor reason on its own to buy a player from this team.
+
+{_d3_defcon_reason(DAY3_DEFCON_AVOIDS,1)} The current player probability also needs to be read in context: a single high-workload player cannot fully compensate for a weak team contribution environment if minutes or role are uncertain.
+
+{_d3_defcon_reason(DAY3_DEFCON_AVOIDS,2)} They are the final avoid team. I would only go there when another part of the model, such as clean-sheet probability, attacking threat, or overall expected points, provides the stronger case.
+
+The decision rule is straightforward: use DEFCON as an additional floor, not as a replacement for the rest of the model. The best picks are the players where minutes, team defensive workload, individual DEFCON probability, and the next fixture all point in the same direction.
+
+""".strip(),
+
+"04_clean_sheets":'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '"03_projected_goals":\n',
+              '"04_clean_sheets":',
+              _day3_defcon_script,
+              "Day 3 DEFCON narration",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              'print(f"✅ FDR narration: {_fdr_word_count} words • top 5 target • worst 3 avoid")',
+              'print(f"✅ Day 3 projections narration: {_fdr_word_count} words • top 4 target • bottom 3 avoid")',
+              1,
+              "Day 3 projection narration QA label",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              'f"✅ Projected Goals narration: {_goals_word_count} words • "',
+              'f"✅ DEFCON narration: {_goals_word_count} words • "',
+              1,
+              "Day 3 DEFCON narration QA label",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '"03_projected_goals": (\n        "projected_goals_scene_4k.html",\n        "projected_goals_scene_4k_animated.html"\n    ),',
+              '"03_projected_goals": (\n        "defcon_scene_4k.html",\n        "defcon_scene_4k_animated.html"\n    ),',
+              1,
+              "Day 3 animation DEFCON HTML mapping",
+          )
+
+          _day3_fdr_events = r'''    if key=="02_fdr":
+        panel_at=vx_phrase_time(
+            words, "For the Gameweek model", required=True, context="02_fdr Day 3 body"
+        )
+        return [
+            {"sel":".header,.hero,.main-title","at":0,"dur":0.65,"stagger":0.05,"fx":"left"},
+            {"sel":".board,.d3FixtureBoard,.d3Rankings","at":panel_at,"dur":0.65,"stagger":0.10,"fx":"rise"},
+            {"sel":".d3FixtureCard,.d3RankRow","at":panel_at+0.35,"dur":0.34,"stagger":0.025,"fx":"left"},
+        ]
+
+    if key=="03_projected_goals":'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    if key=="02_fdr":\n',
+              '    if key=="03_projected_goals":',
+              _day3_fdr_events,
+              "Day 3 projection animation events",
+          )
+
+          _day3_defcon_events = r'''    if key=="03_projected_goals":
+        panel_at=vx_phrase_time(
+            words, "For DEFCON", required=True, context="03 DEFCON Day 3 body"
+        )
+        return [
+            {"sel":".header,.hero,.main-title","at":0,"dur":0.65,"stagger":0.05,"fx":"left"},
+            {"sel":".board,.d3DefconTable","at":panel_at,"dur":0.62,"stagger":0,"fx":"rise"},
+            {"sel":".d3DefRow","at":panel_at+0.35,"dur":0.30,"stagger":0.035,"fx":"left"},
+        ]
+
+    if key=="04_clean_sheets":'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    if key=="03_projected_goals":\n',
+              '    if key=="04_clean_sheets":',
+              _day3_defcon_events,
+              "Day 3 DEFCON animation events",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _assembly_cell,
+              '("02_fdr",             "FDR",              VIDEO / "02_fdr.mp4"),',
+              '("02_fdr",             "PROJECTED GOALS + CS ODDS", VIDEO / "02_fdr.mp4"),',
+              1,
+              "Day 3 final assembly combined projection label",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _assembly_cell,
+              '("03_projected_goals", "PROJECTED GOALS",  VIDEO / "03_projected_goals.mp4"),',
+              '("03_projected_goals", "DEFCON",           VIDEO / "03_projected_goals.mp4"),',
+              1,
+              "Day 3 final assembly DEFCON label",
+          )
+
+          _day3_section_required = (
+              'SLIDE_05_CLEAN_SHEETS = False',
+              'fdr_scene_4k.png = Projected Goals + Clean Sheet Odds',
+              'defcon_scene_4k.png = DEFCON',
+              '"defcon_scene_4k.html"',
+              '"PROJECTED GOALS + CS ODDS"',
+              '"DEFCON",           VIDEO / "03_projected_goals.mp4"',
+              'DAY3_PROJ_ATTACK_TARGETS',
+              'DAY3_DEFCON_TARGETS',
+          )
+          _day3_section_missing = [
+              marker for marker in _day3_section_required
+              if marker not in runtime_source_text
+          ]
+          if _day3_section_missing:
+              raise SystemExit(
+                  "Day 3_3 two-slide runtime patch incomplete: "
+                  + " | ".join(_day3_section_missing)
+              )
+          print("Day 3_3 Projected Goals/CS + DEFCON runtime override: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
@@ -1012,6 +1754,42 @@ jobs:
           if any(phrase in intro_script_lower for phrase in legacy_intro_phrases):
               raise SystemExit("Stale Day 1 intro narration survived in Day 3_3")
           print("Day 3_3 Slide 0 PNG/MP4/Ryan narration contract: PASS")
+
+
+          section_files = (
+              root / "SLIDE" / "fdr_scene_4k.png",
+              root / "SLIDE" / "defcon_scene_4k.png",
+              root / "MP4" / "02_fdr.mp4",
+              root / "MP4" / "03_projected_goals.mp4",
+          )
+          for section_file in section_files:
+              if not section_file.is_file() or section_file.stat().st_size <= 0:
+                  raise SystemExit(f"Day 3_3 two-slide section output is missing: {section_file}")
+
+          duplicate_legacy_slides = (
+              root / "SLIDE" / "projected_goals_scene_4k.png",
+              root / "SLIDE" / "clean_sheet_scene_4k.png",
+          )
+          survivors = [str(path) for path in duplicate_legacy_slides if path.exists()]
+          if survivors:
+              raise SystemExit(
+                  "Duplicate legacy projection/clean-sheet slides survived in Day 3_3: "
+                  + " | ".join(survivors)
+              )
+
+          section_narr = json.loads(narration_path.read_text(encoding="utf-8"))
+          for key, required_phrases in {
+              "02_fdr": ("four attacks to target", "three attacks to avoid", "clean-sheet ranking"),
+              "03_projected_goals": ("four teams to target", "three teams to avoid", "DEFCON"),
+          }.items():
+              script = str((section_narr.get(key) or {}).get("script") or "")
+              lowered = script.lower()
+              missing = [phrase for phrase in required_phrases if phrase.lower() not in lowered]
+              if missing:
+                  raise SystemExit(f"{key} Day 3_3 narration missing: {missing}")
+          if "04_clean_sheets" in section_narr:
+              raise SystemExit("Duplicate standalone clean-sheet narration survived in Day 3_3")
+          print("Day 3_3 Projected Goals/CS + DEFCON PNG/MP4/narration contract: PASS")
 
           final_mp4s = [
               path for path in (root / "MP4").glob("*COMBINED*.mp4")
