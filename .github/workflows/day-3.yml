@@ -1220,8 +1220,8 @@ jobs:
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _cell0,
-              'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\\n',
-              'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\\n' + _day3_plan_controls,
+              'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\n',
+              'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\n' + _day3_plan_controls,
               1,
               "Day 3 add MY PLAN scenario controls",
           )
