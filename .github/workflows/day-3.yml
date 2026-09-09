@@ -511,7 +511,7 @@ jobs:
           _day3_plan_controls = r'''
 # @markdown ---
 # @markdown ### 🧠 MY PLAN
-# @markdown **Choose one Gameweek plan. ALL 8 will unlock after 5B–5H are built.**
+# @markdown **Choose one Gameweek plan. ALL 8 will unlock after 5C–5H are built.**
 MY_PLAN_VIDEO_MODE = "SELECTED ONLY"  # @param ["SELECTED ONLY", "ALL 8 SCENARIOS"]
 
 # @markdown **MY PLAN — scenario**
@@ -4534,9 +4534,10 @@ if "05_outro" in manifest:
     ("03_defcon",          "DEFCON",           VIDEO / "03_defcon.mp4"),
     ("04_final_shortlists", "FINAL SHORTLISTS", VIDEO / "04_final_shortlists.mp4"),
     ("05_transfer_decision_desk", "TRANSFER DECISION DESK", VIDEO / "05_transfer_decision_desk.mp4"),
-    ("05a_my_plan_roll",   "MY PLAN • ROLL",   VIDEO / "05a_my_plan_roll.mp4"),''',
+    ("05a_my_plan_roll",   "MY PLAN • ROLL",   VIDEO / "05a_my_plan_roll.mp4"),
+    ("05b_my_plan_transfer","MY PLAN • TRANSFER", VIDEO / "05b_my_plan_transfer.mp4"),''',
               1,
-              "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists/Transfer Desk/MY PLAN 5A",
+              "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists/Transfer Desk/MY PLAN 5A/5B",
           )
 
           _day3_section_required = (
@@ -4545,6 +4546,7 @@ if "05_outro" in manifest:
               '"04_final_shortlists": True',
               '"05_transfer_decision_desk": True',
               '"05a_my_plan_roll": MY_PLAN_RENDER_5A',
+              '"05b_my_plan_transfer": MY_PLAN_RENDER_5B',
               'fdr_scene_4k.png = Projected Goals + Clean Sheet Odds',
               'projected_goals_scene_4k.png = ORIGINAL PRESERVED',
               'defcon_scene_4k.png = DEFCON',
@@ -4559,10 +4561,16 @@ if "05_outro" in manifest:
               '"04_final_shortlists", "FINAL SHORTLISTS"',
               '"05_transfer_decision_desk", "TRANSFER DECISION DESK"',
               '"05a_my_plan_roll",   "MY PLAN • ROLL"',
+              '"05b_my_plan_transfer","MY PLAN • TRANSFER"',
               'my_plan_5a_roll_scene_4k.png',
               'my_plan_5a_roll_animation_manifest.json',
               '05a_my_plan_roll.mp4',
+              '05b_my_plan_transfer.mp4',
+              'my_plan_5b_transfer_scene_4k.png',
+              'my_plan_5b_transfer_animation_manifest.json',
+              'my_plan_5b_transfer_candidates.json',
               'DAY3_MY_PLAN_5A_PACKAGE',
+              'DAY3_MY_PLAN_5B_PACKAGE',
               'Final Shortlists narration locked:',
               'Transfer Decision Desk narration locked:',
               'DAY3_PROJ_ATTACK_TARGETS',
@@ -4589,7 +4597,7 @@ if "05_outro" in manifest:
                   "Day 3_3 two-slide runtime patch incomplete: "
                   + " | ".join(_day3_section_missing)
               )
-          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + Transfer Decision Desk + MY PLAN 5A runtime override: PASS")
+          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + Transfer Decision Desk + MY PLAN 5A/5B runtime override: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
