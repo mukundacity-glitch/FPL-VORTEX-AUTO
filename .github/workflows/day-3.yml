@@ -502,7 +502,7 @@ jobs:
 
           # ------------------------------------------------------------
           # DAY 3_3 — SLIDE 5 • GAMEWEEK REVIEW
-          # Keep the approved GW Review visual/card/animation/render logic.
+          # Day 3 owns this as Slide 5; keep the approved GW Review visual/card/animation/render logic.
           # Only shorten the auto-generated Ryan narration to the user's
           # 45–75 second format, sourced from FPL_TEAM_ID + official FPL data.
           # ------------------------------------------------------------
@@ -512,7 +512,7 @@ jobs:
               '<div class="panelTitle"><span>GAMEWEEK REVIEW</span></div>',
               '<div class="panelTitle"><span>05 • GAMEWEEK REVIEW</span></div>',
               1,
-              "Day 3 label preserved GW Review as Slide 5",
+              "Day 3 rename cloned GW Review as Slide 5",
           )
 
           _day3_short_gw_review_script = r'''
@@ -913,6 +913,39 @@ print(
               'SLIDE_05_CLEAN_SHEETS = False  # Day 3_3: merged into 02_fdr',
               1,
               "Day 3 disable duplicate standalone clean-sheet slide",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              'SLIDE_02_GW_REVIEW = True  # @param {type:"boolean"}',
+              'SLIDE_05_GW_REVIEW = True  # @param {type:"boolean"}',
+              1,
+              "Day 3 rename Gameweek Review control to Slide 5",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              '"gw_review": SLIDE_02_GW_REVIEW,',
+              '"gw_review": SLIDE_05_GW_REVIEW,',
+              1,
+              "Day 3 map Slide 5 Gameweek Review control",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              'SLIDE_05_CLEAN_SHEETS = False  # Day 3_3: merged into 02_fdr',
+              '_DAY3_OLD_CLEAN_SHEETS = False  # Day 3_3: disabled legacy Day 1 clean-sheet slide',
+              1,
+              "Day 3 remove stale Slide 5 numbering from old clean-sheet control",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              '"04_clean_sheets": SLIDE_05_CLEAN_SHEETS,',
+              '"04_clean_sheets": _DAY3_OLD_CLEAN_SHEETS,',
+              1,
+              "Day 3 keep legacy clean-sheet scene disabled",
           )
 
 
@@ -5560,6 +5593,24 @@ print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
               "Day 3 preview preserve Projected Goals and add DEFCON/Final Shortlists/Transfer Desk/MY PLAN 5A",
           )
 
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _preview_cell,
+              '    ("gw_review", "GW REVIEW", "gw_review_scene_4k.html"),\n',
+              '',
+              1,
+              "Day 3 remove old Day 1 GW Review preview position",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _preview_cell,
+              '    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", "transfer_decision_desk_scene_4k.html"),',
+              '    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", "transfer_decision_desk_scene_4k.html"),\n'
+              '    ("gw_review", "05 • GAMEWEEK REVIEW", "gw_review_scene_4k.html"),',
+              1,
+              "Day 3 move GW Review preview to Slide 5 before MY PLAN 5A",
+          )
+
           _day3_narr_helpers = r'''
 # DAY 3_3 narration helpers — consume exact dynamic selections built in Cell 14B.
 for _name in (
@@ -6209,8 +6260,26 @@ CACHE.pop("02_fdr", None)
               "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists/Transfer Desk/MY PLAN 5A/5B",
           )
 
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _assembly_cell,
+              '    ("gw_review",          "GW REVIEW",        VIDEO / "gw_review.mp4"),\n',
+              '',
+              1,
+              "Day 3 remove old Day 1 GW Review master position",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _assembly_cell,
+              '    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", VIDEO / "05_transfer_decision_desk.mp4"),',
+              '    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", VIDEO / "05_transfer_decision_desk.mp4"),\n'
+              '    ("gw_review",          "05 • GAMEWEEK REVIEW", VIDEO / "gw_review.mp4"),',
+              1,
+              "Day 3 move Gameweek Review to Slide 5 before MY PLAN 5A",
+          )
+
           _day3_section_required = (
-              'SLIDE_05_CLEAN_SHEETS = False',
+              '_DAY3_OLD_CLEAN_SHEETS = False',
               '"03_defcon": True',
               '"04_final_shortlists": True',
               '"05_transfer_decision_desk": True',
@@ -6233,6 +6302,9 @@ CACHE.pop("02_fdr", None)
               '"03_defcon",          "DEFCON"',
               '"04_final_shortlists", "FINAL SHORTLISTS"',
               '"05_transfer_decision_desk", "TRANSFER DECISION DESK"',
+              '"gw_review", "05 • GAMEWEEK REVIEW"',
+              'SLIDE_05_GW_REVIEW = True',
+              '"gw_review": SLIDE_05_GW_REVIEW',
               '"05a_my_plan_roll",   "MY PLAN • ROLL"',
               '"05b_my_plan_transfer","MY PLAN • TRANSFER"',
               'my_plan_5a_roll_scene_4k.png',
@@ -7176,16 +7248,16 @@ CACHE.pop("02_fdr", None)
                       f"{expected_label} renderer did not assert GW Review preservation"
                   )
 
-          preserved_review_files = (
+          day3_slide5_review_files = (
               root / "SLIDE" / "gw_review_scene_4k.png",
               root / "MP3" / "gw_review.mp3",
               root / "MP4" / "gw_review.mp4",
               root / "DATA" / "gw_review_animation_manifest.json",
           )
-          for preserved_review_file in preserved_review_files:
-              if not preserved_review_file.is_file() or preserved_review_file.stat().st_size <= 0:
+          for day3_slide5_review_file in day3_slide5_review_files:
+              if not day3_slide5_review_file.is_file() or day3_slide5_review_file.stat().st_size <= 0:
                   raise SystemExit(
-                      f"Original GW Review asset was not preserved: {preserved_review_file}"
+                      f"Day 3 Slide 5 Gameweek Review output is missing: {day3_slide5_review_file}"
                   )
 
           scene_keys = list(qa.get("scene_keys") or [])
@@ -7194,6 +7266,7 @@ CACHE.pop("02_fdr", None)
               "03_defcon",
               "04_final_shortlists",
               "05_transfer_decision_desk",
+              "gw_review",
               *selected_plan_keys,
               "02_fdr",
           ]
@@ -7210,6 +7283,7 @@ CACHE.pop("02_fdr", None)
               )
           print(
               "Day 3_3 Projected Goals + DEFCON + Final Shortlists + Transfer Decision Desk + "
+              "Slide 5 Gameweek Review + "
               + ", ".join(plan_specs[key]["label"] for key in selected_plan_keys)
               + " + Slide 6 Benching Dilemma PNG/MP4/narration contract: PASS"
           )
