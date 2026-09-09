@@ -8012,15 +8012,16 @@ jobs:
             --filter "+ /opening.mp4" \
             --filter "+ /Background_music.mp3" \
             --filter "+ /outro.mp3" \
+            --filter "+ /outro.mp4" \
             --filter "- **" \
-            --transfers 3 --checkers 6
-          for asset_name in opening.mp4 Background_music.mp3 outro.mp3; do
+            --transfers 4 --checkers 6
+          for asset_name in opening.mp4 Background_music.mp3 outro.mp3 outro.mp4; do
             if [[ ! -s "${DAY1_ASSET_DIR}/${asset_name}" ]]; then
               echo "Required Day 1 asset is missing: ${asset_name}" >&2
               exit 1
             fi
           done
-          echo "Restored opening and audio assets by confirmed Drive folder ID"
+          echo "Restored opening, music, and premium outro.mp4 by confirmed Drive folder ID"
 
 
           rm -rf "${DAY3_CHIP_ASSET_DIR}"
@@ -8183,6 +8184,318 @@ jobs:
             --asset-dir "${DAY1_ASSET_DIR}"
 
 
+      - name: Append premium Drive outro with its own audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+          import tempfile
+          from fractions import Fraction
+          from pathlib import Path
+
+          root = Path(os.environ["DAY3_OUTPUT_ROOT"]).resolve()
+          expected_root = (
+              Path("/content/drive/MyDrive") / os.environ["DAY3_DRIVE_PATH"]
+          ).resolve()
+          if root != expected_root:
+              raise SystemExit(f"Unsafe Day 3 output root: {root}")
+
+          mp4_dir = root / "MP4"
+          mp3_dir = root / "MP3"
+          data_dir = root / "DATA"
+          asset = Path(os.environ["DAY1_ASSET_DIR"]).resolve() / "outro.mp4"
+          if not asset.is_file() or asset.stat().st_size <= 0:
+              raise SystemExit(f"Premium Drive outro.mp4 is missing: {asset}")
+
+          qa_path = data_dir / "final_video_qa.json"
+          if not qa_path.is_file():
+              raise SystemExit(f"Final video QA is missing before external outro append: {qa_path}")
+          qa = json.loads(qa_path.read_text(encoding="utf-8"))
+
+          configured_video = str(qa.get("final_file") or "").strip()
+          if configured_video:
+              final_mp4 = mp4_dir / Path(configured_video).name
+          else:
+              matches = sorted(path for path in mp4_dir.glob("*COMBINED*.mp4") if path.is_file())
+              if len(matches) != 1:
+                  raise SystemExit(f"Expected one combined MP4 before outro append, found {matches}")
+              final_mp4 = matches[0]
+          if not final_mp4.is_file() or final_mp4.stat().st_size <= 0:
+              raise SystemExit(f"Combined MP4 is missing before outro append: {final_mp4}")
+
+          configured_mp3 = str(qa.get("combined_mp3") or "").strip()
+          if configured_mp3:
+              combined_mp3 = mp3_dir / Path(configured_mp3).name
+          else:
+              matches = sorted(path for path in mp3_dir.glob("*COMBINED*.mp3") if path.is_file())
+              if len(matches) != 1:
+                  raise SystemExit(f"Expected one combined MP3 before outro append, found {matches}")
+              combined_mp3 = matches[0]
+
+          def run(command):
+              completed = subprocess.run(
+                  command,
+                  check=False,
+                  text=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+              )
+              if completed.returncode != 0:
+                  raise RuntimeError(
+                      "Command failed:\n"
+                      + " ".join(str(part) for part in command)
+                      + "\n"
+                      + completed.stderr[-5000:]
+                  )
+              return completed.stdout
+
+          def probe(path):
+              return json.loads(run([
+                  "ffprobe", "-v", "error",
+                  "-show_streams", "-show_format",
+                  "-of", "json", str(path),
+              ]))
+
+          def stream(info, kind):
+              rows = [row for row in info.get("streams", []) if row.get("codec_type") == kind]
+              if not rows:
+                  raise RuntimeError(f"{Path(info.get('_path','media')).name} has no {kind} stream")
+              return rows[0]
+
+          def duration(info):
+              value = info.get("format", {}).get("duration")
+              if value is None:
+                  values = [row.get("duration") for row in info.get("streams", []) if row.get("duration") is not None]
+                  value = values[0] if values else None
+              if value is None:
+                  raise RuntimeError("Media duration is unavailable")
+              return float(value)
+
+          def sha256(path):
+              h = hashlib.sha256()
+              with Path(path).open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          main_probe = probe(final_mp4)
+          main_probe["_path"] = str(final_mp4)
+          tail_probe = probe(asset)
+          tail_probe["_path"] = str(asset)
+          main_video = stream(main_probe, "video")
+          main_audio = stream(main_probe, "audio")
+          tail_video = stream(tail_probe, "video")
+          tail_audio = stream(tail_probe, "audio")
+
+          width = int(main_video.get("width") or 0)
+          height = int(main_video.get("height") or 0)
+          if (width, height) != (3840, 2160):
+              raise RuntimeError(f"Day 3 combined program is not true 4K: {width}x{height}")
+
+          fps_text = str(main_video.get("avg_frame_rate") or main_video.get("r_frame_rate") or "30/1")
+          try:
+              fps_value = float(Fraction(fps_text))
+          except Exception:
+              fps_text = "30/1"
+              fps_value = 30.0
+          if not 20.0 <= fps_value <= 120.0:
+              raise RuntimeError(f"Unsupported main-video frame rate: {fps_text}")
+
+          main_duration = duration(main_probe)
+          tail_duration = duration(tail_probe)
+          if main_duration <= 1.0:
+              raise RuntimeError("Day 3 combined program is unexpectedly short")
+          if tail_duration <= 0.5:
+              raise RuntimeError(f"Premium outro.mp4 is unexpectedly short: {tail_duration:.3f}s")
+
+          main_audio_codec = str(main_audio.get("codec_name") or "")
+          tail_audio_codec = str(tail_audio.get("codec_name") or "")
+          tail_audio_sample_rate = int(tail_audio.get("sample_rate") or 0)
+          tail_audio_channels = int(tail_audio.get("channels") or 0)
+          copy_tail_audio = (
+              main_audio_codec == "aac"
+              and tail_audio_codec == "aac"
+              and tail_audio_sample_rate == 48000
+              and tail_audio_channels == 2
+          )
+
+          original_program_sha256 = sha256(final_mp4)
+          source_sha256 = sha256(asset)
+
+          staging = Path(tempfile.mkdtemp(prefix=".day3-external-outro-", dir=str(mp4_dir)))
+          try:
+              normalized_tail = staging / "outro_normalized.mp4"
+              final_staged = staging / final_mp4.name
+              mp3_staged = staging / combined_mp3.name
+              concat_list = staging / "concat.txt"
+
+              normalize = [
+                  "ffmpeg", "-y", "-v", "error",
+                  "-i", str(asset),
+                  "-map", "0:v:0", "-map", "0:a:0",
+                  "-vf",
+                  (
+                      f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                      f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,"
+                      f"fps={fps_text},setsar=1,format=yuv420p"
+                  ),
+                  "-c:v", "libx264",
+                  "-preset", "medium",
+                  "-crf", "17",
+                  "-pix_fmt", "yuv420p",
+              ]
+              if copy_tail_audio:
+                  normalize += ["-c:a", "copy"]
+              else:
+                  normalize += [
+                      "-c:a", "aac",
+                      "-b:a", "192k",
+                      "-ar", "48000",
+                      "-ac", "2",
+                  ]
+              normalize += ["-movflags", "+faststart", str(normalized_tail)]
+              run(normalize)
+
+              norm_probe = probe(normalized_tail)
+              norm_probe["_path"] = str(normalized_tail)
+              norm_video = stream(norm_probe, "video")
+              norm_audio = stream(norm_probe, "audio")
+              if (int(norm_video.get("width") or 0), int(norm_video.get("height") or 0)) != (width, height):
+                  raise RuntimeError("Normalized premium outro resolution does not match the main video")
+              if str(norm_video.get("codec_name") or "") != str(main_video.get("codec_name") or ""):
+                  raise RuntimeError(
+                      f"Premium outro video codec mismatch after normalization: "
+                      f"{norm_video.get('codec_name')} vs {main_video.get('codec_name')}"
+                  )
+              if str(norm_audio.get("codec_name") or "") != str(main_audio.get("codec_name") or ""):
+                  raise RuntimeError(
+                      f"Premium outro audio codec mismatch after normalization: "
+                      f"{norm_audio.get('codec_name')} vs {main_audio.get('codec_name')}"
+                  )
+
+              def concat_quote(path):
+                  return str(path).replace("'", "'\\''")
+
+              concat_list.write_text(
+                  "file '" + concat_quote(final_mp4) + "'\n"
+                  + "file '" + concat_quote(normalized_tail) + "'\n",
+                  encoding="utf-8",
+              )
+              run([
+                  "ffmpeg", "-y", "-v", "error",
+                  "-f", "concat", "-safe", "0",
+                  "-i", str(concat_list),
+                  "-map", "0:v:0", "-map", "0:a:0",
+                  "-c", "copy",
+                  "-movflags", "+faststart",
+                  str(final_staged),
+              ])
+
+              final_probe = probe(final_staged)
+              final_probe["_path"] = str(final_staged)
+              final_video = stream(final_probe, "video")
+              stream(final_probe, "audio")
+              final_duration = duration(final_probe)
+              if (int(final_video.get("width") or 0), int(final_video.get("height") or 0)) != (width, height):
+                  raise RuntimeError("Final combined MP4 resolution changed after premium outro append")
+
+              normalized_tail_duration = duration(norm_probe)
+              expected_duration = main_duration + normalized_tail_duration
+              if abs(final_duration - expected_duration) > 0.75:
+                  raise RuntimeError(
+                      f"Premium outro concat duration mismatch: final={final_duration:.3f}s "
+                      f"expected={expected_duration:.3f}s"
+                  )
+
+              run([
+                  "ffmpeg", "-y", "-v", "error",
+                  "-i", str(final_staged),
+                  "-map", "0:a:0",
+                  "-vn",
+                  "-c:a", "libmp3lame",
+                  "-b:a", "192k",
+                  str(mp3_staged),
+              ])
+              mp3_probe = probe(mp3_staged)
+              stream(mp3_probe, "audio")
+              mp3_duration = duration(mp3_probe)
+              if abs(mp3_duration - final_duration) > 0.25:
+                  raise RuntimeError(
+                      f"Combined MP3 no longer matches final MP4: "
+                      f"{mp3_duration:.3f}s vs {final_duration:.3f}s"
+                  )
+
+              os.replace(final_staged, final_mp4)
+              os.replace(mp3_staged, combined_mp3)
+          finally:
+              shutil.rmtree(staging, ignore_errors=True)
+
+          final_sha256 = sha256(final_mp4)
+          tail_report = {
+              "applied": True,
+              "version": "DAY3-EXTERNAL-OUTRO-V1",
+              "source_name": "outro.mp4",
+              "source_folder_id": os.environ.get("DAY1_ASSET_FOLDER_ID"),
+              "source_file_id": "1M4w9Adk1H9xsVLQHCIcf6HdUn4XOqPmg",
+              "source_sha256": source_sha256,
+              "source_duration": tail_duration,
+              "normalized_duration": normalized_tail_duration,
+              "timeline_start": main_duration,
+              "timeline_end": final_duration,
+              "background_music_applied": False,
+              "source_audio_used_exclusively": True,
+              "source_audio_stream_present": True,
+              "source_audio_codec": tail_audio_codec,
+              "audio_stream_copied_without_reencode": bool(copy_tail_audio),
+              "audio_mixed_with_day3_background": False,
+              "video_normalized_to": [width, height],
+              "frame_rate": fps_text,
+              "original_program_sha256": original_program_sha256,
+              "final_sha256": final_sha256,
+              "combined_mp3_regenerated_from_final_mp4": True,
+              "combined_mp3_duration": mp3_duration,
+          }
+
+          qa["day3_external_outro"] = tail_report
+          qa["final_file"] = str(final_mp4)
+          qa["combined_mp3"] = str(combined_mp3)
+          qa["final_duration"] = final_duration
+          qa["expected_duration"] = final_duration
+          qa["duration_delta"] = 0.0
+          qa["combined_mp3_duration"] = mp3_duration
+          qa["final_sha256"] = final_sha256
+          assembly_mode = str(qa.get("assembly_mode") or "").strip()
+          if "DAY3_EXTERNAL_OUTRO" not in assembly_mode:
+              qa["assembly_mode"] = (
+                  f"{assembly_mode}+DAY3_EXTERNAL_OUTRO"
+                  if assembly_mode
+                  else "DAY3_EXTERNAL_OUTRO"
+              )
+          integration = qa.get("external_media_integration")
+          if isinstance(integration, dict):
+              integration["post_day3_external_outro_final_sha256"] = final_sha256
+              integration["post_day3_external_outro_final_duration"] = final_duration
+
+          qa_path.write_text(json.dumps(qa, indent=2), encoding="utf-8")
+          (data_dir / "day3_external_outro.json").write_text(
+              json.dumps(tail_report, indent=2),
+              encoding="utf-8",
+          )
+
+          print("Day 3 premium Drive outro appended after the rendered Slide 8 outro: PASS")
+          print(f"Premium outro source: {asset.name} • {tail_duration:.3f}s")
+          print("Day 3 background music on premium outro.mp4: DISABLED")
+          print("Premium outro embedded audio: PRESERVED AS THE ONLY TAIL AUDIO")
+          print(f"Final combined MP4 duration: {final_duration:.3f}s")
+          print(f"Final combined MP3 duration: {mp3_duration:.3f}s")
+          PY
+
+
       - name: Build private YouTube Video 3/3 metadata
         shell: bash
         run: |
@@ -8196,6 +8509,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import subprocess
           from pathlib import Path
 
           root = Path(os.environ["DAY3_OUTPUT_ROOT"]).resolve()
@@ -8755,6 +9069,71 @@ jobs:
                   "Expected exactly one combined final MP4 and MP3; "
                   f"found MP4={len(final_mp4s)}, MP3={len(final_mp3s)}"
               )
+
+          external_tail_path = root / "DATA" / "day3_external_outro.json"
+          if not external_tail_path.is_file():
+              raise SystemExit(f"Day 3 premium external outro QA is missing: {external_tail_path}")
+          external_tail = json.loads(external_tail_path.read_text(encoding="utf-8"))
+          qa_tail = qa.get("day3_external_outro") or {}
+          if qa_tail != external_tail:
+              raise SystemExit("Day 3 premium external outro QA does not match final_video_qa.json")
+          if external_tail.get("applied") is not True:
+              raise SystemExit("Day 3 premium external outro was not applied")
+          if external_tail.get("source_name") != "outro.mp4":
+              raise SystemExit("Day 3 premium external outro source is not outro.mp4")
+          if external_tail.get("source_file_id") != "1M4w9Adk1H9xsVLQHCIcf6HdUn4XOqPmg":
+              raise SystemExit("Day 3 premium external outro Drive file ID is wrong")
+          if external_tail.get("background_music_applied") is not False:
+              raise SystemExit("Background music was applied to premium outro.mp4")
+          if external_tail.get("audio_mixed_with_day3_background") is not False:
+              raise SystemExit("Premium outro.mp4 audio was mixed with the Day 3 background bed")
+          if external_tail.get("source_audio_used_exclusively") is not True:
+              raise SystemExit("Premium outro.mp4 is not using its own embedded audio exclusively")
+          if external_tail.get("source_audio_stream_present") is not True:
+              raise SystemExit("Premium outro.mp4 has no confirmed embedded audio")
+          if external_tail.get("combined_mp3_regenerated_from_final_mp4") is not True:
+              raise SystemExit("Combined MP3 was not regenerated after premium outro append")
+
+          def _probe_duration(path):
+              completed = subprocess.run(
+                  [
+                      "ffprobe", "-v", "error",
+                      "-show_entries", "format=duration",
+                      "-of", "default=noprint_wrappers=1:nokey=1",
+                      str(path),
+                  ],
+                  check=True,
+                  text=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+              )
+              return float(completed.stdout.strip())
+
+          final_video_duration = _probe_duration(final_mp4s[0])
+          final_mp3_duration = _probe_duration(final_mp3s[0])
+          tail_start = float(external_tail.get("timeline_start") or 0.0)
+          tail_end = float(external_tail.get("timeline_end") or 0.0)
+          tail_duration = float(external_tail.get("normalized_duration") or 0.0)
+          if tail_start <= 0.0 or tail_duration <= 0.5 or tail_end <= tail_start:
+              raise SystemExit(f"Invalid premium outro tail timing: {external_tail}")
+          if abs((tail_end - tail_start) - tail_duration) > 0.75:
+              raise SystemExit("Premium outro tail duration is not aligned with its final timeline window")
+          if abs(final_video_duration - tail_end) > 0.25:
+              raise SystemExit(
+                  f"Premium outro is not the final video tail: "
+                  f"video={final_video_duration:.3f}s tail_end={tail_end:.3f}s"
+              )
+          if abs(final_mp3_duration - final_video_duration) > 0.25:
+              raise SystemExit(
+                  f"Final combined MP3 does not match MP4 after premium outro: "
+                  f"{final_mp3_duration:.3f}s vs {final_video_duration:.3f}s"
+              )
+          if str(qa.get("assembly_mode") or "").find("DAY3_EXTERNAL_OUTRO") < 0:
+              raise SystemExit("Final QA assembly mode does not include DAY3_EXTERNAL_OUTRO")
+          print(
+              f"Day 3 premium outro.mp4 final-tail contract: PASS • "
+              f"{tail_duration:.2f}s • own audio only • no background mix"
+          )
 
           package_path = root / "DATA" / "youtube_video_3_of_3_package.json"
           if not package_path.is_file():
