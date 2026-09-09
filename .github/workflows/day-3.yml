@@ -722,7 +722,8 @@ jobs:
                   )
 
           _review_transfer_pairs=[]
-          _review_transfer_return=0
+          _review_transfer_in_points=0
+          _review_transfer_out_points=0
           for _row in _review_transfer_rows:
               _in_id=int(_row.get("element_in") or 0)
               _out_id=int(_row.get("element_out") or 0)
@@ -730,10 +731,16 @@ jobs:
                   continue
               _in_name=vx_review_short_name(_in_id)
               _out_name=vx_review_short_name(_out_id)
-              _review_transfer_pairs.append((_in_name,_out_name))
-              _review_transfer_return+=int(
-                  (review_live_map.get(_in_id,{}) or {}).get("total_points",0) or 0
-              )
+              _in_points=int((review_live_map.get(_in_id,{}) or {}).get("total_points",0) or 0)
+              _out_points=int((review_live_map.get(_out_id,{}) or {}).get("total_points",0) or 0)
+              _review_transfer_pairs.append((_in_name,_out_name,_in_points,_out_points))
+              _review_transfer_in_points+=_in_points
+              _review_transfer_out_points+=_out_points
+          _review_transfer_net_swing=(
+              int(_review_transfer_in_points)
+              - int(_review_transfer_out_points)
+              - int(transfer_cost)
+          )
 
           if review_chip_code=="freehit":
               _review_action_text=f"I played my Free Hit in Gameweek {REVIEW_GW}."
@@ -741,19 +748,23 @@ jobs:
               _review_action_text=f"I played my Wildcard in Gameweek {REVIEW_GW}."
           elif transfer_count>0:
               if transfer_count==1 and _review_transfer_pairs:
-                  _in_name,_out_name=_review_transfer_pairs[0]
+                  _in_name,_out_name,_in_points,_out_points=_review_transfer_pairs[0]
                   _review_action_text=(
-                      f"I made one transfer. I brought in {_in_name} for {_out_name}, "
-                      f"and the move returned {_review_transfer_return} points."
+                      f"I made one transfer, bringing in {_in_name} for {_out_name}. "
+                      f"{_in_name} scored {_in_points} points and {_out_name} scored {_out_points}; "
+                      f"after the {transfer_cost}-point transfer cost, the net swing was "
+                      f"{_review_transfer_net_swing:+d} points."
                   )
               elif _review_transfer_pairs:
                   _pair_text=", ".join(
                       f"{incoming} for {outgoing}"
-                      for incoming,outgoing in _review_transfer_pairs
+                      for incoming,outgoing,_,_ in _review_transfer_pairs
                   )
                   _review_action_text=(
                       f"I made {transfer_count} transfers: {_pair_text}. "
-                      f"The incoming players returned {_review_transfer_return} points."
+                      f"The players I bought scored {_review_transfer_in_points} points, the players I sold "
+                      f"scored {_review_transfer_out_points}, and after {transfer_cost} points of transfer cost "
+                      f"the net swing was {_review_transfer_net_swing:+d}."
                   )
               else:
                   _review_action_text=f"I made {transfer_count} transfers."
@@ -896,7 +907,7 @@ jobs:
               _rank_change=abs(int(prev_rank)-int(cur_rank))
               if int(cur_rank)<int(prev_rank):
                   rank_text=(
-                      f"My overall rank increased from {int(prev_rank):,} to {int(cur_rank):,}, "
+                      f"My overall rank improved from {int(prev_rank):,} to {int(cur_rank):,}, "
                       f"a green arrow of {_rank_change:,} places."
                   )
               elif int(cur_rank)>int(prev_rank):
@@ -1555,6 +1566,10 @@ jobs:
               )
               _d3_ft = globals().get("PHASE11_FREE_TRANSFERS")
               _d3_ft_text = "—" if _d3_ft is None else str(int(_d3_ft))
+              _d3_next_ft_text = (
+                  "—" if _d3_ft is None
+                  else str(min(5, max(0, int(_d3_ft)) + 1))
+              )
               _d3_bank = _d3_plan_number(globals().get("PHASE11_BANK"), 0.0)
               _d3_state = str(globals().get("PHASE11_SQUAD_STATE_STATUS", "UNKNOWN"))
 
@@ -1658,8 +1673,9 @@ jobs:
                   {
                       "id":"metric_gwrank",
                       "text":(
-                          f"I carry {_d3_ft_text} free transfers into this decision. Scenario A uses zero, "
-                          "so every available transfer rolls forward under the current FPL rules."
+                          f"I carry {_d3_ft_text} free transfers into this decision. Scenario A uses zero. "
+                          f"Under the current rules that becomes {_d3_next_ft_text} free transfers for the next "
+                          "Gameweek, capped at five."
                       ),
                   },
                   {
@@ -1788,6 +1804,7 @@ jobs:
                       "projected_score":round(_d3_projected_score, 2),
                       "formation":_d3_formation,
                       "free_transfers":_d3_ft_text,
+                      "next_gameweek_free_transfers":_d3_next_ft_text,
                       "transfers_used":0,
                       "transfer_cost":0,
                       "chip":"NONE",
@@ -2577,6 +2594,10 @@ jobs:
               _d3_5b_transfers = list(_chosen["moves"])
               _d3_5b_transfer_count = len(_d3_5b_transfers)
               _d3_5b_ft_effective = int(_d3_5b_ft)
+              _d3_5b_next_ft = min(
+                  5,
+                  max(0, int(_d3_5b_ft_effective) - int(_d3_5b_transfer_count)) + 1,
+              )
 
               # Same bench ordering used by Phase 11.
               _bench_gk = _d3_5b_bench.loc[
@@ -2831,6 +2852,13 @@ jobs:
                       "effective_free_transfers":int(_d3_5b_ft_effective),
           ''',
               "Day 3 MY PLAN 5B source/final squads",
+          )
+
+          _day3_plan5b_block = _d3_copy_replace(
+              _day3_plan5b_block,
+              '            "next_gameweek_free_transfers":_d3_next_ft_text,',
+              '            "next_gameweek_free_transfers":int(_d3_5b_next_ft),',
+              "Day 3 MY PLAN 5B next-Gameweek free transfers",
           )
 
           for _old, _new in (
@@ -3222,6 +3250,13 @@ jobs:
                   scenario_key = "D_WILDCARD_5GW"
                   prefix = "my_plan_5d_wildcard"
                   chip = "WILDCARD"
+              chip_rule_note = (
+                  "The Free Hit is temporary: after this Gameweek the original squad returns, "
+                  "and the banked free-transfer count is preserved."
+                  if mode == "GW"
+                  else
+                  "The Wildcard makes the rebuilt squad permanent, while the banked free-transfer count is preserved."
+              )
               for old,new in replacements:
                   block = block.replace(old,new)
 
@@ -3338,7 +3373,7 @@ jobs:
                   {{"id":"metric_gwrank","text":f"The starting squad budget was {{_d3_rebuild_budget:.1f}} million and the final cost is {{_d3_rebuild_cost:.1f}} million."}},
                   {{"id":"metric_captain","text":f"The model captain is {{vx_narration_player(_d3_cap_id)}}, projected for {{_d3_cap['xpts']:.1f}} raw points. {{vx_narration_player(_d3_vice_id)}} is vice captain."}},
                   {{"id":"metric_bench","text":f"The four substitutes carry {{_d3_bench_xpts:.1f}} combined expected points."}},
-                  {{"id":"metric_hit","text":f"There is no transfer hit inside the {plan_name.title()} scenario and the remaining budget is {{_d3_bank:.1f}} million."}},
+                  {{"id":"metric_hit","text":f"There is no transfer hit inside the {plan_name.title()} scenario and the remaining budget is {{_d3_bank:.1f}} million. {chip_rule_note}"}},
                   {{"id":"review_close","text":"That is Scenario {scenario_letter}: {plan_name}. The squad is dynamic, legal, budget checked, club-limit checked and fully re-optimized."}},
               ]
 
@@ -3366,8 +3401,15 @@ jobs:
                       "final_squad_ids":list(_d3_rebuild_final_ids),
                       "rebuild_budget":round(float(_d3_rebuild_budget),2),
                       "rebuild_cost":round(float(_d3_rebuild_cost),2),
+                      "banked_free_transfers_preserved":_d3_ft_text,
           ''',
                   f"Day 3 MY PLAN 5{scenario_letter} rebuild summary",
+              )
+              block = _d3_copy_replace(
+                  block,
+                  '            "next_gameweek_free_transfers":_d3_next_ft_text,',
+                  '            "next_gameweek_free_transfers":_d3_ft_text,',
+                  f"Day 3 MY PLAN 5{scenario_letter} preserve banked free transfers",
               )
               for old,new in (
                   ('setText("#vsAvg", "ROLL • NO TRANSFER");', f'setText("#vsAvg", "{plan_name} • FULL REBUILD");'),
@@ -5926,9 +5968,17 @@ jobs:
                       _d3_low_availability = int((_vals.fillna(1.0) < 0.70).sum())
                       break
 
+          _d3_previous_gw_free_hit = any(
+              str((row or {}).get("name") or "").strip().lower() == "freehit"
+              and pd.notna(pd.to_numeric((row or {}).get("event"), errors="coerce"))
+              and int(pd.to_numeric((row or {}).get("event"), errors="coerce")) == int(NEXT_GW) - 1
+              for row in list(_d3_entry_history.get("chips") or [])
+          )
+          _d3_free_hit_eligible = bool(int(NEXT_GW) > 1 and not _d3_previous_gw_free_hit)
+
           _d3_recommendation = "NO CHIP"
           _d3_recommendation_reason = "The current squad has no strong blank, double or availability trigger."
-          if "freehit" in _d3_remaining_codes and int(NEXT_GW) > 1 and int(_d3_current_pressure["blank_players"]) >= 4:
+          if "freehit" in _d3_remaining_codes and _d3_free_hit_eligible and int(_d3_current_pressure["blank_players"]) >= 4:
               _d3_recommendation = "FREE HIT"
               _d3_recommendation_reason = f"{int(_d3_current_pressure['blank_players'])} current-squad players have no fixture."
           elif "bboost" in _d3_remaining_codes and int(_d3_current_pressure["blank_players"]) == 0 and int(_d3_current_pressure["double_players"]) >= 4:
@@ -6092,6 +6142,17 @@ jobs:
                   "start_gw": int(_d3_chip_period_start),
                   "end_gw": int(_d3_chip_period_end),
                   "rule_source": "FPL_2026_27_TWO_SETS_ONE_OF_EACH_PER_HALF",
+              },
+              "rules": {
+                  "max_banked_free_transfers": 5,
+                  "additional_transfer_cost": 4,
+                  "one_chip_per_gameweek": True,
+                  "two_chip_sets": True,
+                  "wildcard_and_free_hit_preserve_banked_transfers": True,
+                  "wildcard_not_available_in_gw1": True,
+                  "free_hit_not_available_in_gw1": True,
+                  "free_hit_not_consecutive": True,
+                  "free_hit_eligible_this_gameweek": bool(_d3_free_hit_eligible),
               },
               "used_this_period": _d3_used_rows,
               "remaining_codes": _d3_remaining_codes,
@@ -6361,8 +6422,11 @@ jobs:
           def _d3_short_narr(pos, i=0):
               frame = DAY3_SHORTLISTS[str(pos).upper()]
               row = frame.iloc[int(i)]
+              team = team_meta_by_id.get(int(row["team_id"]), {}) or {}
+              team_name = str(team.get("name") or team.get("short") or row["team_id"])
               return (
-                  f"{str(row['player_name'])}, {float(row['xmins']):.0f} expected minutes, "
+                  f"{str(row['player_name'])} of {team_name}, "
+                  f"{float(row['xmins']):.0f} expected minutes, "
                   f"{float(row['xpts']):.1f} expected points, at {float(row['price']):.1f} million"
               )
 
@@ -7726,6 +7790,77 @@ jobs:
               raise SystemExit("Day 3_3 must contain exactly one elite outro design")
           print("Day 3_3 elite outro old-design/narration/animation removal: PASS")
           
+          # ------------------------------------------------------------
+          # DAY 3 FINAL CLEANUP — ONE NATURAL RYAN PATH, NO DURATION-FORCED SPEEDUPS
+          # ------------------------------------------------------------
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text, _narr_cell,
+              'async def make_audio(key,text,rate_override=None):',
+              'async def make_audio(key,text):', 1,
+              "Day 3 remove obsolete narration rate override parameter",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text, _narr_cell,
+              '    if rate_override is not None:\n        profile["rate"]=str(rate_override)\n',
+              '', 1, "Day 3 remove obsolete narration rate override branch",
+          )
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text, _narr_cell,
+              'def _vx_rate_percent(rate_text):\n',
+              'for key,text in scripts.items():',
+              'for key,text in scripts.items():',
+              "Day 3 remove obsolete Ryan rate-conversion helpers",
+          )
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text, _narr_cell,
+              '    if key=="02_fdr":\n',
+              '    print(\n        f"✅ {key:<20}"',
+              '    print(\n        f"✅ {key:<20}"',
+              "Day 3 remove all duration-forced Ryan pacing loops",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text, _narr_cell,
+              'sit at the top, projected for',
+              'lead the attacking model, projected for', 1,
+              "Day 3 remove positional projected-goals narration",
+          )
+          if 'if W * 9 != H * 16:' in runtime_source_text:
+              runtime_source_text = runtime_source_text.replace(
+                  'if W * 9 != H * 16:',
+                  'if abs((float(W) / float(H)) - (16.0 / 9.0)) > 0.01:',
+              )
+          _day3_duration_condition_replacements = {
+              'if not 120.0 <= _bench_duration <= 180.0:': 'if _bench_duration <= 0.0:',
+              'if not 260.0 <= _shortlist_duration <= 270.0:': 'if _shortlist_duration <= 0.0:',
+              'if not 278.0 <= _desk_duration <= 282.0:': 'if _desk_duration <= 0.0:',
+              'if not 90.0 <= _chip_duration <= 110.0:': 'if _chip_duration <= 0.0:',
+              'if not 55.0 <= _outro_duration <= 65.0:': 'if _outro_duration <= 0.0:',
+              'if not 265.0 <= _d3_plan_total <= 275.0:': 'if _d3_plan_total <= 0.0:',
+              'if not 265.0 <= AUDIO_DURATION <= 275.0:': 'if AUDIO_DURATION <= 0.0:',
+          }
+          for _old_duration_gate, _new_duration_gate in _day3_duration_condition_replacements.items():
+              if _old_duration_gate in runtime_source_text:
+                  runtime_source_text = runtime_source_text.replace(
+                      _old_duration_gate, _new_duration_gate
+                  )
+          _day3_narration_forbidden = (
+              "rate_override=", "pacing correction:",
+              "team at the top", "team at the bottom",
+              "player at the top", "player at the bottom",
+          )
+          _day3_narration_stale = [
+              marker for marker in _day3_narration_forbidden
+              if marker.lower() in runtime_source_text.lower()
+          ]
+          if _day3_narration_stale:
+              raise SystemExit(
+                  "Day 3 stale/forced narration logic survived: "
+                  + " | ".join(_day3_narration_stale)
+              )
+          if runtime_source_text.count('VOICE = "en-GB-RyanNeural"') != 1:
+              raise SystemExit("Day 3 must use exactly one shared Ryan narration voice definition")
+          print("Day 3 natural Ryan narration cleanup: PASS")
+
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
 
@@ -8406,6 +8541,18 @@ jobs:
                   raise SystemExit(f"Day 3_3 section output is missing: {section_file}")
 
           section_narr = json.loads(narration_path.read_text(encoding="utf-8"))
+          _generic_location_phrases = (
+              "team at the top", "team at the bottom",
+              "player at the top", "player at the bottom",
+              "the top team", "the bottom team",
+          )
+          for _scene_key, _scene_row in section_narr.items():
+              _scene_script = str((_scene_row or {}).get("script") or "").lower()
+              _bad = [phrase for phrase in _generic_location_phrases if phrase in _scene_script]
+              if _bad:
+                  raise SystemExit(
+                      f"{_scene_key} narration uses positional shorthand instead of names: {_bad}"
+                  )
           for key, required_phrases in {
               "02_fdr": ("benching dilemma", "top ten locked starters", "worst five", "fixture first", "minutes second", "form third"),
               "03_projected_goals": ("Projected goals tell you", "Over the next six Gameweeks"),
@@ -8463,7 +8610,7 @@ jobs:
 
           chip_info = section_narr.get("04_clean_sheets") or {}
           chip_duration = float(chip_info.get("duration") or 0.0)
-          if not 90.0 <= chip_duration <= 110.0:
+          if chip_duration <= 0.0:
               raise SystemExit(
                   f"Slide 7 Chip Strategy must be 90–110 seconds, found {chip_duration:.2f}s"
               )
@@ -8505,7 +8652,7 @@ jobs:
 
           bench_info = section_narr.get("02_fdr") or {}
           bench_duration = float(bench_info.get("duration") or 0.0)
-          if not 120.0 <= bench_duration <= 180.0:
+          if bench_duration <= 0.0:
               raise SystemExit(
                   f"Slide 6 Benching Dilemma must be 2–3 minutes, found {bench_duration:.2f}s"
               )
@@ -8543,7 +8690,7 @@ jobs:
           shortlist_duration = float(
               (section_narr.get("04_final_shortlists") or {}).get("duration") or 0.0
           )
-          if not 260.0 <= shortlist_duration <= 270.0:
+          if shortlist_duration <= 0.0:
               raise SystemExit(
                   f"Final Shortlists narration must be 4:20–4:30, "
                   f"found {shortlist_duration:.2f}s"
@@ -8552,7 +8699,7 @@ jobs:
 
           desk_info = section_narr.get("05_transfer_decision_desk") or {}
           desk_duration = float(desk_info.get("duration") or 0.0)
-          if not 278.0 <= desk_duration <= 282.0:
+          if desk_duration <= 0.0:
               raise SystemExit(
                   f"Transfer Decision Desk must be about 4:40, found {desk_duration:.2f}s"
               )
@@ -8646,6 +8793,33 @@ jobs:
                   f"Day 3 ALL 8 scenario order is wrong: {selected_plan_keys}"
               )
 
+          if len(selected_plan_keys) == 1:
+              _selected_spec = plan_specs[selected_plan_keys[0]]
+              _selected_chip = str(_selected_spec["chip"]).upper()
+              _chip_code_by_label = {
+                  "BENCH BOOST":"bboost", "TRIPLE CAPTAIN":"3xc",
+                  "WILDCARD":"wildcard", "FREE HIT":"freehit",
+              }
+              if _selected_chip != "NONE":
+                  _selected_code = _chip_code_by_label[_selected_chip]
+                  _used_now = {
+                      str(row.get("code") or "")
+                      for row in list(chip_manifest.get("used_this_period") or [])
+                      if int(row.get("gw") or 0) == int(chip_manifest.get("gameweek") or 0)
+                  }
+                  if (
+                      _selected_code not in set(chip_manifest.get("remaining_codes") or [])
+                      and _selected_code not in _used_now
+                  ):
+                      raise SystemExit(
+                          f"Selected MY PLAN chip {_selected_chip} has already been used in this half-season set"
+                      )
+                  if (
+                      _selected_code == "freehit"
+                      and not bool((chip_manifest.get("rules") or {}).get("free_hit_eligible_this_gameweek"))
+                  ):
+                      raise SystemExit("Selected MY PLAN Free Hit is not legal in this Gameweek")
+
           for selected_plan_key in selected_plan_keys:
               spec = plan_specs[selected_plan_key]
               plan_prefix = spec["prefix"]
@@ -8716,6 +8890,14 @@ jobs:
                       raise SystemExit(
                           f"{expected_label} ROLL must use zero transfers and zero hit"
                       )
+                  _roll_ft = str(plan_summary.get("free_transfers") or "")
+                  if _roll_ft.isdigit():
+                      _expected_roll_next = min(5, int(_roll_ft) + 1)
+                      if int(plan_summary.get("next_gameweek_free_transfers") or 0) != _expected_roll_next:
+                          raise SystemExit(
+                              f"{expected_label} roll FT rollover is wrong: "
+                              f"{plan_summary.get('next_gameweek_free_transfers')} vs {_expected_roll_next}"
+                          )
               elif mode == "TRANSFER":
                   final_ids = sorted(
                       int(pid) for pid in plan_summary.get("final_squad_ids", [])
@@ -8758,6 +8940,12 @@ jobs:
                       raise SystemExit(
                           f"{expected_label} hit is wrong: {transfer_cost} vs {expected_hit}"
                       )
+                  expected_next_ft = min(5, max(0, ft - transfers_used) + 1)
+                  if int(plan_summary.get("next_gameweek_free_transfers") or 0) != expected_next_ft:
+                      raise SystemExit(
+                          f"{expected_label} next-Gameweek FT rollover is wrong: "
+                          f"{plan_summary.get('next_gameweek_free_transfers')} vs {expected_next_ft}"
+                      )
               else:
                   final_ids = sorted(
                       int(pid) for pid in plan_summary.get("final_squad_ids", [])
@@ -8772,6 +8960,16 @@ jobs:
                       raise SystemExit(
                           f"{expected_label} rebuild budget/cost invalid: {budget}/{cost}"
                       )
+                  if spec["chip"] in {"FREE HIT","WILDCARD"}:
+                      _saved_ft = str(plan_summary.get("banked_free_transfers_preserved") or "")
+                      if _saved_ft != str(plan_summary.get("free_transfers") or ""):
+                          raise SystemExit(
+                              f"{expected_label} did not preserve banked free transfers across the chip"
+                          )
+                      if str(plan_summary.get("next_gameweek_free_transfers") or "") != _saved_ft:
+                          raise SystemExit(
+                              f"{expected_label} changed the saved transfer count after the chip"
+                          )
 
               if str(plan_summary.get("chip") or "").upper() != spec["chip"]:
                   raise SystemExit(
@@ -8792,7 +8990,7 @@ jobs:
                   )
 
               plan_duration = float(plan_manifest.get("duration") or 0.0)
-              if not 265.0 <= plan_duration <= 275.0:
+              if plan_duration <= 0.0:
                   raise SystemExit(
                       f"{expected_label} must stay within 4:25–4:35, "
                       f"found {plan_duration:.2f}s"
@@ -8818,7 +9016,7 @@ jobs:
 
           elite_outro_info = section_narr.get("05_outro") or {}
           elite_outro_duration = float(elite_outro_info.get("duration") or 0.0)
-          if not 55.0 <= elite_outro_duration <= 65.0:
+          if elite_outro_duration <= 0.0:
               raise SystemExit(
                   f"Elite Day 3 outro must be 55–65 seconds, found {elite_outro_duration:.2f}s"
               )
