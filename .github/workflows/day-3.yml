@@ -2128,10 +2128,9 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
     _d3_plan_segments = [{
         "id":"headline",
         "text":(
-            f"This is my plan. Scenario B: transfer. The model makes {_d3_5b_transfer_count} "
-            f"move{'s' if _d3_5b_transfer_count != 1 else ''}. "
-            f"The transfer path is {_d3_5b_transfer_text}. "
-            f"Hit cost is {_d3_5b_hit_cost} points, and then I optimise the final fifteen."
+            f"This is my plan. Scenario B: transfer. I make {_d3_5b_transfer_count} "
+            f"move{'s' if _d3_5b_transfer_count != 1 else ''}, include the hit, "
+            "and then optimise the final fifteen."
         ),
     }]
 
