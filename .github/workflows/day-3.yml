@@ -2548,6 +2548,37 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
     print("✅ Transfer : 0 • hit 0 • chip none")
     print("✅ Original GW Review render remains untouched")
 '''
+          _day3_plan5b_render_block = _day3_plan5a_render_block
+          for _old, _new in (
+              ("05a_my_plan_roll", "05b_my_plan_transfer"),
+              ("my_plan_5a_roll", "my_plan_5b_transfer"),
+              ("MY PLAN 5A", "MY PLAN 5B"),
+              ('"scenario":"A_ROLL"', '"scenario":"B_TRANSFER_1_TO_5"'),
+              ('!= "A_ROLL"', '!= "B_TRANSFER_1_TO_5"'),
+              ("VX17-MY-PLAN-5A-GW-REVIEW-COPY-V1", "VX17-MY-PLAN-5B-GW-REVIEW-COPY-V1"),
+          ):
+              _day3_plan5b_render_block = _day3_plan5b_render_block.replace(
+                  _old, _new
+              )
+
+          _day3_plan5b_render_block = _d3_copy_replace(
+              _day3_plan5b_render_block,
+              'print("✅ MY PLAN 5B — ROLL — ANIMATED GW REVIEW COPY RENDER PASSED")',
+              'print("✅ MY PLAN 5B — TRANSFER — ANIMATED GW REVIEW COPY RENDER PASSED")',
+              "Day 3 MY PLAN 5B renderer heading",
+          )
+          _day3_plan5b_render_block = _d3_copy_replace(
+              _day3_plan5b_render_block,
+              '    print("✅ Transfer : 0 • hit 0 • chip none")',
+              '''    _d3_5b_render_summary = dict(_vx17_manifest.get("summary") or {})
+    print(
+        f"✅ Transfer : {int(_d3_5b_render_summary.get('transfers_used') or 0)}"
+        f" • hit {int(_d3_5b_render_summary.get('transfer_cost') or 0)}"
+        " • chip none"
+    )''',
+              "Day 3 MY PLAN 5B renderer transfer summary",
+          )
+
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _gw_review_render_cell,
@@ -2566,9 +2597,9 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
         )
     )
 
-''' + _day3_plan5a_render_block,
+''' + _day3_plan5a_render_block + "\n" + _day3_plan5b_render_block,
               1,
-              "Day 3 render MY PLAN 5A through copied GW Review engine",
+              "Day 3 render MY PLAN 5A/5B through copied GW Review engine",
           )
 
           _day3_design_block = r"""
