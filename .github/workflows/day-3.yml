@@ -483,7 +483,7 @@ jobs:
 
           # ------------------------------------------------------------
           # DAY 3_3 ONLY — PROJECTIONS / DEFCON / FINAL SHORTLISTS SECTION
-          # 02_fdr becomes the combined Projected Goals + Clean Sheet Odds slide.
+          # 02_fdr becomes Slide 6 — BENCHING DILEMMA while keeping its animation/render path.
           # 03_projected_goals stays intact: original PNG, Ryan narration and MP4 are preserved.
           # 03_defcon is a separate DEFCON scene.
           # 04_final_shortlists copies the Projected Goals scene shell with new content.
@@ -4007,29 +4007,6 @@ if len(_d3_proj) != 20:
 
 _d3_proj_by_id = _d3_proj.set_index("team_id", drop=False)
 
-# One current-GW player anchor per team from the existing Phase-10 xPts pipeline.
-_d3_player_next = player_fixture_xpts_df.copy() if isinstance(player_fixture_xpts_df, pd.DataFrame) else pd.DataFrame()
-_d3_player_by_team = {}
-if not _d3_player_next.empty and {"gw", "team_id", "player_id", "player_name", "xpts"}.issubset(_d3_player_next.columns):
-    _d3_player_next = _d3_player_next.loc[
-        pd.to_numeric(_d3_player_next["gw"], errors="coerce").eq(int(NEXT_GW))
-    ].copy()
-    _d3_player_next["xpts"] = pd.to_numeric(_d3_player_next["xpts"], errors="coerce")
-    _d3_player_next = _d3_player_next.dropna(subset=["team_id", "player_id", "xpts"])
-    if not _d3_player_next.empty:
-        _d3_player_agg = (
-            _d3_player_next.groupby(
-                ["player_id", "player_name", "team_id"], as_index=False
-            )["xpts"].sum(min_count=1)
-            .sort_values(["team_id", "xpts", "player_name"], ascending=[True, False, True])
-        )
-        for _tid, _group in _d3_player_agg.groupby("team_id", sort=False):
-            _row = _group.iloc[0]
-            _d3_player_by_team[int(_tid)] = {
-                "name": str(_row["player_name"]),
-                "xpts": float(_row["xpts"]),
-            }
-
 def _d3_team_badge(row, css="d3TeamBadge"):
     src = str(row.get("badge", "") or "")
     short = _d3_escape(str(row.get("team_short", "TEAM")).upper())
@@ -4037,180 +4014,433 @@ def _d3_team_badge(row, css="d3TeamBadge"):
         return f'<img class="{css}" src="{src}" alt="{short}">'
     return f'<div class="{css} d3BadgeFallback">{short[:3]}</div>'
 
-def _d3_player_line(team_id):
-    info = _d3_player_by_team.get(int(team_id))
-    if not info:
-        return '<span class="d3PlayerAnchor">PLAYER MODEL • NO READY xPTS</span>'
-    return (
-        f'<span class="d3PlayerAnchor">{_d3_escape(info["name"])}'
-        f' • {info["xpts"]:.1f} xPTS</span>'
+# -----------------------------
+# SLIDE 6 — BENCHING DILEMMA
+# Reuses fdr_scene_4k.html/png and the existing 02_fdr animation/render path.
+# Heading/content only are replaced; VORTEX header/footer/template remain unchanged.
+# -----------------------------
+_D3_BENCH_REQUIRED = {
+    "gameweek", "player_id", "player_name", "team_id", "position",
+    "expected_minutes", "start_probability", "appearance_probability",
+    "fixture_expected_points", "calculation_status", "venue",
+}
+_d3_bench_src = phase10_player_fixture_expected_points.copy()
+_d3_bench_missing = sorted(_D3_BENCH_REQUIRED - set(_d3_bench_src.columns))
+if _d3_bench_missing:
+    raise RuntimeError(
+        f"Day 3_3 Benching Dilemma missing Phase-10 fields: {_d3_bench_missing}"
     )
 
-def _d3_kickoff(value):
-    stamp = pd.to_datetime(value, errors="coerce", utc=True)
-    if pd.isna(stamp):
-        return "KICKOFF TBD"
-    local = stamp.tz_convert(_D3ZoneInfo("America/New_York"))
-    return local.strftime("%a %d %b • %-I:%M %p %Z").upper()
-
-# -----------------------------
-# SLIDE 1 — FIXTURE CARDS
-# -----------------------------
-_d3_fx = fixtures_raw.copy()
-if "event" not in _d3_fx.columns:
-    raise RuntimeError("Day 3_3 projection slide requires fixtures_raw.event")
-_d3_fx = _d3_fx.loc[
-    pd.to_numeric(_d3_fx["event"], errors="coerce").eq(int(NEXT_GW))
+_d3_bench_src = _d3_bench_src.loc[
+    pd.to_numeric(_d3_bench_src["gameweek"], errors="coerce").eq(int(NEXT_GW))
+    & _d3_bench_src["calculation_status"].astype(str).eq("READY")
 ].copy()
-if _d3_fx.empty:
-    raise RuntimeError(f"Day 3_3 found no fixtures for GW{int(NEXT_GW)}")
-if "kickoff_time" in _d3_fx.columns:
-    _d3_fx["_kick"] = pd.to_datetime(_d3_fx["kickoff_time"], errors="coerce", utc=True)
-    _d3_fx = _d3_fx.sort_values(["_kick", "id"] if "id" in _d3_fx.columns else ["_kick"])
+if _d3_bench_src.empty:
+    raise RuntimeError(
+        f"Day 3_3 Benching Dilemma has no READY player rows for GW{int(NEXT_GW)}"
+    )
 
-_d3_fixture_cards = []
-for _, _fx in _d3_fx.iterrows():
-    try:
-        _hid = int(_fx["team_h"])
-        _aid = int(_fx["team_a"])
-    except Exception:
-        continue
-    if _hid not in _d3_proj_by_id.index or _aid not in _d3_proj_by_id.index:
-        continue
-    _home = _d3_proj_by_id.loc[_hid]
-    _away = _d3_proj_by_id.loc[_aid]
-    _kick = _d3_kickoff(_fx.get("kickoff_time"))
+for _col in (
+    "player_id", "team_id", "expected_minutes", "start_probability",
+    "appearance_probability", "fixture_expected_points",
+):
+    _d3_bench_src[_col] = pd.to_numeric(_d3_bench_src[_col], errors="coerce")
+_d3_bench_src = _d3_bench_src.dropna(
+    subset=["player_id", "team_id", "fixture_expected_points"]
+).copy()
+_d3_bench_src["player_id"] = _d3_bench_src["player_id"].astype(int)
+_d3_bench_src["team_id"] = _d3_bench_src["team_id"].astype(int)
 
-    def _team_line(_row):
-        _tid = int(_row["team_id"])
-        return (
-            '<div class="d3FixtureTeam">'
-            f'{_d3_team_badge(_row)}'
-            '<div class="d3FixtureIdentity">'
-            f'<span class="d3FixtureName">{_d3_escape(str(_row["team_short"]).upper())}</span>'
-            f'{_d3_player_line(_tid)}'
-            '</div>'
-            f'<div class="d3Metric d3GoalMetric">{float(_row["gw1_xg"]):.2f}</div>'
-            f'<div class="d3Metric d3CsMetric">{float(_row["gw1_cs"]):.0f}%</div>'
-            '</div>'
-        )
+# Aggregate the current Gameweek only. DGWs remain additive by design.
+_d3_bench_pool = (
+    _d3_bench_src.groupby(
+        ["player_id", "player_name", "team_id", "position"], as_index=False
+    )
+    .agg(
+        xpts=("fixture_expected_points", "sum"),
+        xmins=("expected_minutes", "sum"),
+        start_probability=("start_probability", "max"),
+        appearance_probability=("appearance_probability", "max"),
+        home_share=("venue", lambda x: float(
+            pd.Series(x).astype(str).str.upper().eq("H").mean()
+        )),
+    )
+)
 
-    _d3_fixture_cards.append(
-        '<article class="d3FixtureCard">'
-        f'<div class="d3FixtureKick">{_kick}</div>'
-        '<div class="d3FixtureCols"><span>TEAM</span><span>GLS</span><span>CS%</span></div>'
-        f'{_team_line(_home)}{_team_line(_away)}'
+# Phase-10 role/minutes data supplies availability, attacking process and set pieces.
+_d3_bench_features = phase10_player_features[[
+    "player_id", "availability_probability", "npxg_per90", "xa_per90",
+    "penalty_taker_probability", "set_piece_role",
+]].copy()
+for _col in (
+    "availability_probability", "npxg_per90", "xa_per90",
+    "penalty_taker_probability",
+):
+    _d3_bench_features[_col] = pd.to_numeric(
+        _d3_bench_features[_col], errors="coerce"
+    )
+_d3_bench_features = _d3_bench_features.drop_duplicates("player_id", keep="last")
+_d3_bench_pool = _d3_bench_pool.merge(
+    _d3_bench_features, on="player_id", how="left", validate="one_to_one"
+)
+
+# Official FPL form/ownership are secondary evidence only.
+_d3_bench_official = players[[
+    "id", "form", "selected_by_percent"
+]].copy().rename(columns={"id":"player_id"})
+_d3_bench_official["player_id"] = pd.to_numeric(
+    _d3_bench_official["player_id"], errors="coerce"
+)
+_d3_bench_official["form"] = pd.to_numeric(
+    _d3_bench_official["form"], errors="coerce"
+)
+_d3_bench_official["selected_by_percent"] = pd.to_numeric(
+    _d3_bench_official["selected_by_percent"], errors="coerce"
+)
+_d3_bench_official = _d3_bench_official.dropna(
+    subset=["player_id"]
+).drop_duplicates("player_id", keep="last")
+_d3_bench_official["player_id"] = _d3_bench_official["player_id"].astype(int)
+_d3_bench_pool = _d3_bench_pool.merge(
+    _d3_bench_official, on="player_id", how="left", validate="one_to_one"
+)
+
+# Position-aware next-GW model FDR: defence FDR for GK/DEF; attack FDR for MID/FWD.
+_d3_bench_fdr = model_fixture_fdr_df.loc[
+    pd.to_numeric(model_fixture_fdr_df["gw"], errors="coerce").eq(int(NEXT_GW))
+].copy()
+if _d3_bench_fdr.empty:
+    raise RuntimeError(
+        f"Day 3_3 Benching Dilemma has no model FDR rows for GW{int(NEXT_GW)}"
+    )
+
+def _d3_bench_fdr_value(team_id, position):
+    _rows = _d3_bench_fdr.loc[
+        pd.to_numeric(_d3_bench_fdr["team_id"], errors="coerce").eq(int(team_id))
+    ]
+    if _rows.empty:
+        return np.nan
+    _field = (
+        "defence_fdr_model"
+        if str(position).upper() in {"GK", "DEF"}
+        else "attack_fdr_model"
+    )
+    _values = pd.to_numeric(_rows[_field], errors="coerce").dropna()
+    return float(_values.mean()) if len(_values) else np.nan
+
+_d3_bench_pool["fdr"] = [
+    _d3_bench_fdr_value(tid, pos)
+    for tid, pos in zip(_d3_bench_pool["team_id"], _d3_bench_pool["position"])
+]
+_d3_bench_pool = _d3_bench_pool.dropna(subset=["fdr"]).copy()
+
+for _col, _default in (
+    ("availability_probability", 0.0),
+    ("npxg_per90", 0.0),
+    ("xa_per90", 0.0),
+    ("penalty_taker_probability", 0.0),
+    ("form", 0.0),
+    ("selected_by_percent", 0.0),
+):
+    _d3_bench_pool[_col] = pd.to_numeric(
+        _d3_bench_pool[_col], errors="coerce"
+    ).fillna(_default)
+
+_d3_bench_pool["start_probability"] = pd.to_numeric(
+    _d3_bench_pool["start_probability"], errors="coerce"
+).fillna(0.0).clip(0.0, 1.0)
+_d3_bench_pool["appearance_probability"] = pd.to_numeric(
+    _d3_bench_pool["appearance_probability"], errors="coerce"
+).fillna(0.0).clip(0.0, 1.0)
+_d3_bench_pool["availability_probability"] = _d3_bench_pool[
+    "availability_probability"
+].clip(0.0, 1.0)
+_d3_bench_pool["underlying"] = (
+    _d3_bench_pool["npxg_per90"].clip(lower=0.0)
+    + _d3_bench_pool["xa_per90"].clip(lower=0.0)
+)
+_d3_bench_pool["set_piece_signal"] = (
+    _d3_bench_pool["set_piece_role"].fillna("NONE").astype(str).str.upper().ne("NONE")
+    | _d3_bench_pool["penalty_taker_probability"].gt(0.05)
+).astype(float)
+_d3_bench_pool["fixture_ease"] = (
+    (5.0 - pd.to_numeric(_d3_bench_pool["fdr"], errors="coerce")) / 4.0
+).clip(0.0, 1.0)
+
+def _d3_bench_norm(series):
+    _s = pd.to_numeric(series, errors="coerce").fillna(0.0)
+    _lo = float(_s.min())
+    _hi = float(_s.max())
+    if not np.isfinite(_lo) or not np.isfinite(_hi) or _hi - _lo <= 1e-12:
+        return pd.Series(0.5, index=_s.index, dtype=float)
+    return ((_s - _lo) / (_hi - _lo)).clip(0.0, 1.0)
+
+# User-priority selection score:
+# fixture/xPts first; minutes second; recent form/underlying third;
+# home/set-piece/availability next; ownership only a 2% tie-breaker.
+_d3_bench_pool["score"] = (
+    0.32 * _d3_bench_norm(_d3_bench_pool["xpts"])
+    + 0.16 * _d3_bench_pool["fixture_ease"]
+    + 0.13 * _d3_bench_pool["start_probability"]
+    + 0.09 * _d3_bench_norm(_d3_bench_pool["xmins"])
+    + 0.08 * _d3_bench_norm(_d3_bench_pool["form"])
+    + 0.07 * _d3_bench_norm(_d3_bench_pool["underlying"])
+    + 0.05 * _d3_bench_pool["home_share"].clip(0.0, 1.0)
+    + 0.04 * _d3_bench_pool["set_piece_signal"]
+    + 0.04 * _d3_bench_pool["availability_probability"]
+    + 0.02 * _d3_bench_norm(_d3_bench_pool["selected_by_percent"])
+)
+
+# Locked-start pool enforces meaningful minute/security gates before ranking.
+_d3_locked = _d3_bench_pool.loc[
+    _d3_bench_pool["xmins"].ge(45.0)
+    & _d3_bench_pool["start_probability"].ge(0.55)
+    & _d3_bench_pool["availability_probability"].ge(0.70)
+].copy()
+if len(_d3_locked) < 16:
+    # Dynamic fallback: preserve the same score but relax only the hard security gate.
+    _d3_locked = _d3_bench_pool.copy()
+
+_d3_ranked = _d3_locked.sort_values(
+    ["score", "xpts", "start_probability", "xmins", "player_name"],
+    ascending=[False, False, False, False, True],
+    na_position="last",
+).reset_index(drop=True)
+if len(_d3_ranked) < 16 or len(_d3_bench_pool) < 24:
+    raise RuntimeError(
+        "Day 3_3 Benching Dilemma requires at least 24 model-ready players "
+        f"(ranked={len(_d3_ranked)}, pool={len(_d3_bench_pool)})"
+    )
+_d3_ranked["overall_rank"] = np.arange(1, len(_d3_ranked) + 1)
+
+DAY3_BENCHING_TOP16 = _d3_ranked.head(16).copy()
+DAY3_BENCHING_TOP10 = DAY3_BENCHING_TOP16.head(10).copy()
+_d3_top_ids = set(DAY3_BENCHING_TOP16["player_id"].astype(int))
+
+_d3_bottom_candidates = _d3_bench_pool.loc[
+    ~_d3_bench_pool["player_id"].astype(int).isin(_d3_top_ids)
+].copy()
+_d3_bottom_candidates = _d3_bottom_candidates.sort_values(
+    ["score", "xpts", "start_probability", "xmins", "player_name"],
+    ascending=[True, True, True, True, True],
+    na_position="first",
+).reset_index(drop=True)
+if len(_d3_bottom_candidates) < 8:
+    raise RuntimeError("Day 3_3 Benching Dilemma cannot build eight unique sit/avoid players")
+DAY3_BENCHING_BOTTOM8 = _d3_bottom_candidates.head(8).copy()
+DAY3_BENCHING_BOTTOM5 = DAY3_BENCHING_BOTTOM8.head(5).copy()
+
+_d3_display_ids = (
+    DAY3_BENCHING_TOP16["player_id"].astype(int).tolist()
+    + DAY3_BENCHING_BOTTOM8["player_id"].astype(int).tolist()
+)
+if len(_d3_display_ids) != 24 or len(set(_d3_display_ids)) != 24:
+    raise RuntimeError("Day 3_3 Benching Dilemma must display 24 unique players")
+
+_d3_players_by_id = players.drop_duplicates("id", keep="last").set_index("id", drop=False)
+
+def _d3_bench_photo(player_id, css):
+    _pid = int(player_id)
+    if _pid in _d3_players_by_id.index:
+        _row = _d3_players_by_id.loc[_pid]
+        _src = str(resolve_player_photo(_row) or "")
+        if _src:
+            return f'<img class="{css}" src="{_d3_escape(_src)}" alt="">'
+    return f'<div class="{css} d3BenchPhotoFallback">FPL</div>'
+
+def _d3_bench_badge(team_id, css):
+    _meta = team_meta_by_id.get(int(team_id), {}) or {}
+    _src = str(_meta.get("badge", "") or "")
+    _short = str(_meta.get("short", "TEAM") or "TEAM").upper()
+    if _src:
+        return f'<img class="{css}" src="{_d3_escape(_src)}" alt="">'
+    return f'<div class="{css} d3BenchBadgeFallback">{_d3_escape(_short[:3])}</div>'
+
+def _d3_bench_team(team_id):
+    _meta = team_meta_by_id.get(int(team_id), {}) or {}
+    return str(_meta.get("short") or _meta.get("name") or team_id).upper()
+
+def _d3_bench_reason(row, *, avoid=False):
+    _fdr = float(row["fdr"])
+    _xpts = float(row["xpts"])
+    _xmins = float(row["xmins"])
+    _start = float(row["start_probability"])
+    _form = float(row["form"])
+    _set_piece = float(row["set_piece_signal"]) > 0
+    if avoid:
+        if _xmins < 45 or _start < 0.50:
+            return "minutes risk is too high"
+        if _fdr >= 3.8:
+            return "the next fixture is too difficult"
+        if _xpts <= float(_d3_bench_pool["xpts"].median()):
+            return "the projected ceiling is too low"
+        return "stronger start options rate above him"
+    if _fdr <= 2.3 and _start >= 0.80:
+        return "soft fixture plus secure minutes"
+    if _set_piece and _xpts >= float(_d3_bench_pool["xpts"].quantile(0.75)):
+        return "set-piece role plus strong xPts"
+    if _form >= float(_d3_bench_pool["form"].quantile(0.75)):
+        return "form and underlying numbers agree"
+    if _xmins >= 80 and _start >= 0.80:
+        return "elite minutes security"
+    return "fixture, minutes and xPts all align"
+
+_d3_top10_ids = set(DAY3_BENCHING_TOP10["player_id"].astype(int))
+_d3_bottom5_ids = set(DAY3_BENCHING_BOTTOM5["player_id"].astype(int))
+
+def _d3_bench_card(row, *, bucket, index):
+    _pid = int(row["player_id"])
+    _is_top10 = _pid in _d3_top10_ids
+    _is_bottom5 = _pid in _d3_bottom5_ids
+    _classes = ["d3FixtureCard", "d3RankRow", "d3BenchCard"]
+    if _is_top10:
+        _classes.append("d3BenchTop")
+    if _is_bottom5:
+        _classes.append("d3BenchAvoid")
+    _rank_label = (
+        f"#{int(row.get('overall_rank', index + 1)):02d}"
+        if bucket != "avoid"
+        else f"SIT {index + 1}"
+    )
+    return (
+        f'<article class="{" ".join(_classes)}">'
+        f'<span class="d3BenchRank">{_rank_label}</span>'
+        f'<div class="d3BenchPhotoBox">{_d3_bench_photo(_pid, "d3BenchPhoto")}'
+        f'{_d3_bench_badge(row["team_id"], "d3BenchBadge")}</div>'
+        '<div class="d3BenchIdentity">'
+        f'<strong>{_d3_escape(str(row["player_name"]))}</strong>'
+        f'<small>{_d3_escape(_d3_bench_team(row["team_id"]))} • '
+        f'{_d3_escape(str(row["position"]).upper())}</small>'
+        '</div>'
+        '<div class="d3BenchMetric">'
+        f'<b>{float(row["xpts"]):.1f}</b><span>xPTS</span></div>'
+        '<div class="d3BenchMetric d3BenchFdr">'
+        f'<b>{float(row["fdr"]):.1f}</b><span>FDR</span></div>'
         '</article>'
     )
 
-if not _d3_fixture_cards:
-    raise RuntimeError("Day 3_3 projection slide could not build fixture cards")
+def _d3_bench_column(title, subtitle, frame, bucket):
+    _cards = "".join(
+        _d3_bench_card(row, bucket=bucket, index=i)
+        for i, (_, row) in enumerate(frame.iterrows())
+    )
+    return (
+        '<section class="d3BenchColumn">'
+        f'<div class="d3BenchColHead"><strong>{_d3_escape(title)}</strong>'
+        f'<span>{_d3_escape(subtitle)}</span></div>'
+        f'<div class="d3BenchCards">{_cards}</div>'
+        '</section>'
+    )
 
-_d3_attack_rank = _d3_proj.sort_values(
-    ["gw1_xg", "team_short"], ascending=[False, True]
-).reset_index(drop=True)
-_d3_cs_rank = _d3_proj.sort_values(
-    ["gw1_cs", "team_short"], ascending=[False, True]
-).reset_index(drop=True)
-
-DAY3_PROJ_ATTACK_TARGETS = _d3_attack_rank.head(4).copy()
-DAY3_PROJ_ATTACK_AVOIDS = _d3_attack_rank.tail(3).sort_values(
-    ["gw1_xg", "team_short"], ascending=[True, True]
-).reset_index(drop=True)
-DAY3_PROJ_CS_TARGETS = _d3_cs_rank.head(4).copy()
-DAY3_PROJ_CS_AVOIDS = _d3_cs_rank.tail(3).sort_values(
-    ["gw1_cs", "team_short"], ascending=[True, True]
-).reset_index(drop=True)
-DAY3_TOP_PLAYER_BY_TEAM = dict(_d3_player_by_team)
-
-def _d3_rank_rows(frame, metric):
-    rows = []
-    maximum = float(pd.to_numeric(
-        frame["gw1_xg" if metric == "xg" else "gw1_cs"], errors="coerce"
-    ).max())
-    for _idx, _row in frame.reset_index(drop=True).iterrows():
-        _tid = int(_row["team_id"])
-        _value = float(_row["gw1_xg"] if metric == "xg" else _row["gw1_cs"])
-        _width = 100.0 * _value / maximum if maximum > 0 else 0.0
-        _is_target = _idx < 4
-        _is_avoid = _idx >= len(frame) - 3
-        _cls = " d3Target" if _is_target else (" d3Avoid" if _is_avoid else "")
-        _display = f"{_value:.2f}" if metric == "xg" else f"{_value:.0f}%"
-        _opp = _d3_escape(str(_row.get("gw1_opponent", "TBD")).upper())
-        _player = _d3_player_by_team.get(_tid, {})
-        _player_text = (
-            f'{_d3_escape(str(_player.get("name", "")))} • {float(_player.get("xpts", 0)):.1f}'
-            if _player else "NO READY xPTS"
-        )
-        rows.append(
-            f'<div class="d3RankRow{_cls}" data-team="{_d3_escape(str(_row["team_short"]).upper())}">'
-            f'<span class="d3RankNo">{_idx + 1:02d}</span>'
-            f'{_d3_team_badge(_row, "d3RankBadge")}'
-            '<div class="d3RankIdentity">'
-            f'<span class="d3RankTeam">{_d3_escape(str(_row["team_short"]).upper())}</span>'
-            f'<small>{_opp} • {_player_text}</small>'
-            '</div>'
-            f'<div class="d3RankBar"><i style="width:{_width:.1f}%"></i></div>'
-            f'<strong>{_display}</strong>'
-            '</div>'
-        )
-    return "".join(rows)
-
-_d3_projection_left = (
-    '<section class="board d3FixtureBoard">'
-    '<div class="d3BoardHead"><span>GAMEWEEK FIXTURES</span>'
-    '<div class="d3MiniCols"><b>GLS</b><b>CS%</b></div></div>'
-    f'<div class="d3FixtureGrid">{"".join(_d3_fixture_cards)}</div>'
-    '</section>'
-)
-_d3_projection_right = (
-    '<section class="board d3Rankings">'
-    '<div class="d3RankBlock"><div class="d3RankHeading">PROJECTED GOALS ↓</div>'
-    f'{_d3_rank_rows(_d3_attack_rank, "xg")}</div>'
-    '<div class="d3RankBlock"><div class="d3RankHeading">CLEAN SHEET % ↓</div>'
-    f'{_d3_rank_rows(_d3_cs_rank, "cs")}</div>'
-    '</section>'
+_d3_bench_panel = (
+    '<section class="board d3FixtureBoard d3BenchBoard">'
+    '<div class="d3BenchRule"><strong>FIXTURE → MINUTES → FORM</strong>'
+    '<span>SET PIECES • HOME/AWAY • TEAM NEWS • OWNERSHIP TIE-BREAK ONLY</span></div>'
+    '<div class="d3Rankings d3BenchGrid">'
+    + _d3_bench_column(
+        "START • 1–8", "LOCKED CORE",
+        DAY3_BENCHING_TOP16.iloc[:8].copy(), "start"
+    )
+    + _d3_bench_column(
+        "START / FLEX • 9–16", "TOP 10 HIGHLIGHTED",
+        DAY3_BENCHING_TOP16.iloc[8:16].copy(), "flex"
+    )
+    + _d3_bench_column(
+        "SIT / AVOID", "BOTTOM 5 HIGHLIGHTED",
+        DAY3_BENCHING_BOTTOM8.copy(), "avoid"
+    )
+    + '</div></section>'
 )
 
-_d3_projection_css = r'''
-.tables{flex:1!important;min-height:0!important;display:grid!important;grid-template-columns:1.14fr .86fr!important;gap:30px!important;padding-bottom:10px!important}
-.d3FixtureBoard,.d3Rankings{min-width:0;min-height:0;border-radius:24px;background:rgba(2,10,22,.94);border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 42px rgba(0,0,0,.32);overflow:hidden}
-.d3BoardHead{height:66px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.12);font-size:30px;font-weight:1000;letter-spacing:2px}
-.d3MiniCols{display:grid;grid-template-columns:110px 110px;gap:8px;color:#9fc2d5;font-size:22px;text-align:center}
-.d3FixtureGrid{height:calc(100% - 66px);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:12px;padding:12px}
-.d3FixtureCard{min-height:0;border:1px solid rgba(255,255,255,.12);background:linear-gradient(145deg,rgba(11,29,50,.98),rgba(4,15,29,.99));overflow:hidden}
-.d3FixtureKick{height:38px;display:flex;align-items:center;padding:0 14px;background:rgba(255,255,255,.07);font-family:Arial,sans-serif;font-size:18px;font-weight:950;letter-spacing:1px;color:#c8d5e2}
-.d3FixtureCols{height:27px;display:grid;grid-template-columns:minmax(0,1fr) 110px 110px;padding:0 10px 0 82px;align-items:center;color:#8fa2b5;font-family:Arial,sans-serif;font-size:15px;font-weight:900;letter-spacing:1px}.d3FixtureCols span:nth-child(n+2){text-align:center}
-.d3FixtureTeam{height:calc((100% - 65px)/2);display:grid;grid-template-columns:66px minmax(0,1fr) 110px 110px;gap:8px;align-items:center;padding:5px 9px;border-top:1px solid rgba(255,255,255,.08)}
-.d3TeamBadge{width:52px;height:52px;object-fit:contain}.d3BadgeFallback{display:grid;place-items:center;border-radius:50%;background:#13263c;color:#fff;font-size:14px}
-.d3FixtureIdentity{min-width:0;display:flex;flex-direction:column;gap:3px}.d3FixtureName{font-size:30px;font-weight:1000;letter-spacing:1px}.d3PlayerAnchor{font-family:Arial,sans-serif;font-size:13px;font-weight:850;color:#8fb0c8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.d3Metric{height:54px;display:grid;place-items:center;font-size:31px;font-weight:1000}.d3GoalMetric{background:#0d3d69;color:#dff4ff}.d3CsMetric{background:#783319;color:#fff4ea}
-.d3Rankings{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:12px}
-.d3RankBlock{min-width:0;display:flex;flex-direction:column}.d3RankHeading{height:52px;display:flex;align-items:center;padding:0 12px;border-bottom:2px solid rgba(255,255,255,.18);font-family:Arial,sans-serif;font-size:20px;font-weight:1000;letter-spacing:1px;color:#c8d5e2}
-.d3RankRow{height:calc((100% - 52px)/20);min-height:44px;display:grid;grid-template-columns:34px 42px 112px minmax(40px,1fr) 70px;gap:6px;align-items:center;border-bottom:1px solid rgba(255,255,255,.07);font-family:Arial,sans-serif}
-.d3RankNo{font-size:14px;color:#71869a;text-align:center}.d3RankBadge{width:32px;height:32px;object-fit:contain}.d3RankIdentity{min-width:0;display:flex;flex-direction:column}.d3RankTeam{font-size:20px;font-weight:1000}.d3RankIdentity small{font-size:9px;color:#71869a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.d3RankBar{height:18px;background:#0b1420;overflow:hidden}.d3RankBar i{display:block;height:100%;background:#15558b}.d3RankRow:nth-child(n+1) strong{font-size:19px;text-align:right}.d3RankRow.d3Target{background:rgba(0,245,160,.07)}.d3RankRow.d3Target .d3RankBar i{background:#0a8a68}.d3RankRow.d3Avoid{background:rgba(255,77,94,.07)}.d3RankRow.d3Avoid .d3RankBar i{background:#8c2c3d}
+_d3_bench_css = r'''
+.tables{flex:1!important;min-height:0!important;display:grid!important;grid-template-columns:1fr!important;gap:0!important;padding-bottom:10px!important}
+.d3BenchBoard{min-height:0!important;border-radius:24px!important;padding:18px 20px 20px!important;background:radial-gradient(circle at 50% 0,rgba(52,230,255,.10),transparent 34%),linear-gradient(180deg,rgba(4,18,31,.98),rgba(2,10,19,.99))!important;border:1px solid rgba(255,255,255,.15)!important;box-shadow:0 20px 50px rgba(0,0,0,.38)!important;overflow:hidden!important}
+.d3BenchRule{height:74px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;margin-bottom:14px;border-radius:18px;background:linear-gradient(90deg,rgba(255,216,71,.16),rgba(53,230,255,.10));border:1px solid rgba(255,255,255,.13)}
+.d3BenchRule strong{font:1000 29px/1 Arial;letter-spacing:3px;color:#ffe05d}.d3BenchRule span{font:900 17px/1 Arial;letter-spacing:1.2px;color:#b9d2df}
+.d3BenchGrid{height:calc(100% - 88px);display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:18px!important;padding:0!important;background:none!important;border:0!important;box-shadow:none!important;overflow:visible!important}
+.d3BenchColumn{min-width:0;min-height:0;display:grid;grid-template-rows:82px minmax(0,1fr);border-radius:20px;overflow:hidden;background:rgba(5,25,39,.82);border:1px solid rgba(255,255,255,.12)}
+.d3BenchColHead{display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:rgba(255,255,255,.055);border-bottom:1px solid rgba(255,255,255,.12)}
+.d3BenchColHead strong{font:1000 27px/1 Arial;letter-spacing:1.5px;color:#fff}.d3BenchColHead span{font:900 13px/1 Arial;letter-spacing:1px;color:#9db8c7}
+.d3BenchCards{min-height:0;display:grid;grid-template-rows:repeat(8,minmax(0,1fr));gap:8px;padding:10px}
+.d3BenchCard{min-width:0;min-height:0!important;height:auto!important;display:grid!important;grid-template-columns:52px 116px minmax(0,1fr) 96px 86px!important;align-items:center!important;gap:10px!important;padding:7px 10px!important;border-radius:14px!important;background:linear-gradient(100deg,rgba(10,40,58,.98),rgba(5,21,34,.99))!important;border:1px solid rgba(255,255,255,.12)!important;box-shadow:0 7px 18px rgba(0,0,0,.22)!important;overflow:hidden!important}
+.d3BenchTop{border-color:rgba(74,255,170,.55)!important;background:linear-gradient(100deg,rgba(8,57,43,.98),rgba(5,26,34,.99))!important}.d3BenchAvoid{border-color:rgba(255,93,108,.58)!important;background:linear-gradient(100deg,rgba(69,22,31,.96),rgba(23,15,26,.99))!important}
+.d3BenchRank{font:1000 17px/1 Arial;color:#9fc0d1;text-align:center}.d3BenchTop .d3BenchRank{color:#70ffc0}.d3BenchAvoid .d3BenchRank{color:#ff8f99}
+.d3BenchPhotoBox{position:relative;width:112px;height:112px;border-radius:12px;overflow:hidden;background:radial-gradient(circle at 50% 35%,rgba(255,255,255,.15),rgba(3,14,24,.10));display:grid;place-items:center}
+.d3BenchPhoto{width:108px;height:108px;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 7px 8px rgba(0,0,0,.38))}.d3BenchPhotoFallback{display:grid;place-items:center;font:1000 22px Arial;color:#8fb6ca}
+.d3BenchBadge{position:absolute;right:3px;top:3px;width:38px;height:38px;object-fit:contain;padding:3px;border-radius:50%;background:rgba(245,250,255,.90);filter:drop-shadow(0 3px 4px rgba(0,0,0,.30))}.d3BenchBadgeFallback{display:grid;place-items:center;font:1000 9px Arial;color:#08131d}
+.d3BenchIdentity{min-width:0;display:flex;flex-direction:column;gap:6px}.d3BenchIdentity strong{font:1000 25px/1 Arial;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d3BenchIdentity small{font:900 13px/1 Arial;color:#91aebd;letter-spacing:.7px}
+.d3BenchMetric{height:62px;border-radius:10px;background:rgba(53,230,255,.10);border:1px solid rgba(53,230,255,.22);display:flex;flex-direction:column;align-items:center;justify-content:center}.d3BenchMetric b{font:1000 29px/1 Arial;color:#76eaff}.d3BenchMetric span{margin-top:4px;font:900 10px/1 Arial;color:#a6bdc9;letter-spacing:1px}
+.d3BenchFdr{background:rgba(255,216,71,.10);border-color:rgba(255,216,71,.25)}.d3BenchFdr b{color:#ffe15e}
 '''
 
-_d3_projection_html = scene_template.substitute(
-    document_title="FPL VORTEX — Projected Goals & Clean Sheet Odds",
+# Remove any prior Day-3_3 FDR output before writing the replacement.
+for _stale in (FDR_HTML_PATH, FDR_PNG_PATH):
+    Path(_stale).unlink(missing_ok=True)
+
+_d3_benching_html = scene_template.substitute(
+    document_title="FPL VORTEX — Benching Dilemma",
     vortex_logo=vortex_logo_html,
-    header_kicker='<span style="position:relative;left:-560px;">GAMEWEEK MODEL</span>',
-    title_first="PROJECTED GOALS",
-    title_second="& CLEAN SHEET ODDS",
-    subtitle=f"GW{int(NEXT_GW)} • FIXTURE-BY-FIXTURE MODEL • ALL 20 TEAMS",
-    scale_heading="TARGET TOP 4 • AVOID BOTTOM 3",
-    left_panel=_d3_projection_left,
-    right_panel=_d3_projection_right,
-    source_text="VORTEX PHASE 4 MODEL",
+    header_kicker='<span style="position:relative;left:-560px;">START / SIT DECISION ENGINE</span>',
+    title_first="BENCHING DILEMMA",
+    title_second="WHO STARTS • WHO SITS • AUTOSUB RISK",
+    subtitle=f"GW{int(NEXT_GW)} • TOP 10 LOCKED STARTERS • BOTTOM 5 AVOID",
+    scale_heading="FIXTURE FIRST • MINUTES SECOND • FORM THIRD",
+    left_panel=_d3_bench_panel,
+    right_panel="",
+    source_text="VORTEX PHASE 10 • MODEL FDR • OFFICIAL FPL",
     youtube_icon=youtube_icon,
     x_icon=x_icon,
     data_updated=data_updated,
 )
-_d3_projection_html = _d3_projection_html.replace("</style>", _d3_projection_css + "\n</style>", 1)
-_d3_projection_html = vx_apply_pl_lockup(_d3_projection_html)
-_d3_projection_html = vx_polish_branding(_d3_projection_html)
-FDR_HTML_PATH.write_text(_d3_projection_html, encoding="utf-8")
+_d3_benching_html = _d3_benching_html.replace(
+    "</style>", _d3_bench_css + "\n</style>", 1
+)
+_d3_benching_html = vx_apply_pl_lockup(_d3_benching_html)
+_d3_benching_html = vx_polish_branding(_d3_benching_html)
+FDR_HTML_PATH.write_text(_d3_benching_html, encoding="utf-8")
+
+BENCHING_MANIFEST_PATH = Path(DATA_DIR) / "benching_dilemma.json"
+BENCHING_MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+BENCHING_MANIFEST_PATH.write_text(
+    json.dumps(
+        {
+            "gameweek": int(NEXT_GW),
+            "selection_source": "PHASE10_PLAYER_XPTS+XMINS+MODEL_FDR+OFFICIAL_FPL_FORM",
+            "displayed_players": 24,
+            "top10": [
+                {
+                    "player_id": int(row["player_id"]),
+                    "name": str(row["player_name"]),
+                    "team_id": int(row["team_id"]),
+                    "position": str(row["position"]),
+                    "xpts": float(row["xpts"]),
+                    "xmins": float(row["xmins"]),
+                    "fdr": float(row["fdr"]),
+                    "score": float(row["score"]),
+                    "reason": _d3_bench_reason(row, avoid=False),
+                }
+                for _, row in DAY3_BENCHING_TOP10.iterrows()
+            ],
+            "bottom5": [
+                {
+                    "player_id": int(row["player_id"]),
+                    "name": str(row["player_name"]),
+                    "team_id": int(row["team_id"]),
+                    "position": str(row["position"]),
+                    "xpts": float(row["xpts"]),
+                    "xmins": float(row["xmins"]),
+                    "fdr": float(row["fdr"]),
+                    "score": float(row["score"]),
+                    "reason": _d3_bench_reason(row, avoid=True),
+                }
+                for _, row in DAY3_BENCHING_BOTTOM5.iterrows()
+            ],
+        },
+        indent=2,
+        ensure_ascii=False,
+    ),
+    encoding="utf-8",
+)
 
 # -----------------------------
 # SLIDE 2 — DEFCON TABLE
@@ -5103,7 +5333,6 @@ _d3_desk_manifest_path.write_text(
 )
 
 def _d3_desk_short_reason(r):
-def _d3_desk_short_reason(r):
     if r["action"] == "BUY":
         return f'{r["xpts"]:.1f} xPTS • {r["xmins"]:.0f} xMINS • {r["opponent"]} NEXT'
     if r["action"] == "HOLD":
@@ -5270,8 +5499,12 @@ for _required in (
     if not Path(_required).is_file() or Path(_required).stat().st_size <= 0:
         raise RuntimeError(f"Day 3_3 section output missing: {_required}")
 
-if FDR_HTML_PATH.read_text(encoding="utf-8").count("PROJECTED GOALS") < 1:
-    raise RuntimeError("Day 3_3 combined projection slide heading is missing")
+if FDR_HTML_PATH.read_text(encoding="utf-8").count("BENCHING DILEMMA") != 1:
+    raise RuntimeError("Day 3_3 Slide 6 BENCHING DILEMMA heading is missing")
+if FDR_HTML_PATH.read_text(encoding="utf-8").count('d3BenchCard') < 24:
+    raise RuntimeError("Day 3_3 Slide 6 must contain 24 player-card markers")
+if not BENCHING_MANIFEST_PATH.is_file() or BENCHING_MANIFEST_PATH.stat().st_size <= 0:
+    raise RuntimeError("Day 3_3 Slide 6 benching_dilemma.json is missing")
 if XG_HTML_PATH.read_text(encoding="utf-8").count("PROJECTED") < 1:
     raise RuntimeError("Original projected_goals_scene_4k.html was not preserved")
 if DEFCON_HTML_PATH.read_text(encoding="utf-8").count("d3DefRow") < 20:
@@ -5280,7 +5513,7 @@ if FINAL_SHORTLISTS_HTML_PATH.read_text(encoding="utf-8").count("d3ShortPos") < 
     raise RuntimeError("Day 3_3 Final Shortlists slide is missing position columns")
 
 print("✅ DAY 3_3 SECTION READY")
-print("✅ fdr_scene_4k.png = Projected Goals + Clean Sheet Odds")
+print("✅ fdr_scene_4k.png = Slide 6 • BENCHING DILEMMA")
 print("✅ projected_goals_scene_4k.png = ORIGINAL PRESERVED")
 print("✅ defcon_scene_4k.png = DEFCON")
 print("✅ final_shortlists_scene_4k.png = Final Shortlists")
@@ -5299,14 +5532,14 @@ print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
               _day3_design_anchor,
               _day3_design_anchor + "\n" + _day3_design_block,
               1,
-              "Day 3 append two-slide presentation outputs after preserved model logic",
+              "Day 3 append Slide 6/DEFCON/shortlists/transfer outputs after preserved model logic",
           )
 
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _preview_cell,
               '("02_fdr", "FIXTURE DIFFICULTY", "fdr_scene_4k.html"),',
-              '("02_fdr", "PROJECTED GOALS + CS ODDS", "fdr_scene_4k.html"),',
+              '("02_fdr", "BENCHING DILEMMA", "fdr_scene_4k.html"),',
               1,
               "Day 3 preview combined projection label",
           )
@@ -5326,32 +5559,25 @@ print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
           )
 
           _day3_narr_helpers = r'''
-# DAY 3_3 narration helpers — consume the exact rankings built in Cell 14B.
+# DAY 3_3 narration helpers — consume exact dynamic selections built in Cell 14B.
 for _name in (
-    "DAY3_PROJ_ATTACK_TARGETS", "DAY3_PROJ_ATTACK_AVOIDS",
-    "DAY3_DEFCON_TARGETS", "DAY3_DEFCON_AVOIDS",
-    "DAY3_TOP_PLAYER_BY_TEAM", "DAY3_SHORTLISTS",
+    "DAY3_BENCHING_TOP10", "DAY3_BENCHING_BOTTOM5",
+    "DAY3_DEFCON_TARGETS", "DAY3_DEFCON_AVOIDS", "DAY3_SHORTLISTS",
 ):
     if _name not in globals():
         raise RuntimeError(f"Day 3_3 narration missing {_name}; run Cell 14B first")
 
-def _d3_narr_team(frame, i):
-    return vx_narration_team(frame.iloc[i].get("team_id", frame.iloc[i].get("team")))
-
-def _d3_narr_player(team_id):
-    info = DAY3_TOP_PLAYER_BY_TEAM.get(int(team_id), {})
-    name = str(info.get("name", "")).strip()
-    xpts = float(info.get("xpts", 0.0) or 0.0)
-    return (name, xpts) if name else ("the highest-rated current player", 0.0)
-
-def _d3_proj_reason(frame, i):
-    row = frame.iloc[i]
-    player, xpts = _d3_narr_player(int(row["team_id"]))
-    opp = str(row.get("gw1_opponent", "the next opponent"))
+def _d3_bench_narr(frame, i, *, avoid=False):
+    row = frame.iloc[int(i)]
+    team = team_meta_by_id.get(int(row["team_id"]), {}) or {}
+    team_name = str(team.get("name") or team.get("short") or row["team_id"])
+    reason = _d3_bench_reason(row, avoid=avoid)
+    verdict = "sit or avoid" if avoid else "start"
     return (
-        f"{_d3_narr_team(frame, i)} project for {float(row['gw1_xg']):.2f} goals "
-        f"against {opp}, with a {float(row['gw1_cs']):.0f} percent clean-sheet chance. "
-        f"{player} is the leading current player anchor at {xpts:.1f} expected points."
+        f"{str(row['player_name'])}, {team_name}: {verdict}. "
+        f"VORTEX projects {float(row['xpts']):.1f} points from "
+        f"{float(row['xmins']):.0f} expected minutes, with next-Gameweek FDR "
+        f"{float(row['fdr']):.1f}. In short, {reason}."
     )
 
 def _d3_defcon_reason(frame, i):
@@ -5392,29 +5618,38 @@ def _d3_short_narr(pos, i=0):
 
           _day3_fdr_script = r'''"02_fdr":
 f"""
-For the Gameweek model, this first page combines projected goals and clean sheet odds in one view. Every fixture is on the left, while the two rankings on the right show the full league from strongest to weakest.
+For the Gameweek model, the benching dilemma is simple: who starts, who sits, and where autosub risk is too high.
 
-The four attacks to target are {_d3_narr_team(DAY3_PROJ_ATTACK_TARGETS,0)}, {_d3_narr_team(DAY3_PROJ_ATTACK_TARGETS,1)}, {_d3_narr_team(DAY3_PROJ_ATTACK_TARGETS,2)}, and {_d3_narr_team(DAY3_PROJ_ATTACK_TARGETS,3)}.
+I rank the player pool in the same order every week. Fixture and expected points come first. Minutes certainty comes second. Recent form and underlying attacking process come third. Home advantage, set pieces, availability and team news support the call. Ownership is only a tie-breaker.
 
-Number one: {_d3_proj_reason(DAY3_PROJ_ATTACK_TARGETS,0)} The reason to target them is simple: the team-level chance creation is strongest, and the player model identifies the most direct route into that attack rather than asking us to buy a shirt blindly.
+Here are the top ten locked starters for Gameweek {NEXT_GW}.
 
-Number two: {_d3_proj_reason(DAY3_PROJ_ATTACK_TARGETS,1)} This is a strong combination of fixture, team projection, and individual expected points. If the player anchor also has secure minutes, that is the profile I want on a shortlist.
+Number one. {_d3_bench_narr(DAY3_BENCHING_TOP10,0)}
+Number two. {_d3_bench_narr(DAY3_BENCHING_TOP10,1)}
+Number three. {_d3_bench_narr(DAY3_BENCHING_TOP10,2)}
+Number four. {_d3_bench_narr(DAY3_BENCHING_TOP10,3)}
+Number five. {_d3_bench_narr(DAY3_BENCHING_TOP10,4)}
+Number six. {_d3_bench_narr(DAY3_BENCHING_TOP10,5)}
+Number seven. {_d3_bench_narr(DAY3_BENCHING_TOP10,6)}
+Number eight. {_d3_bench_narr(DAY3_BENCHING_TOP10,7)}
+Number nine. {_d3_bench_narr(DAY3_BENCHING_TOP10,8)}
+Number ten. {_d3_bench_narr(DAY3_BENCHING_TOP10,9)}
 
-Number three: {_d3_proj_reason(DAY3_PROJ_ATTACK_TARGETS,2)} The projection is still high enough to create multiple-return upside, so this is a team to investigate before looking further down the table.
+Those are the ten I trust most. The board also shows six extra flex options so you can compare the next layer without cluttering the narration.
 
-Number four: {_d3_proj_reason(DAY3_PROJ_ATTACK_TARGETS,3)} They complete the target group. The gap to the middle of the league matters because transfers should follow the strongest environments first.
+Now the worst five I am happy to bench or ignore this week.
 
-The three attacks to avoid are {_d3_narr_team(DAY3_PROJ_ATTACK_AVOIDS,0)}, {_d3_narr_team(DAY3_PROJ_ATTACK_AVOIDS,1)}, and {_d3_narr_team(DAY3_PROJ_ATTACK_AVOIDS,2)}.
+First avoid. {_d3_bench_narr(DAY3_BENCHING_BOTTOM5,0,avoid=True)}
+Second avoid. {_d3_bench_narr(DAY3_BENCHING_BOTTOM5,1,avoid=True)}
+Third avoid. {_d3_bench_narr(DAY3_BENCHING_BOTTOM5,2,avoid=True)}
+Fourth avoid. {_d3_bench_narr(DAY3_BENCHING_BOTTOM5,3,avoid=True)}
+Fifth avoid. {_d3_bench_narr(DAY3_BENCHING_BOTTOM5,4,avoid=True)}
 
-{_d3_proj_reason(DAY3_PROJ_ATTACK_AVOIDS,0)} That is the weakest attacking environment on this page, so I would not chase a new attacker unless the individual role is exceptional.
+Autosub risk matters because a high-ceiling player is useless if he does not start. When the fixture is close, I take the player with the stronger start probability and expected minutes. When minutes are equal, I prefer the better fixture and the higher xPts ceiling. Set-piece duty and home advantage break close calls; ownership does not rescue a weak pick.
 
-{_d3_proj_reason(DAY3_PROJ_ATTACK_AVOIDS,1)} The team projection is still below the main target zone. Existing assets can be held for other reasons, but this is not where I would spend a fresh attacking transfer first.
+That is the process. Fixture first. Minutes second. Form third. Everything else is supporting evidence.
 
-{_d3_proj_reason(DAY3_PROJ_ATTACK_AVOIDS,2)} They are the final team in the avoid group. One return can always happen, but the model says stronger opportunities exist elsewhere.
-
-Use the clean-sheet ranking on the same page for goalkeeper and defender decisions. The top four defensive teams are {_d3_narr_team(DAY3_PROJ_CS_TARGETS,0)}, {_d3_narr_team(DAY3_PROJ_CS_TARGETS,1)}, {_d3_narr_team(DAY3_PROJ_CS_TARGETS,2)}, and {_d3_narr_team(DAY3_PROJ_CS_TARGETS,3)}. The bottom three are {_d3_narr_team(DAY3_PROJ_CS_AVOIDS,0)}, {_d3_narr_team(DAY3_PROJ_CS_AVOIDS,1)}, and {_d3_narr_team(DAY3_PROJ_CS_AVOIDS,2)}.
-
-So this slide is the Gameweek map: target the strongest team environments, avoid forcing transfers into the weakest ones, and use the player anchor to turn the team model into an actual FPL decision.
+Lock the strongest eleven, put the safest first substitute at the front of the bench, and do not let one famous name override the current data.
 
 """.strip(),
 
@@ -5547,8 +5782,17 @@ f"""'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _narr_cell,
+              'manifest={}',
+              '(AUDIO / "02_fdr.mp3").unlink(missing_ok=True)\nmanifest={}',
+              1,
+              "Day 3 Slide 6 remove stale 02_fdr MP3 before Ryan TTS",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
               'print(f"✅ FDR narration: {_fdr_word_count} words • top 5 target • worst 3 avoid")',
-              'print(f"✅ Day 3 projections narration: {_fdr_word_count} words • top 4 target • bottom 3 avoid")',
+              'print(f"✅ Slide 6 Benching Dilemma narration: {_fdr_word_count} words • top 10 start • bottom 5 avoid")',
               1,
               "Day 3 projection narration QA label",
           )
@@ -5557,7 +5801,23 @@ f"""'''
               runtime_source_text,
               _narr_cell,
               '    if key=="05_outro":\n        for _attempt in range(2):',
-              '''    if key=="04_final_shortlists":
+              '''    if key=="02_fdr":
+        for _attempt in range(3):
+            _d=float(manifest[key]["duration"])
+            if 120.0 <= _d <= 180.0:
+                break
+            _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
+            _current_speed=max(0.20,1.0+_current_rate/100.0)
+            _target_seconds=150.0
+            _needed_speed=_current_speed*(_d/_target_seconds)
+            _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
+            print(
+                f"↻ Slide 6 Benching Dilemma Ryan pacing correction: {_d:.2f}s at "
+                f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
+            )
+            manifest[key]=await make_audio(key,text,rate_override=_new_rate)
+
+    if key=="04_final_shortlists":
         for _attempt in range(3):
             _d=float(manifest[key]["duration"])
             if 260.0 <= _d <= 270.0:
@@ -5583,7 +5843,16 @@ f"""'''
               runtime_source_text,
               _narr_cell,
               'if "05_outro" in manifest:\n',
-              '''if "04_final_shortlists" in manifest:
+              '''if "02_fdr" in manifest:
+    _bench_duration=float(manifest["02_fdr"]["duration"])
+    if not 120.0 <= _bench_duration <= 180.0:
+        raise RuntimeError(
+            f"Slide 6 Benching Dilemma narration must be 2–3 minutes; "
+            f"current duration is {_bench_duration:.2f}s"
+        )
+    print(f"✅ Slide 6 Benching Dilemma narration locked: {_bench_duration:.2f}s")
+
+if "04_final_shortlists" in manifest:
     _shortlist_duration=float(manifest["04_final_shortlists"]["duration"])
     if not 260.0 <= _shortlist_duration <= 270.0:
         raise RuntimeError(
@@ -5886,6 +6155,23 @@ if "05_outro" in manifest:
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _render_cell,
+              'try:\n    CACHE = json.loads(CACHE_FILE.read_text(encoding="utf-8")) if CACHE_FILE.exists() else {}\nexcept Exception:\n    CACHE = {}',
+              '''try:
+    CACHE = json.loads(CACHE_FILE.read_text(encoding="utf-8")) if CACHE_FILE.exists() else {}
+except Exception:
+    CACHE = {}
+
+# Slide 6 completely replaces the former 02_fdr asset: never reuse that scene cache.
+CACHE.pop("02_fdr", None)
+(SECTIONS / "02_fdr.mp4").unlink(missing_ok=True)
+(PREVIEWS / f"02_fdr_{H}p.png").unlink(missing_ok=True)''',
+              1,
+              "Day 3 Slide 6 force clean rerender without stale 02_fdr cache",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _render_cell,
               '        "03_projected_goals",\n        "04_clean_sheets",',
               '        "03_projected_goals",\n        "03_defcon",\n        "04_final_shortlists",\n        "05_transfer_decision_desk",\n        "04_clean_sheets",',
               1,
@@ -5896,9 +6182,9 @@ if "05_outro" in manifest:
               runtime_source_text,
               _assembly_cell,
               '("02_fdr",             "FDR",              VIDEO / "02_fdr.mp4"),',
-              '("02_fdr",             "PROJECTED GOALS + CS ODDS", VIDEO / "02_fdr.mp4"),',
+              '',
               1,
-              "Day 3 final assembly combined projection label",
+              "Day 3 remove old early 02_fdr row before reordering it as Slide 6",
           )
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
@@ -5915,7 +6201,8 @@ if "05_outro" in manifest:
     ("05e_my_plan_roll_bb","MY PLAN • ROLL + BB", VIDEO / "05e_my_plan_roll_bb.mp4"),
     ("05f_my_plan_roll_tc","MY PLAN • ROLL + TC", VIDEO / "05f_my_plan_roll_tc.mp4"),
     ("05g_my_plan_transfer_bb","MY PLAN • TRANSFER + BB", VIDEO / "05g_my_plan_transfer_bb.mp4"),
-    ("05h_my_plan_transfer_tc","MY PLAN • TRANSFER + TC", VIDEO / "05h_my_plan_transfer_tc.mp4"),''',
+    ("05h_my_plan_transfer_tc","MY PLAN • TRANSFER + TC", VIDEO / "05h_my_plan_transfer_tc.mp4"),
+    ("02_fdr",             "BENCHING DILEMMA", VIDEO / "02_fdr.mp4"),''',
               1,
               "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists/Transfer Desk/MY PLAN 5A/5B",
           )
@@ -5933,7 +6220,6 @@ if "05_outro" in manifest:
               '"05f_my_plan_roll_tc": MY_PLAN_RENDER_5F',
               '"05g_my_plan_transfer_bb": MY_PLAN_RENDER_5G',
               '"05h_my_plan_transfer_tc": MY_PLAN_RENDER_5H',
-              'fdr_scene_4k.png = Projected Goals + Clean Sheet Odds',
               'projected_goals_scene_4k.png = ORIGINAL PRESERVED',
               'defcon_scene_4k.png = DEFCON',
               'final_shortlists_scene_4k.png = Final Shortlists',
@@ -5941,7 +6227,6 @@ if "05_outro" in manifest:
               '"defcon_scene_4k.html"',
               '"final_shortlists_scene_4k.html"',
               '"transfer_decision_desk_scene_4k.html"',
-              '"PROJECTED GOALS + CS ODDS"',
               '"03_projected_goals", "PROJECTED GOALS"',
               '"03_defcon",          "DEFCON"',
               '"04_final_shortlists", "FINAL SHORTLISTS"',
@@ -5971,15 +6256,17 @@ if "05_outro" in manifest:
               'DAY3_MY_PLAN_5B_PACKAGE',
               'Final Shortlists narration locked:',
               'Transfer Decision Desk narration locked:',
-              'DAY3_PROJ_ATTACK_TARGETS',
               'DAY3_DEFCON_TARGETS',
               'DAY3_SHORTLISTS',
               'DAY3_TRANSFER_DESK',
               'DAY3_TRANSFER_DESK_SEQUENCE',
               'DAY3_TRANSFER_DESK_SELECTION_MODE',
               'transfer_decision_desk.json',
-              '<span>GLS</span><span>CS%</span>',
-              '<b>GLS</b><b>CS%</b>',
+              'benching_dilemma.json',
+              'fdr_scene_4k.png = Slide 6 • BENCHING DILEMMA',
+              'DAY3_BENCHING_TOP10',
+              'DAY3_BENCHING_BOTTOM5',
+              '"BENCHING DILEMMA"',
               '# 21. BUILD PROJECTED GOALS HTML',
               'xg_sorted = (',
               'cs_sorted = (',
@@ -5995,7 +6282,7 @@ if "05_outro" in manifest:
                   "Day 3_3 two-slide runtime patch incomplete: "
                   + " | ".join(_day3_section_missing)
               )
-          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + Transfer Decision Desk + MY PLAN 5A–5H runtime override: PASS")
+          print("Day 3_3 Slide 6 Benching Dilemma + Projected Goals + DEFCON + Final Shortlists + Transfer Decision Desk + MY PLAN 5A–5H runtime override: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
@@ -6538,6 +6825,7 @@ if "05_outro" in manifest:
               root / "SLIDE" / "final_shortlists_scene_4k.png",
               root / "SLIDE" / "transfer_decision_desk_scene_4k.png",
               root / "DATA" / "transfer_decision_desk.json",
+              root / "DATA" / "benching_dilemma.json",
               root / "MP4" / "02_fdr.mp4",
               root / "MP4" / "03_projected_goals.mp4",
               root / "MP4" / "03_defcon.mp4",
@@ -6548,7 +6836,7 @@ if "05_outro" in manifest:
               if not section_file.is_file() or section_file.stat().st_size <= 0:
                   raise SystemExit(f"Day 3_3 section output is missing: {section_file}")
 
-          obsolete_clean_sheet = root / "SLIDE" / "clean_sheet_scene_4k.png"          obsolete_clean_sheet = root / "SLIDE" / "clean_sheet_scene_4k.png"
+          obsolete_clean_sheet = root / "SLIDE" / "clean_sheet_scene_4k.png"
           if obsolete_clean_sheet.exists():
               raise SystemExit(
                   "Standalone clean-sheet slide survived even though it is merged into 02_fdr"
@@ -6556,7 +6844,7 @@ if "05_outro" in manifest:
 
           section_narr = json.loads(narration_path.read_text(encoding="utf-8"))
           for key, required_phrases in {
-              "02_fdr": ("four attacks to target", "three attacks to avoid", "clean-sheet ranking"),
+              "02_fdr": ("benching dilemma", "top ten locked starters", "worst five", "fixture first", "minutes second", "form third"),
               "03_projected_goals": ("Projected goals tell you", "Over the next six Gameweeks"),
               "03_defcon": ("four teams to target", "three teams to avoid", "DEFCON"),
               "04_final_shortlists": ("expected minutes", "expected points", "final shortlist"),
@@ -6572,6 +6860,37 @@ if "05_outro" in manifest:
                   raise SystemExit(f"{key} Day 3_3 narration missing: {missing}")
           if "04_clean_sheets" in section_narr:
               raise SystemExit("Duplicate standalone clean-sheet narration survived in Day 3_3")
+
+          bench_info = section_narr.get("02_fdr") or {}
+          bench_duration = float(bench_info.get("duration") or 0.0)
+          if not 120.0 <= bench_duration <= 180.0:
+              raise SystemExit(
+                  f"Slide 6 Benching Dilemma must be 2–3 minutes, found {bench_duration:.2f}s"
+              )
+          bench_manifest_path = root / "DATA" / "benching_dilemma.json"
+          bench_manifest = json.loads(bench_manifest_path.read_text(encoding="utf-8"))
+          if int(bench_manifest.get("displayed_players") or 0) != 24:
+              raise SystemExit("Slide 6 must display exactly 24 players across three columns")
+          bench_top = list(bench_manifest.get("top10") or [])
+          bench_bottom = list(bench_manifest.get("bottom5") or [])
+          if len(bench_top) != 10 or len(bench_bottom) != 5:
+              raise SystemExit(
+                  f"Slide 6 selection must be top10/bottom5, found {len(bench_top)}/{len(bench_bottom)}"
+              )
+          bench_ids = [int(row.get("player_id") or 0) for row in bench_top + bench_bottom]
+          if len(set(bench_ids)) != 15 or any(pid <= 0 for pid in bench_ids):
+              raise SystemExit(f"Slide 6 top/bottom selections overlap or contain invalid IDs: {bench_ids}")
+          bench_script = str(bench_info.get("script") or "")
+          for row in bench_top + bench_bottom:
+              name = str(row.get("name") or "")
+              if not name or bench_script.count(name) != 1:
+                  raise SystemExit(
+                      f"Slide 6 narration must explain selected player {name!r} exactly once"
+                  )
+              for field in ("xpts", "xmins", "fdr", "score", "reason"):
+                  if field not in row:
+                      raise SystemExit(f"Slide 6 selection row missing {field}: {row}")
+          print("Day 3_3 Slide 6 PNG/MP3/MP4/dynamic-selection contract: PASS")
 
           projected_goals_script = str(
               (section_narr.get("03_projected_goals") or {}).get("script") or ""
@@ -6869,12 +7188,12 @@ if "05_outro" in manifest:
 
           scene_keys = list(qa.get("scene_keys") or [])
           required_master_order = [
-              "02_fdr",
               "03_projected_goals",
               "03_defcon",
               "04_final_shortlists",
               "05_transfer_decision_desk",
               *selected_plan_keys,
+              "02_fdr",
           ]
           positions = []
           for scene_key in required_master_order:
@@ -6888,10 +7207,9 @@ if "05_outro" in manifest:
                   f"Day 3 combined master scene order is wrong: {positions}"
               )
           print(
-              "Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + "
-              "Transfer Decision Desk + "
+              "Day 3_3 Projected Goals + DEFCON + Final Shortlists + Transfer Decision Desk + "
               + ", ".join(plan_specs[key]["label"] for key in selected_plan_keys)
-              + " PNG/MP4/narration contract: PASS"
+              + " + Slide 6 Benching Dilemma PNG/MP4/narration contract: PASS"
           )
 
           final_mp4s = [
