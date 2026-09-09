@@ -497,6 +497,414 @@ jobs:
           _preview_cell = "# CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
           _render_cell = "# CELL 20 — RESUME-SAFE SHARED MP4 RENDERER"
           _assembly_cell = "# CELL 21 — RESUME-SAFE FINAL ASSEMBLY + PUBLISH QA"
+          _gw_review_narr_cell = "# CELL 15 — AUTO GW REVIEW DATA + RYAN NARRATION TIMING"
+          _gw_review_design_cell = "# CELL 14 — SELF-CONTAINED TRUE-4K HTML → PNG RENDERER"
+
+          # ------------------------------------------------------------
+          # DAY 3_3 — SLIDE 5 • GAMEWEEK REVIEW
+          # Keep the approved GW Review visual/card/animation/render logic.
+          # Only shorten the auto-generated Ryan narration to the user's
+          # 45–75 second format, sourced from FPL_TEAM_ID + official FPL data.
+          # ------------------------------------------------------------
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _gw_review_design_cell,
+              '<div class="panelTitle"><span>GAMEWEEK REVIEW</span></div>',
+              '<div class="panelTitle"><span>05 • GAMEWEEK REVIEW</span></div>',
+              1,
+              "Day 3 label preserved GW Review as Slide 5",
+          )
+
+          _day3_short_gw_review_script = r'''
+# NATURAL GAMEWEEK REVIEW — SLIDE 5 • 45–75 SECOND AUTO SCRIPT
+# ------------------------------------------------------------
+
+bank=float(current_hist.get("bank",0))/10
+value=float(current_hist.get("value",0))/10
+gw_points=int(current_hist.get("points",0) or 0)
+gw_rank=current_hist.get("rank")
+transfer_count=int(current_hist.get("event_transfers",0) or 0)
+transfer_cost=int(current_hist.get("event_transfers_cost",0) or 0)
+
+_REVIEW_CHIP_NAMES={
+    "freehit":"Free Hit",
+    "wildcard":"Wildcard",
+    "bboost":"Bench Boost",
+    "3xc":"Triple Captain",
+}
+_review_chip_codes={
+    str(row.get("name") or "").strip()
+    for row in hist.get("chips",[])
+    if int(row.get("event") or 0)==REVIEW_GW and str(row.get("name") or "").strip()
+}
+_review_active_chip=str(picks.get("active_chip") or "").strip()
+if _review_active_chip:
+    _review_chip_codes.add(_review_active_chip)
+if len(_review_chip_codes)>1:
+    raise RuntimeError(
+        f"Conflicting official chip signals for GW{REVIEW_GW}: {sorted(_review_chip_codes)}"
+    )
+review_chip_code=next(iter(_review_chip_codes),"")
+review_chip_name=_REVIEW_CHIP_NAMES.get(
+    review_chip_code,
+    review_chip_code.replace("_"," ").title() if review_chip_code else ""
+)
+
+
+def vx_review_points_phrase(points):
+    points=int(points or 0)
+    return f"{points} point" if points==1 else f"{points} points"
+
+
+def vx_review_short_opp(p):
+    fixture=p.get("fixture") or {}
+    raw_opp=fixture.get("opp")
+    if raw_opp in (None,"","—"):
+        return "an opponent still to be confirmed"
+    return str(vx_narration_team(raw_opp))
+
+
+def vx_review_short_name(player_id):
+    try:
+        spoken=str(vx_narration_player(int(player_id)) or "").strip()
+        if spoken:
+            return spoken
+    except Exception:
+        pass
+    element=review_elements.get(int(player_id),{})
+    return str(element.get("web_name") or player_id)
+
+
+def vx_review_short_player_text(p, position_index=0, bench=False):
+    name=str(p["name"])
+    points=vx_review_points_phrase(p.get("points",0))
+    opponent=vx_review_short_opp(p)
+    state=str(p.get("review_state") or "FINAL").upper()
+    verb="currently has" if state in {"LIVE","PENDING"} else "scored"
+
+    if bench:
+        if str(p.get("pos") or "").upper()=="GK":
+            return f"Bench goalkeeper {name} {verb} {points} against {opponent}."
+        lead="On the bench, " if position_index==0 else ""
+        return f"{lead}{name} {verb} {points} against {opponent}."
+
+    pos=str(p.get("pos") or "").upper()
+    if pos=="GK":
+        return f"In goal, {name} {verb} {points} against {opponent}."
+    if pos=="DEF":
+        lead="At the back, " if position_index==0 else ""
+        return f"{lead}{name} returned {points} against {opponent}."
+    if pos=="MID":
+        lead="In midfield, " if position_index==0 else ""
+        return f"{lead}{name} returned {points} against {opponent}."
+    lead="Up front, " if position_index==0 else ""
+    return f"{lead}{name} returned {points} against {opponent}."
+
+
+# Official transfer history is pulled from the same FPL entry ID used by Cell 0.
+# If the public transfer endpoint is temporarily unavailable, the official
+# event_transfers count from entry history remains the fallback.
+_review_entry_id=int(
+    globals().get("FPL_TEAM_ID")
+    or globals().get("TEAM_ID")
+    or globals().get("ENTRY_ID")
+    or 0
+)
+_review_transfer_rows=[]
+if _review_entry_id>0:
+    try:
+        import urllib.request as _review_urlrequest
+        _review_req=_review_urlrequest.Request(
+            f"https://fantasy.premierleague.com/api/entry/{_review_entry_id}/transfers/",
+            headers={"User-Agent":"FPL-VORTEX/1.0"},
+        )
+        with _review_urlrequest.urlopen(_review_req,timeout=15) as _review_resp:
+            _review_transfer_payload=json.loads(_review_resp.read().decode("utf-8"))
+        _review_transfer_rows=[
+            row for row in list(_review_transfer_payload or [])
+            if int(row.get("event") or 0)==int(REVIEW_GW)
+        ]
+    except Exception as _review_transfer_exc:
+        print(
+            "⚠️ GW Review transfer-detail endpoint unavailable; "
+            f"using official transfer count only: {_review_transfer_exc}"
+        )
+
+_review_transfer_pairs=[]
+_review_transfer_return=0
+for _row in _review_transfer_rows:
+    _in_id=int(_row.get("element_in") or 0)
+    _out_id=int(_row.get("element_out") or 0)
+    if not _in_id or not _out_id:
+        continue
+    _in_name=vx_review_short_name(_in_id)
+    _out_name=vx_review_short_name(_out_id)
+    _review_transfer_pairs.append((_in_name,_out_name))
+    _review_transfer_return+=int(
+        (review_live_map.get(_in_id,{}) or {}).get("total_points",0) or 0
+    )
+
+if review_chip_code=="freehit":
+    _review_action_text=f"I played my Free Hit in Gameweek {REVIEW_GW}."
+elif review_chip_code=="wildcard":
+    _review_action_text=f"I played my Wildcard in Gameweek {REVIEW_GW}."
+elif transfer_count>0:
+    if transfer_count==1 and _review_transfer_pairs:
+        _in_name,_out_name=_review_transfer_pairs[0]
+        _review_action_text=(
+            f"I made one transfer. I brought in {_in_name} for {_out_name}, "
+            f"and the move returned {_review_transfer_return} points."
+        )
+    elif _review_transfer_pairs:
+        _pair_text=", ".join(
+            f"{incoming} for {outgoing}"
+            for incoming,outgoing in _review_transfer_pairs
+        )
+        _review_action_text=(
+            f"I made {transfer_count} transfers: {_pair_text}. "
+            f"The incoming players returned {_review_transfer_return} points."
+        )
+    else:
+        _review_action_text=f"I made {transfer_count} transfers."
+else:
+    _review_action_text="I rolled my transfer."
+
+if review_chip_code in {"bboost","3xc"}:
+    _review_action_text+=f" I also played my {review_chip_name}."
+
+
+# ------------------------------------------------------------
+# BUILD THE SHORT, HUMAN GAMEWEEK REVIEW SCRIPT
+# One player segment per player is preserved for exact Ryan/card sync.
+# ------------------------------------------------------------
+segments=[
+    {
+        "id":"headline",
+        "text":f"Let's quickly review how last week went in Gameweek {REVIEW_GW}.",
+    },
+    {
+        "id":"review_action",
+        "text":_review_action_text,
+    },
+]
+
+_position_seen={"GK":0,"DEF":0,"MID":0,"FWD":0}
+for p in review_starters:
+    idx=_position_seen.get(p["pos"],0)
+    _position_seen[p["pos"]]=idx+1
+    segments.append({
+        "id":f'player_{p["id"]}',
+        "player_id":p["id"],
+        "name":p["name"],
+        "kind":"starter",
+        "text":vx_review_short_player_text(p,idx,bench=False),
+    })
+
+_original_captain=next(
+    (p for p in review_players if p.get("captain")),
+    review_starters[0] if review_starters else review_players[0],
+)
+_vice_captain=next(
+    (p for p in review_players if p.get("vice")),
+    None,
+)
+_actual_captain=next(
+    (
+        p for p in review_players
+        if int(p.get("multiplier",0) or 0)>=2
+    ),
+    _original_captain,
+)
+captain_player=_actual_captain
+_captain_raw=int(captain_player.get("points",0) or 0)
+_captain_multiplier=max(1,int(captain_player.get("multiplier",1) or 1))
+captain_return=_captain_raw*_captain_multiplier
+
+if (
+    _vice_captain is not None
+    and int(_original_captain.get("multiplier",0) or 0)==0
+    and int(_vice_captain.get("multiplier",0) or 0)>=2
+):
+    _captain_text=(
+        f"{_vice_captain['name']} stepped in as captain and returned "
+        f"{captain_return} points."
+    )
+else:
+    _captain_text=(
+        f"My captain, {captain_player['name']}, scored {_captain_raw} points, "
+        f"which became {captain_return} after the captaincy multiplier."
+    )
+    if _captain_raw<=2:
+        _captain_text+=(
+            " It was a disappointing captain blank, but the rest of the team "
+            "helped recover the Gameweek."
+        )
+    elif _captain_raw>=8:
+        _captain_text+=" That captaincy call was the key return of the week."
+
+segments.append({
+    "id":"captain_summary",
+    "text":_captain_text,
+})
+
+segments.append({
+    "id":"bench_intro",
+    "text":"Now, the bench.",
+})
+
+for idx,p in enumerate(review_bench):
+    segments.append({
+        "id":f'player_{p["id"]}',
+        "player_id":p["id"],
+        "name":p["name"],
+        "kind":"bench",
+        "text":vx_review_short_player_text(p,idx,bench=True),
+    })
+
+bench_points=sum(int(p.get("points",0) or 0) for p in review_bench)
+_unused_bench=[
+    p for p in review_bench
+    if int(p.get("multiplier",0) or 0)==0
+]
+_best_unused=max(
+    _unused_bench,
+    key=lambda p:int(p.get("points",0) or 0),
+    default=None,
+)
+if review_chip_code=="bboost":
+    _bench_verdict="Bench Boost was active, so all four bench returns counted."
+elif _best_unused is not None and int(_best_unused.get("points",0) or 0)>=4:
+    _bench_verdict=(
+        f"The main frustration was leaving {_best_unused['name']}'s "
+        f"{int(_best_unused.get('points',0) or 0)} points on the bench."
+    )
+else:
+    _bench_verdict="Thankfully, there were no major benching regrets."
+
+segments.append({
+    "id":"bench_verdict",
+    "text":_bench_verdict,
+})
+
+segments.append({
+    "id":"metrics_intro",
+    "text":"Overall, here is the Gameweek summary.",
+})
+segments.append({
+    "id":"metric_points",
+    "text":f"I finished on {gw_points} points in Gameweek {REVIEW_GW}.",
+})
+
+if GW_REVIEW_PARTIAL:
+    rank_text=(
+        f"My provisional overall rank is {int(cur_rank):,}."
+        if cur_rank else
+        "My overall rank is still updating."
+    )
+elif prev_rank and cur_rank:
+    _rank_change=abs(int(prev_rank)-int(cur_rank))
+    if int(cur_rank)<int(prev_rank):
+        rank_text=(
+            f"My overall rank increased from {int(prev_rank):,} to {int(cur_rank):,}, "
+            f"a green arrow of {_rank_change:,} places."
+        )
+    elif int(cur_rank)>int(prev_rank):
+        rank_text=(
+            f"My overall rank dropped from {int(prev_rank):,} to {int(cur_rank):,}, "
+            f"a red arrow of {_rank_change:,} places."
+        )
+    else:
+        rank_text=f"My overall rank stayed at {int(cur_rank):,}."
+elif cur_rank:
+    rank_text=f"My overall rank is now {int(cur_rank):,}."
+else:
+    rank_text="My overall rank is still updating."
+
+segments.append({"id":"metric_orank","text":rank_text})
+segments.append({
+    "id":"metric_gwrank",
+    "text":(
+        f"My Gameweek rank was {int(gw_rank):,}."
+        if gw_rank and not GW_REVIEW_PARTIAL else
+        f"My provisional Gameweek rank is {int(gw_rank):,}."
+        if gw_rank else
+        "My Gameweek rank is still updating."
+    ),
+})
+segments.append({
+    "id":"metric_captain",
+    "text":f"Captain return: {captain_return} points.",
+})
+segments.append({
+    "id":"metric_bench",
+    "text":f"Bench total: {bench_points} points.",
+})
+segments.append({
+    "id":"metric_hit",
+    "text":(
+        "No transfer hit."
+        if transfer_cost==0 else
+        f"Transfer cost: {transfer_cost} points."
+    ),
+})
+
+_next_review_gw=int(globals().get("NEXT_GW") or (int(REVIEW_GW)+1))
+segments.append({
+    "id":"review_close",
+    "text":(
+        f"Now, let's move on to the Gameweek {_next_review_gw} plan — "
+        "transfers, starting eleven, and captaincy."
+    ),
+})
+
+# Short-script QA: preserve the exact one-segment-per-player animation contract.
+_draft_player_segments=[segment for segment in segments if segment.get("player_id")]
+_expected_ids=[int(p["id"]) for p in review_starters+review_bench]
+_segment_ids=[int(segment["player_id"]) for segment in _draft_player_segments]
+if _segment_ids!=_expected_ids:
+    raise RuntimeError(
+        "GW Review short-script player order mismatch. "
+        f"Expected {_expected_ids}, got {_segment_ids}"
+    )
+for _segment in _draft_player_segments:
+    if str(_segment["name"]).lower() not in str(_segment["text"]).lower():
+        raise RuntimeError(
+            f"GW Review player name missing from short narration: {_segment['id']}"
+        )
+
+GW_REVIEW_NARRATION_WORDS=sum(
+    len(re.findall(r"\b[\w'-]+\b",str(segment.get("text",""))))
+    for segment in segments
+)
+if GW_REVIEW_NARRATION_WORDS>230:
+    raise RuntimeError(
+        "GW Review short narration exceeded the 45–75 second design gate: "
+        f"{GW_REVIEW_NARRATION_WORDS} words"
+    )
+
+_review_norm=[
+    re.sub(r"\s+"," ",str(segment.get("text","")).strip().lower())
+    for segment in segments
+]
+if len(_review_norm)!=len(set(_review_norm)):
+    raise RuntimeError("GW Review short narration contains an exact repeated segment.")
+
+print(
+    f"✅ Slide 5 GW Review short script: {GW_REVIEW_NARRATION_WORDS} words "
+    "• target 45–75 seconds"
+)
+
+# EDGE-TTS — ONE SEGMENT AT A TIME = EXACT ANIMATION WINDOWS
+# ------------------------------------------------------------
+'''
+          runtime_source_text = _day3_replace_range_in_cell(
+              runtime_source_text,
+              _gw_review_narr_cell,
+              "# NATURAL GAMEWEEK REVIEW — SHORT, HUMAN, ANALYTICAL",
+              "# EDGE-TTS — ONE SEGMENT AT A TIME = EXACT ANIMATION WINDOWS",
+              _day3_short_gw_review_script,
+              "Day 3 Slide 5 short GW Review narration",
+          )
 
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
