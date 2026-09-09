@@ -602,9 +602,6 @@ MY_PLAN_RENDER_5H = _my_plan_render("H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN")
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _cell0,
-              'SLIDE_06_OUTRO = True          runtime_source_text = _day3_replace_in_cell(
-              runtime_source_text,
-              _cell0,
               'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\\n',
               'SLIDE_06_OUTRO = True  # @param {type:"boolean"}\\n' + _day3_plan_controls,
               1,
@@ -2858,7 +2855,7 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
               block = _d3_copy_replace(
                   block,
                   '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"])',
-                  '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) + _d3_bench_xpts',
+                  '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) + sum(float(p["xpts"]) for p in _d3_plan_bench)',
                   "Day 3 MY PLAN 5E Bench Boost score",
               )
               block = _d3_copy_replace(
@@ -3045,6 +3042,12 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
                   block,'            "chip":"NONE",','            "chip":"TRIPLE CAPTAIN",\n            "triple_captain_id":int(_d3_cap_id),',
                   f"Day 3 MY PLAN 5{letter} TC summary",
               )
+              block = _d3_copy_replace(
+                  block,
+                  'xpts * (2 if captain and not bench else 1)',
+                  'xpts * (3 if captain and not bench else 1)',
+                  f"Day 3 MY PLAN 5{letter} TC player-card multiplier",
+              )
               block = block.replace("Scenario A",f"Scenario {letter}")
               block = block.replace("Scenario B",f"Scenario {letter}")
               block = block.replace("scenario A",f"scenario {letter}")
@@ -3119,7 +3122,7 @@ if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
               block = _d3_copy_replace(
                   block,
                   '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) - float(_d3_5b_hit_cost)',
-                  '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) + _d3_bench_xpts - float(_d3_5b_hit_cost)',
+                  '    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"]) + sum(float(p["xpts"]) for p in _d3_plan_bench) - float(_d3_5b_hit_cost)',
                   "Day 3 MY PLAN 5G Bench Boost score",
               )
               block = _d3_copy_replace(
@@ -5584,7 +5587,7 @@ if "05_outro" in manifest:
                   "Day 3_3 two-slide runtime patch incomplete: "
                   + " | ".join(_day3_section_missing)
               )
-          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + Transfer Decision Desk + MY PLAN 5A/5B runtime override: PASS")
+          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + Transfer Decision Desk + MY PLAN 5A–5H runtime override: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
