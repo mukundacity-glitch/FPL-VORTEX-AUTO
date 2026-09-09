@@ -1414,11 +1414,15 @@ for _action in ("BUY","HOLD","SELL"):
         f'<div class="d3DeskSlots">{_slots}</div></section>'
     )
 
+_d3_desk_motion = "".join(
+    f'<span class="d3DeskMotion" data-desk-i="{i}"></span>'
+    for i in range(9)
+)
 _d3_desk_left = (
     '<section class="board d3DeskPitch d3DeskLeft">'
     '<div class="d3DeskOpen"><strong>NINE PLAYERS</strong>'
     '<span>THREE CLEAR ACTIONS • LIVE VORTEX DATA</span></div>'
-    f'{_d3_desk_popups}'
+    f'{_d3_desk_popups}{_d3_desk_motion}'
     '<div class="d3DeskClose"><strong>YOUR MOVE.</strong><span>MAKE IT COUNT.</span></div>'
     '</section>'
 )
@@ -1432,7 +1436,7 @@ _d3_desk_css = r'''
 .tables{flex:1!important;min-height:0!important;display:grid!important;grid-template-columns:1.05fr .95fr!important;gap:30px!important;padding-bottom:10px!important}
 .d3DeskPitch{position:relative;min-height:0;border-radius:24px;overflow:hidden;background:radial-gradient(circle at 50% 0,rgba(255,255,255,.12),transparent 26%),repeating-linear-gradient(90deg,rgba(8,74,46,.98) 0 150px,rgba(6,61,39,.98) 150px 300px);border:1px solid rgba(255,255,255,.16);box-shadow:0 18px 44px rgba(0,0,0,.34)}
 .d3DeskPitch:after{content:"";position:absolute;inset:7%;border:4px solid rgba(255,255,255,.11);border-radius:16px;pointer-events:none}
-.d3DeskLeft{display:grid;place-items:center}.d3DeskRight{display:grid;grid-template-rows:repeat(3,1fr);gap:18px;padding:20px}
+.d3DeskLeft{display:grid;place-items:center;overflow:visible!important}.d3DeskRight{display:grid;grid-template-rows:repeat(3,1fr);gap:18px;padding:20px}
 .d3DeskOpen{position:absolute;left:40px;top:28px;z-index:4;display:flex;flex-direction:column}.d3DeskOpen strong{font-size:32px;letter-spacing:4px}.d3DeskOpen span{font:900 15px Arial;color:#a9cabc;letter-spacing:1px;margin-top:5px}
 .d3DeskPop{position:absolute;left:70px;top:180px;width:1310px;height:1130px;padding:30px;border-radius:34px;z-index:30;background:linear-gradient(145deg,rgba(4,20,17,.98),rgba(7,39,29,.98));border:2px solid rgba(255,255,255,.18);box-shadow:0 30px 80px rgba(0,0,0,.48)}
 .d3DeskPop.buy{border-color:rgba(83,255,165,.55)}.d3DeskPop.hold{border-color:rgba(255,221,80,.55)}.d3DeskPop.sell{border-color:rgba(255,91,105,.57)}
@@ -1445,7 +1449,7 @@ _d3_desk_css = r'''
 .d3DeskZoneHead{position:absolute;left:18px;top:14px;font:1000 31px Arial;letter-spacing:5px}.buy .d3DeskZoneHead{color:#66ffb8}.hold .d3DeskZoneHead{color:#ffe36b}.sell .d3DeskZoneHead{color:#ff7d88}
 .d3DeskSlots{height:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.d3DeskSlot{min-width:0;border-radius:18px;display:grid;grid-template-rows:170px minmax(0,1fr);padding:10px;background:linear-gradient(145deg,rgba(7,42,31,.97),rgba(3,22,18,.98));border:1px solid rgba(255,255,255,.12);position:relative;box-shadow:0 13px 30px rgba(0,0,0,.28)}
 .d3DeskMiniPhoto{width:100%;height:165px;object-fit:contain}.d3DeskMiniBadge{position:absolute;right:10px;top:10px;width:45px;height:45px;object-fit:contain}.d3DeskSlotCopy{min-width:0;display:flex;flex-direction:column;gap:5px;padding:8px 4px}.d3DeskSlotCopy strong{font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d3DeskSlotCopy small{font:800 10px Arial;color:#9cb9aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.d3DeskSlotCopy span{font:1000 12px Arial;color:#e4f7ee}
-.d3DeskClose{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:40;text-align:center}.d3DeskClose strong{display:block;font-size:72px;letter-spacing:5px}.d3DeskClose span{display:block;margin-top:8px;font:1000 38px Arial;color:#7fffc5;letter-spacing:8px}
+.d3DeskClose{position:absolute;left:50%;bottom:70px;transform:translateX(-50%);z-index:40;text-align:center}.d3DeskClose strong{display:block;font-size:72px;letter-spacing:5px}.d3DeskClose span{display:block;margin-top:8px;font:1000 38px Arial;color:#7fffc5;letter-spacing:8px}.d3DeskMotion{position:absolute;width:1px;height:1px;left:0;top:0;opacity:0;pointer-events:none}
 '''
 
 TRANSFER_DESK_HTML_PATH = HTML_DIR / "transfer_decision_desk_scene_4k.html"
@@ -1830,6 +1834,77 @@ if "05_outro" in manifest:
               "Day 3 validate Final Shortlists narration duration",
           )
 
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              '    if key=="05_outro":\n        for _attempt in range(2):',
+              '''    if key=="05_transfer_decision_desk":
+        for _attempt in range(3):
+            _d=float(manifest[key]["duration"])
+            if 278.0 <= _d <= 282.0:
+                break
+            _current_rate=_vx_rate_percent(manifest[key]["tts_profile"]["rate"])
+            _current_speed=max(0.20,1.0+_current_rate/100.0)
+            _target_seconds=280.0
+            _needed_speed=_current_speed*(_d/_target_seconds)
+            _new_rate=_vx_rate_text((_needed_speed-1.0)*100.0)
+            print(
+                f"↻ Transfer Decision Desk Ryan pacing correction: {_d:.2f}s at "
+                f"{manifest[key]['tts_profile']['rate']} → {_new_rate}"
+            )
+            manifest[key]=await make_audio(key,text,rate_override=_new_rate)
+
+    if key=="05_outro":
+        for _attempt in range(2):''',
+              1,
+              "Day 3 lock Transfer Decision Desk Ryan narration to 4:40",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _narr_cell,
+              'if "05_outro" in manifest:\n',
+              '''if "05_transfer_decision_desk" in manifest:
+    _desk_info=manifest["05_transfer_decision_desk"]
+    _desk_duration=float(_desk_info["duration"])
+    if not 278.0 <= _desk_duration <= 282.0:
+        raise RuntimeError(
+            f"Transfer Decision Desk narration must be about 4:40; "
+            f"current duration is {_desk_duration:.2f}s"
+        )
+    _desk_words=_desk_info["words"]
+    _desk_marks={
+        "buy":vx_phrase_time(_desk_words,"First up the buys",required=True,context="desk BUY"),
+        "hold":vx_phrase_time(_desk_words,"Now the holds",required=True,context="desk HOLD"),
+        "sell":vx_phrase_time(_desk_words,"Finally the sells",required=True,context="desk SELL"),
+        "close":vx_phrase_time(_desk_words,"That is the desk",required=True,context="desk close"),
+    }
+    _desk_ranges={
+        "buy":(12.0,30.0),
+        "hold":(86.0,116.0),
+        "sell":(164.0,198.0),
+        "close":(246.0,274.0),
+    }
+    for _label,_time in _desk_marks.items():
+        _lo,_hi=_desk_ranges[_label]
+        if not _lo <= float(_time) <= _hi:
+            raise RuntimeError(
+                f"Transfer Desk {_label} timing drifted: {_time:.2f}s "
+                f"not in {_lo:.0f}-{_hi:.0f}s"
+            )
+    print(
+        f"✅ Transfer Decision Desk narration locked: {_desk_duration:.2f}s • "
+        f"BUY {_desk_marks['buy']:.1f}s • HOLD {_desk_marks['hold']:.1f}s • "
+        f"SELL {_desk_marks['sell']:.1f}s • CLOSE {_desk_marks['close']:.1f}s"
+    )
+
+if "05_outro" in manifest:
+''',
+              1,
+              "Day 3 validate Transfer Decision Desk duration and section timing",
+          )
+
           _day3_anim_scene_anchor = '''    "03_projected_goals": (
         "projected_goals_scene_4k.html",
         "projected_goals_scene_4k_animated.html"
@@ -1842,6 +1917,10 @@ if "05_outro" in manifest:
     "04_final_shortlists": (
         "final_shortlists_scene_4k.html",
         "final_shortlists_scene_4k_animated.html"
+    ),
+    "05_transfer_decision_desk": (
+        "transfer_decision_desk_scene_4k.html",
+        "transfer_decision_desk_scene_4k_animated.html"
     ),'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
@@ -1849,7 +1928,7 @@ if "05_outro" in manifest:
               _day3_anim_scene_anchor,
               _day3_anim_scene_extra,
               1,
-              "Day 3 animation preserve Projected Goals and add DEFCON/Final Shortlists",
+              "Day 3 animation preserve Projected Goals and add DEFCON/Final Shortlists/Transfer Desk",
           )
 
           _day3_fdr_events = r'''    if key=="02_fdr":
@@ -1895,6 +1974,57 @@ if "05_outro" in manifest:
             {"sel":".d3ShortRow","at":panel_at+0.85,"dur":0.28,"stagger":0.025,"fx":"left"},
         ]
 
+
+
+    if key=="05_transfer_decision_desk":
+        buy_at=vx_phrase_time(words,"First up the buys",required=True,context="desk BUY")
+        hold_at=vx_phrase_time(words,"Now the holds",required=True,context="desk HOLD")
+        sell_at=vx_phrase_time(words,"Finally the sells",required=True,context="desk SELL")
+        close_at=vx_phrase_time(words,"That is the desk",required=True,context="desk close")
+        player_times=[
+            vx_phrase_time(words,name,required=True,context=f"desk player {name}")
+            for name in DAY3_TRANSFER_DESK_ORDER
+        ]
+        if player_times != sorted(player_times) or len(set(player_times)) != 9:
+            raise RuntimeError(f"Transfer Desk player narration order is invalid: {player_times}")
+
+        windows=[]
+        lane_dy={"BUY":-390.0,"HOLD":20.0,"SELL":430.0}
+        for i,(action,name) in enumerate(_D3_DESK_EDITORIAL):
+            start=float(player_times[i])
+            next_start=float(player_times[i+1]) if i+1<len(player_times) else float(close_at)
+            move=min(start+8.2,next_start-1.9)
+            settle=min(move+1.6,next_start-0.25)
+            if settle <= move or move-start < 6.0:
+                raise RuntimeError(
+                    f"Transfer Desk timing for {name} cannot support the requested card flight: "
+                    f"start={start:.2f}, move={move:.2f}, settle={settle:.2f}, next={next_start:.2f}"
+                )
+            windows.append({
+                "i":int(i),"name":str(name),"action":str(action),
+                "start":round(start,3),"move":round(move,3),"settle":round(settle,3),
+                "dx":float(1610.0+(i%3)*230.0),"dy":float(lane_dy[action]),
+            })
+        globals().setdefault("_VX_TRANSFER_DESK_WINDOWS",{})[key]=windows
+        globals().setdefault("_VX_TRANSFER_DESK_CLOSE",{})[key]=float(close_at)
+
+        events=[
+            {"sel":".header,.hero,.main-title","at":0.0,"dur":0.72,"stagger":0.05,"fx":"left"},
+            {"sel":".d3DeskOpen,.d3DeskPitch","at":0.35,"dur":0.85,"stagger":0.08,"fx":"zoom"},
+            {"sel":".d3DeskZone.buy","at":buy_at,"dur":0.52,"stagger":0,"fx":"left"},
+            {"sel":".d3DeskZone.hold","at":hold_at,"dur":0.52,"stagger":0,"fx":"left"},
+            {"sel":".d3DeskZone.sell","at":sell_at,"dur":0.52,"stagger":0,"fx":"left"},
+            {"sel":".d3DeskClose","at":close_at,"dur":0.72,"stagger":0,"fx":"zoom"},
+        ]
+        for w in windows:
+            events.append({
+                "sel":f'.d3DeskMotion[data-desk-i="{w["i"]}"]',
+                "at":w["move"],"dur":max(0.35,w["settle"]-w["move"]),
+                "stagger":0,"fx":"fade"
+            })
+        return events
+
+
     if key=="04_clean_sheets":'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
@@ -1909,18 +2039,93 @@ if "05_outro" in manifest:
               runtime_source_text,
               _anim_cell,
               '    elif key in {"02_fdr","03_projected_goals","04_clean_sheets"}:',
-              '    elif key in {"02_fdr","03_projected_goals","03_defcon","04_final_shortlists","04_clean_sheets"}:',
+              '    elif key in {"02_fdr","03_projected_goals","03_defcon","04_final_shortlists","05_transfer_decision_desk","04_clean_sheets"}:',
               1,
               "Day 3 animation body-event scene set",
+          )
+
+
+          _day3_transfer_js = r'''
+    /* Transfer Decision Desk — left popup to right lane, deterministic under __seek(t). */
+    if(VX.key==="05_transfer_decision_desk" && Array.isArray(VX.transfer_desk_windows)){
+        VX.transfer_desk_windows.forEach(w=>{
+            const pop=document.querySelector('.d3DeskPop[data-desk-i="'+w.i+'"]');
+            const slot=document.querySelector('.d3DeskSlot[data-desk-i="'+w.i+'"]');
+            if(pop){
+                if(t<w.start || t>=w.settle){
+                    pop.style.opacity="0";
+                    pop.style.transform="none";
+                }else if(t<w.move){
+                    const pin=ease((t-w.start)/0.48);
+                    pop.style.opacity=String(pin);
+                    pop.style.transform='translateX(0px) translateY(0px) scale('+(0.94+0.06*pin)+')';
+                }else{
+                    const fly=ease((t-w.move)/(w.settle-w.move));
+                    pop.style.opacity=String(1-fly*0.12);
+                    pop.style.transform='translateX('+(fly*w.dx)+'px) translateY('+(fly*w.dy)+'px) scale('+(1-0.63*fly)+')';
+                }
+            }
+            if(slot){
+                if(t<w.settle){
+                    slot.style.opacity="0";
+                    slot.style.transform="scale(.88)";
+                }else{
+                    const ps=ease((t-w.settle)/0.45);
+                    slot.style.opacity=String(ps);
+                    slot.style.transform='scale('+(0.88+0.12*ps)+')';
+                }
+            }
+        });
+    }
+
+'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              '    /* data-driven dead-air teaser */',
+              _day3_transfer_js + '    /* data-driven dead-air teaser */',
+              1,
+              "Day 3 Transfer Desk card-flight JavaScript",
+          )
+
+          _day3_vx_anchor = '''    vx={
+        "key":key,
+        "duration":duration,
+        "events":events,
+        "highlights":highlights,
+        "teasers":teasers,
+        "fixture_grid_window":fixture_grid_window,
+        "logo":OUTRO_LOGO_URI
+    }'''
+          _day3_vx_extra = _day3_vx_anchor + '''
+    if key=="05_transfer_decision_desk":
+        vx["transfer_desk_windows"]=globals().get(
+            "_VX_TRANSFER_DESK_WINDOWS",{}
+        ).get(key,[])
+        vx["transfer_desk_closing_at"]=globals().get(
+            "_VX_TRANSFER_DESK_CLOSE",{}
+        ).get(key)
+        if len(vx["transfer_desk_windows"]) != 9:
+            raise RuntimeError(
+                f"Transfer Desk animation requires 9 card-flight windows; "
+                f"found {len(vx['transfer_desk_windows'])}"
+            )'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _anim_cell,
+              _day3_vx_anchor,
+              _day3_vx_extra,
+              1,
+              "Day 3 Transfer Desk animation payload",
           )
 
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _render_cell,
               '        "03_projected_goals",\n        "04_clean_sheets",',
-              '        "03_projected_goals",\n        "03_defcon",\n        "04_final_shortlists",\n        "04_clean_sheets",',
+              '        "03_projected_goals",\n        "03_defcon",\n        "04_final_shortlists",\n        "05_transfer_decision_desk",\n        "04_clean_sheets",',
               1,
-              "Day 3 render preserved Projected Goals plus DEFCON/Final Shortlists",
+              "Day 3 render preserved Projected Goals plus DEFCON/Final Shortlists/Transfer Desk",
           )
 
           runtime_source_text = _day3_replace_in_cell(
@@ -1937,29 +2142,36 @@ if "05_outro" in manifest:
               '("03_projected_goals", "PROJECTED GOALS",  VIDEO / "03_projected_goals.mp4"),',
               '''("03_projected_goals", "PROJECTED GOALS",  VIDEO / "03_projected_goals.mp4"),
     ("03_defcon",          "DEFCON",           VIDEO / "03_defcon.mp4"),
-    ("04_final_shortlists", "FINAL SHORTLISTS", VIDEO / "04_final_shortlists.mp4"),''',
+    ("04_final_shortlists", "FINAL SHORTLISTS", VIDEO / "04_final_shortlists.mp4"),
+    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", VIDEO / "05_transfer_decision_desk.mp4"),''',
               1,
-              "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists",
+              "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists/Transfer Desk",
           )
 
           _day3_section_required = (
               'SLIDE_05_CLEAN_SHEETS = False',
               '"03_defcon": True',
               '"04_final_shortlists": True',
+              '"05_transfer_decision_desk": True',
               'fdr_scene_4k.png = Projected Goals + Clean Sheet Odds',
               'projected_goals_scene_4k.png = ORIGINAL PRESERVED',
               'defcon_scene_4k.png = DEFCON',
               'final_shortlists_scene_4k.png = Final Shortlists',
+              'transfer_decision_desk_scene_4k.png = Transfer Decision Desk',
               '"defcon_scene_4k.html"',
               '"final_shortlists_scene_4k.html"',
+              '"transfer_decision_desk_scene_4k.html"',
               '"PROJECTED GOALS + CS ODDS"',
               '"03_projected_goals", "PROJECTED GOALS"',
               '"03_defcon",          "DEFCON"',
               '"04_final_shortlists", "FINAL SHORTLISTS"',
+              '"05_transfer_decision_desk", "TRANSFER DECISION DESK"',
               'Final Shortlists narration locked:',
+              'Transfer Decision Desk narration locked:',
               'DAY3_PROJ_ATTACK_TARGETS',
               'DAY3_DEFCON_TARGETS',
               'DAY3_SHORTLISTS',
+              'DAY3_TRANSFER_DESK',
               '<span>GLS</span><span>CS%</span>',
               '<b>GLS</b><b>CS%</b>',
               '# 21. BUILD PROJECTED GOALS HTML',
@@ -1977,7 +2189,7 @@ if "05_outro" in manifest:
                   "Day 3_3 two-slide runtime patch incomplete: "
                   + " | ".join(_day3_section_missing)
               )
-          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists runtime override: PASS")
+          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + Transfer Decision Desk runtime override: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
