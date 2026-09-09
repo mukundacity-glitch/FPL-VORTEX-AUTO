@@ -7158,13 +7158,14 @@ if "05_outro" in manifest:
             raise RuntimeError(
                 f"Transfer Desk animation requires 9 card-flight windows; "
                 f"found {len(vx['transfer_desk_windows'])}"
-            )'''
+            )
     if key=="04_clean_sheets":
         vx["chip_motion"]=globals().get(
             "_VX_CHIP_STRATEGY_MOTION",{}
         ).get(key,{})
         if len(vx["chip_motion"].get("usage_times",[])) != 4:
             raise RuntimeError("Slide 7 animation requires four chip-card timing anchors")
+'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _anim_cell,
