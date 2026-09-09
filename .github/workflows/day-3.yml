@@ -525,7 +525,7 @@ SELECTED_SCENES = ['''
               "Day 3 add DEFCON and Final Shortlists scene selections",
           )
 
-          _day3_design_block = r'''
+          _day3_design_block = r"""
 # ============================================================
 # DAY 3_3 ONLY — PROJECTED GOALS + CLEAN SHEET ODDS / DEFCON
 # Two full-page model slides. Existing VORTEX header/footer/template is reused.
@@ -1233,7 +1233,7 @@ print("✅ projected_goals_scene_4k.png = ORIGINAL PRESERVED")
 print("✅ defcon_scene_4k.png = DEFCON")
 print("✅ final_shortlists_scene_4k.png = Final Shortlists")
 print("✅ Final Shortlists uses dynamic xMins/xPts/price/value from Phase 10")
-'''
+"""
           # Preserve every existing FDR / Projected Goals / Clean Sheet data/model
           # calculation in Cell 14B. The original slide files may be created transiently,
           # then the Day 3_3 presentation outputs below replace/delete only those old files.
