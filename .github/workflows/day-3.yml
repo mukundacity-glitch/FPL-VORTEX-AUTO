@@ -623,7 +623,7 @@ for _, _fx in _d3_fx.iterrows():
     _d3_fixture_cards.append(
         '<article class="d3FixtureCard">'
         f'<div class="d3FixtureKick">{_kick}</div>'
-        '<div class="d3FixtureCols"><span>TEAM</span><span>GOLS</span><span>CS%</span></div>'
+        '<div class="d3FixtureCols"><span>TEAM</span><span>GLS</span><span>CS%</span></div>'
         f'{_team_line(_home)}{_team_line(_away)}'
         '</article>'
     )
@@ -684,7 +684,7 @@ def _d3_rank_rows(frame, metric):
 _d3_projection_left = (
     '<section class="board d3FixtureBoard">'
     '<div class="d3BoardHead"><span>GAMEWEEK FIXTURES</span>'
-    '<div class="d3MiniCols"><b>GOLS</b><b>CS%</b></div></div>'
+    '<div class="d3MiniCols"><b>GLS</b><b>CS%</b></div></div>'
     f'<div class="d3FixtureGrid">{"".join(_d3_fixture_cards)}</div>'
     '</section>'
 )
@@ -1038,8 +1038,8 @@ def _d3_defcon_reason(frame, i):
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _narr_cell,
-              "scripts = {\n",
-              _day3_narr_helpers + "\nscripts = {\n",
+              'scripts = {\n\n"00_intro":',
+              _day3_narr_helpers + '\nscripts = {\n\n"00_intro":',
               1,
               "Day 3 narration ranking helpers",
           )
@@ -1077,7 +1077,7 @@ So this slide is the Gameweek map: target the strongest team environments, avoid
               runtime_source_text,
               _narr_cell,
               '"02_fdr":\n',
-              '"03_projected_goals":',
+              '"03_projected_goals":\n',
               _day3_fdr_script,
               "Day 3 combined projection narration",
           )
@@ -1113,7 +1113,7 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
               runtime_source_text,
               _narr_cell,
               '"03_projected_goals":\n',
-              '"04_clean_sheets":',
+              '"04_clean_sheets":\n',
               _day3_defcon_script,
               "Day 3 DEFCON narration",
           )
@@ -1210,6 +1210,8 @@ The decision rule is straightforward: use DEFCON as an additional floor, not as 
               '"DEFCON",           VIDEO / "03_projected_goals.mp4"',
               'DAY3_PROJ_ATTACK_TARGETS',
               'DAY3_DEFCON_TARGETS',
+              '<span>GLS</span><span>CS%</span>',
+              '<b>GLS</b><b>CS%</b>',
           )
           _day3_section_missing = [
               marker for marker in _day3_section_required
