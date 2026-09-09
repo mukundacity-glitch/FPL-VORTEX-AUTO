@@ -2,6 +2,15 @@ name: Day 3_3
 
 on:
   workflow_dispatch:
+    inputs:
+      render_mode:
+        description: "Day 3 render mode"
+        required: true
+        default: DRAFT
+        type: choice
+        options:
+          - DRAFT
+          - FINAL
 
 permissions:
   contents: read
@@ -12,6 +21,7 @@ concurrency:
 
 env:
   PYTHONUNBUFFERED: "1"
+  DAY3_RENDER_MODE: ${{ inputs.render_mode }}
   SOURCE_FILE: 1_final_day1.py
   DAY3_OUTPUT_ROOT: /content/drive/MyDrive/FPL_VORTEX/Day_3_3
   DAY3_DRIVE_PATH: FPL_VORTEX/Day_3_3
@@ -590,6 +600,34 @@ jobs:
           _assembly_cell = "# CELL 21 — RESUME-SAFE FINAL ASSEMBLY + PUBLISH QA"
           _gw_review_narr_cell = "# CELL 15 — AUTO GW REVIEW DATA + RYAN NARRATION TIMING"
           _gw_review_design_cell = "# CELL 14 — SELF-CONTAINED TRUE-4K HTML → PNG RENDERER"
+
+          _day3_quality_control = r'''DAY3_RENDER_MODE = str(
+              __import__("os").environ.get("DAY3_RENDER_MODE", "DRAFT")
+          ).strip().upper()
+          if DAY3_RENDER_MODE not in {"DRAFT", "FINAL"}:
+              raise ValueError(f"Unknown DAY3_RENDER_MODE: {DAY3_RENDER_MODE!r}")
+          MP4_QUALITY = DAY3_RENDER_MODE
+          if MP4_QUALITY == "DRAFT":
+              CELL20_MOTION_CAPTURE_FPS = 1
+              GW_REVIEW_MOTION_CAPTURE_FPS = 1
+              CELL20_JPEG_QUALITY = 80
+              GW_REVIEW_JPEG_QUALITY = 82'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              'MP4_QUALITY = "FINAL"  # @param ["DRAFT", "FINAL"]',
+              _day3_quality_control,
+              1,
+              "Day 3 workflow Draft/Final render mode",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              'RESUME_EXISTING_MP4 = True\nFORCE_RERENDER = False',
+              'RESUME_EXISTING_MP4 = False\nFORCE_RERENDER = True',
+              1,
+              "Day 3 prevent cross-quality MP4 reuse",
+          )
 
           # ------------------------------------------------------------
           # DAY 3_3 — SLIDE 5 • GAMEWEEK REVIEW
@@ -8031,11 +8069,13 @@ jobs:
               env_file.write(f"DAY3_STUDIO_SCRIPT={studio_script}\n")
               env_file.write(f"DAY3_UPLOAD_SCRIPT={upload_script}\n")
 
+          print(f"Day 3 render mode: {os.environ.get('DAY3_RENDER_MODE','DRAFT').upper()}")
           print("Day 1 repository source and both existing workflows: untouched")
           print("Isolated Day 3 runtime clone and Video 3/3 tools: PASS")
           PY
 
       - name: Verify private YouTube upload configuration
+        if: ${{ inputs.render_mode == 'FINAL' }}
         shell: bash
         run: |
           python - <<'PY'
@@ -9096,6 +9136,29 @@ jobs:
                   f"found MP4={len(final_mp4s)}, MP3={len(final_mp3s)}"
               )
 
+          render_mode = str(os.environ.get("DAY3_RENDER_MODE") or "").strip().upper()
+          if render_mode not in {"DRAFT","FINAL"}:
+              raise SystemExit(f"Invalid DAY3_RENDER_MODE during QA: {render_mode!r}")
+          probe = json.loads(subprocess.check_output(
+              [
+                  "ffprobe","-v","error","-select_streams","v:0",
+                  "-show_entries","stream=width,height,avg_frame_rate",
+                  "-of","json",str(final_mp4s[0]),
+              ],
+              text=True,
+          ))
+          stream = (probe.get("streams") or [{}])[0]
+          width, height = int(stream.get("width") or 0), int(stream.get("height") or 0)
+          fps_num, fps_den = str(stream.get("avg_frame_rate") or "0/1").split("/",1)
+          fps = float(fps_num) / max(1.0,float(fps_den))
+          expected = {"DRAFT":(854,480,5.0),"FINAL":(3840,2160,24.0)}[render_mode]
+          if (width,height) != expected[:2] or abs(fps-expected[2]) > 0.05:
+              raise SystemExit(
+                  f"{render_mode} combined video has wrong render contract: "
+                  f"{width}x{height} @{fps:.3f}fps vs {expected}"
+              )
+          print(f"Day 3 render mode QA: {render_mode} • {width}x{height} @ {fps:.0f}fps")
+
           package_path = root / "DATA" / "youtube_video_3_of_3_package.json"
           if not package_path.is_file():
               raise SystemExit(f"Video 3/3 package is missing: {package_path}")
@@ -9158,7 +9221,8 @@ jobs:
           echo "Saved only Day 3 outputs to My Drive/${DAY3_DRIVE_PATH}"
 
 
-      - name: Upload Video 3/3 privately to YouTube
+      - name: Upload Final Video 3/3 privately to YouTube
+        if: ${{ inputs.render_mode == 'FINAL' }}
         shell: bash
         run: |
           python "${DAY3_UPLOAD_SCRIPT}" \
@@ -9167,7 +9231,7 @@ jobs:
 
 
       - name: Save Video 3/3 private-upload receipt to its Drive folder
-        if: always()
+        if: ${{ always() && inputs.render_mode == 'FINAL' }}
         shell: bash
         run: |
           receipt="${DAY3_OUTPUT_ROOT}/DATA/youtube_private_upload.json"
@@ -9181,7 +9245,7 @@ jobs:
           fi
 
       - name: Upload Day 3 output artifact
-        if: always()
+        if: ${{ always() && inputs.render_mode == 'FINAL' }}
         uses: actions/upload-artifact@v7
         with:
           name: day-3-output-${{ github.run_number }}
