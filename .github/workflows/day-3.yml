@@ -102,7 +102,7 @@ jobs:
               if header_pos < 0:
                   raise SystemExit(f"Day 3 intro patch: missing cell header {header!r}")
               next_match = re.search(
-                  r"(?m)^# ={20,}\\n# [^\\n]*\\bCELL\\s+\\d+[A-Za-z]?\\b",
+                  r"(?m)^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b",
                   text[header_pos + len(header):],
               )
               end = (
