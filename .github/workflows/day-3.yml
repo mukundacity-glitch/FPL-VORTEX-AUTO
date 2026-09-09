@@ -458,8 +458,10 @@ jobs:
               )
           
           _day3_forbidden_runtime_markers = (
-              'id="vxFixtureGrid"',
+              '<section class="fxGrid" id="vxFixtureGrid"',
               'def _vx_next_fixture_grid():',
+              'NEXT_FIXTURE_GRID_HTML = _vx_next_fixture_grid()',
+              'document.querySelector("#vxFixtureGrid")',
               'if ".agenda-1" in e["sel"]',
               'pre-agenda fixture grid — plain show/hide window',
           )
