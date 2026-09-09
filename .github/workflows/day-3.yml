@@ -5501,8 +5501,10 @@ for _required in (
 
 if FDR_HTML_PATH.read_text(encoding="utf-8").count("BENCHING DILEMMA") != 1:
     raise RuntimeError("Day 3_3 Slide 6 BENCHING DILEMMA heading is missing")
-if FDR_HTML_PATH.read_text(encoding="utf-8").count('d3BenchCard') < 24:
-    raise RuntimeError("Day 3_3 Slide 6 must contain 24 player-card markers")
+if FDR_HTML_PATH.read_text(encoding="utf-8").count(
+    '<article class="d3FixtureCard d3RankRow d3BenchCard'
+) != 24:
+    raise RuntimeError("Day 3_3 Slide 6 must contain exactly 24 rendered player cards")
 if not BENCHING_MANIFEST_PATH.is_file() or BENCHING_MANIFEST_PATH.stat().st_size <= 0:
     raise RuntimeError("Day 3_3 Slide 6 benching_dilemma.json is missing")
 if XG_HTML_PATH.read_text(encoding="utf-8").count("PROJECTED") < 1:
