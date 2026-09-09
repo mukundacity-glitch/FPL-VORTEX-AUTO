@@ -7766,34 +7766,34 @@ jobs:
           )
 
           _day3_studio_labels = '''    labels = {
-        "00_intro": "FPL VORTEX intro",
-        "gw_review": f"GW{review_gw} review",
-        "02_fdr": "Fixture difficulty",
-        "03_projected_goals": "Projected goals",
-        "04_clean_sheets": "Clean-sheet odds",
-        "05_outro": "Next video",
-    }
-'''
+          "00_intro": "FPL VORTEX intro",
+          "gw_review": f"GW{review_gw} review",
+          "02_fdr": "Fixture difficulty",
+          "03_projected_goals": "Projected goals",
+          "04_clean_sheets": "Clean-sheet odds",
+          "05_outro": "Next video",
+          }
+          '''
           _day3_studio_labels_replacement = '''    labels = {
-        "00_intro": "FPL VORTEX intro",
-        "03_projected_goals": "Projected Goals",
-        "03_defcon": "DEFCON",
-        "04_final_shortlists": "Final Shortlists",
-        "05_transfer_decision_desk": "Transfer Decision Desk",
-        "gw_review": f"GW{review_gw} Gameweek Review",
-        "05a_my_plan_roll": "My Plan • Roll",
-        "05b_my_plan_transfer": "My Plan • Transfer",
-        "05c_my_plan_free_hit": "My Plan • Free Hit",
-        "05d_my_plan_wildcard": "My Plan • Wildcard",
-        "05e_my_plan_roll_bb": "My Plan • Roll + Bench Boost",
-        "05f_my_plan_roll_tc": "My Plan • Roll + Triple Captain",
-        "05g_my_plan_transfer_bb": "My Plan • Transfer + Bench Boost",
-        "05h_my_plan_transfer_tc": "My Plan • Transfer + Triple Captain",
-        "02_fdr": "Benching Dilemma",
-        "04_clean_sheets": "Chip Strategy",
-        "05_outro": "Elite Takeaways & CTA",
-    }
-'''
+          "00_intro": "FPL VORTEX intro",
+          "03_projected_goals": "Projected Goals",
+          "03_defcon": "DEFCON",
+          "04_final_shortlists": "Final Shortlists",
+          "05_transfer_decision_desk": "Transfer Decision Desk",
+          "gw_review": f"GW{review_gw} Gameweek Review",
+          "05a_my_plan_roll": "My Plan • Roll",
+          "05b_my_plan_transfer": "My Plan • Transfer",
+          "05c_my_plan_free_hit": "My Plan • Free Hit",
+          "05d_my_plan_wildcard": "My Plan • Wildcard",
+          "05e_my_plan_roll_bb": "My Plan • Roll + Bench Boost",
+          "05f_my_plan_roll_tc": "My Plan • Roll + Triple Captain",
+          "05g_my_plan_transfer_bb": "My Plan • Transfer + Bench Boost",
+          "05h_my_plan_transfer_tc": "My Plan • Transfer + Triple Captain",
+          "02_fdr": "Benching Dilemma",
+          "04_clean_sheets": "Chip Strategy",
+          "05_outro": "Elite Takeaways & CTA",
+          }
+          '''
           studio_text = replace_exact(
               studio_text,
               _day3_studio_labels,
@@ -7807,19 +7807,19 @@ jobs:
               '    package = {'
           )
           _day3_studio_metadata_replacement = r'''    metadata = _vx23_metadata(preview_gw, review_gw, review_status, qa)
-    _day3_chapters = list(metadata.get("chapters") or [])
-    _day3_hashtags = [
-        "#FPL",
-        "#FantasyPremierLeague",
-        f"#FPLGW{preview_gw}",
-        "#FPLVORTEX",
-    ]
-    metadata["title"] = (
-        f"FPL GW{preview_gw} Final Team: Transfers, Bench, Chips & Captain | "
-        f"GW{review_gw} Review (3/3)"
-    )
-    metadata["description"] = "\n".join(
-        [
+          _day3_chapters = list(metadata.get("chapters") or [])
+          _day3_hashtags = [
+          "#FPL",
+          "#FantasyPremierLeague",
+          f"#FPLGW{preview_gw}",
+          "#FPLVORTEX",
+          ]
+          metadata["title"] = (
+          f"FPL GW{preview_gw} Final Team: Transfers, Bench, Chips & Captain | "
+          f"GW{review_gw} Review (3/3)"
+          )
+          metadata["description"] = "\n".join(
+          [
             f"FPL VORTEX Video 3/3 for Gameweek {preview_gw}.",
             "",
             "This final decision video covers:",
@@ -7833,12 +7833,12 @@ jobs:
             *_day3_chapters,
             "",
             " ".join(_day3_hashtags),
-        ]
-    )
-    metadata["hashtags"] = _day3_hashtags
-    metadata["tags"] = list(dict.fromkeys(
-        list(metadata.get("tags") or [])
-        + [
+          ]
+          )
+          metadata["hashtags"] = _day3_hashtags
+          metadata["tags"] = list(dict.fromkeys(
+          list(metadata.get("tags") or [])
+          + [
             "FPL Vortex",
             "FPL transfers",
             "FPL captain",
@@ -7848,10 +7848,10 @@ jobs:
             "FPL free hit",
             "FPL bench boost",
             "FPL triple captain",
-        ]
-    ))
+          ]
+          ))
 
-    package = {'''
+          package = {'''
           studio_text = replace_exact(
               studio_text,
               _day3_studio_metadata_anchor,
