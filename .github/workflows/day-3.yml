@@ -1203,59 +1203,115 @@ FINAL_SHORTLISTS_HTML_PATH.write_text(_d3_short_html, encoding="utf-8")
 # -----------------------------
 # SLIDE 4 — TRANSFER DECISION DESK
 # Same Projected Goals scene_template/header/footer shell.
-# Nine editorial names/actions are user-selected; all player facts are live pipeline data.
+# BUY/HOLD/SELL names and facts are selected dynamically from VORTEX math + official FPL market data.
 # -----------------------------
-_D3_DESK_EDITORIAL = (
-    ("BUY",  "Cole Palmer"),
-    ("BUY",  "Morgan Rogers"),
-    ("BUY",  "Cody Gakpo"),
-    ("HOLD", "Erling Haaland"),
-    ("HOLD", "João Pedro"),
-    ("HOLD", "Bryan Mbeumo"),
-    ("SELL", "Bruno Fernandes"),
-    ("SELL", "Dominik Szoboszlai"),
-    ("SELL", "Nico O’Reilly"),
-)
-
-def _d3_desk_norm(value):
-    import unicodedata
-    value = unicodedata.normalize("NFKD", str(value or ""))
-    value = "".join(ch for ch in value if not unicodedata.combining(ch))
-    return re.sub(r"[^a-z0-9]+", " ", value.lower().replace("’", "'")).strip()
-
 def _d3_desk_num(value, default=0.0):
     value = pd.to_numeric(value, errors="coerce")
     return float(value) if pd.notna(value) else float(default)
 
-def _d3_desk_find_player(requested_name):
-    target = _d3_desk_norm(requested_name)
-    matches = []
-    for _, row in players.iterrows():
-        first = str(row.get("first_name", "") or "")
-        second = str(row.get("second_name", "") or "")
-        web = str(row.get("web_name", "") or "")
-        aliases = {
-            _d3_desk_norm(f"{first} {second}".strip()),
-            _d3_desk_norm(web),
-            _d3_desk_norm(f"{first} {web}".strip()),
-        }
-        if target in aliases:
-            matches.append(row)
-    if len(matches) != 1:
-        raise RuntimeError(
-            f"Day 3_3 Transfer Desk expected one FPL match for {requested_name!r}, "
-            f"found {len(matches)}"
-        )
-    return matches[0]
+def _d3_desk_flow(value):
+    value = int(round(float(value)))
+    if value > 0:
+        return f"+{value:,}"
+    if value < 0:
+        return f"-{abs(value):,}"
+    return "0"
 
+# Current-GW player model + official FPL market snapshot.
 _d3_desk_model = _d3_short_agg.drop_duplicates("player_id", keep="last").copy()
-_d3_desk_model["player_id"] = pd.to_numeric(_d3_desk_model["player_id"], errors="coerce")
+_d3_desk_model["player_id"] = pd.to_numeric(
+    _d3_desk_model["player_id"], errors="coerce"
+)
 _d3_desk_model = _d3_desk_model.dropna(subset=["player_id"]).copy()
 _d3_desk_model["player_id"] = _d3_desk_model["player_id"].astype(int)
-_d3_desk_model = _d3_desk_model.set_index("player_id", drop=False)
+
+_d3_market_required = {
+    "id", "team", "position", "price", "selected_by_percent",
+    "transfers_in_event", "transfers_out_event",
+}
+_d3_market_missing = sorted(_d3_market_required - set(players.columns))
+if _d3_market_missing:
+    raise RuntimeError(
+        f"Day 3_3 Transfer Desk missing official FPL market fields: {_d3_market_missing}"
+    )
+
+_d3_market = players[[
+    "id", "team", "position", "price", "selected_by_percent",
+    "transfers_in_event", "transfers_out_event",
+]].copy().rename(columns={
+    "id": "player_id",
+    "team": "fpl_team_id",
+    "position": "fpl_position",
+    "price": "fpl_price",
+})
+_d3_market["player_id"] = pd.to_numeric(_d3_market["player_id"], errors="coerce")
+_d3_market = _d3_market.dropna(subset=["player_id"]).copy()
+_d3_market["player_id"] = _d3_market["player_id"].astype(int)
+for _col in (
+    "selected_by_percent", "transfers_in_event", "transfers_out_event",
+    "fpl_price",
+):
+    _d3_market[_col] = pd.to_numeric(_d3_market[_col], errors="coerce").fillna(0.0)
+_d3_market["net_transfers"] = (
+    _d3_market["transfers_in_event"] - _d3_market["transfers_out_event"]
+)
+_d3_market["market_activity"] = (
+    _d3_market["transfers_in_event"] + _d3_market["transfers_out_event"]
+)
+_d3_market["market_momentum"] = np.where(
+    _d3_market["market_activity"].gt(0),
+    _d3_market["net_transfers"] / _d3_market["market_activity"],
+    0.0,
+)
+
+_d3_desk_model = _d3_desk_model.merge(
+    _d3_market,
+    on="player_id",
+    how="left",
+    validate="one_to_one",
+)
+for _col in (
+    "selected_by_percent", "transfers_in_event", "transfers_out_event",
+    "net_transfers", "market_activity", "market_momentum",
+):
+    _d3_desk_model[_col] = pd.to_numeric(
+        _d3_desk_model[_col], errors="coerce"
+    ).fillna(0.0)
+
+# Pull the deeper Phase-11 horizon/model fields when available.
+_d3_phase11_pool = globals().get("phase11_player_decision_pool")
+if isinstance(_d3_phase11_pool, pd.DataFrame) and not _d3_phase11_pool.empty:
+    _p11_cols = [
+        col for col in (
+            "player_id", "final_gameweek_xpts", "next_3_xpts", "next_5_xpts",
+            "phase11_weighted_horizon_xpts", "player_model_confidence",
+            "decision_available", "decision_pool_ready",
+        )
+        if col in _d3_phase11_pool.columns
+    ]
+    if "player_id" in _p11_cols:
+        _p11 = _d3_phase11_pool[_p11_cols].drop_duplicates(
+            "player_id", keep="last"
+        ).copy()
+        _p11["player_id"] = pd.to_numeric(_p11["player_id"], errors="coerce")
+        _p11 = _p11.dropna(subset=["player_id"]).copy()
+        _p11["player_id"] = _p11["player_id"].astype(int)
+        _d3_desk_model = _d3_desk_model.merge(
+            _p11, on="player_id", how="left", validate="one_to_one"
+        )
+
+for _col in (
+    "final_gameweek_xpts", "next_3_xpts", "next_5_xpts",
+    "phase11_weighted_horizon_xpts", "player_model_confidence",
+):
+    if _col not in _d3_desk_model.columns:
+        _d3_desk_model[_col] = np.nan
+    _d3_desk_model[_col] = pd.to_numeric(
+        _d3_desk_model[_col], errors="coerce"
+    )
 
 _d3_desk_rank = (
-    _d3_short_agg.sort_values(
+    _d3_desk_model.sort_values(
         ["xpts", "xmins", "player_name"],
         ascending=[False, False, True],
         na_position="last",
@@ -1267,63 +1323,335 @@ _d3_desk_rank_map = {
     for rank, pid in enumerate(_d3_desk_rank["player_id"].tolist(), 1)
 }
 
-def _d3_desk_flow(value):
-    value = int(round(float(value)))
-    if value > 0:
-        return f"+{value:,}"
-    if value < 0:
-        return f"-{abs(value):,}"
-    return "0"
+# Player metadata lookup for photos/badges.
+_d3_players_by_id = players.drop_duplicates("id", keep="last").copy()
+_d3_players_by_id["id"] = pd.to_numeric(
+    _d3_players_by_id["id"], errors="coerce"
+)
+_d3_players_by_id = _d3_players_by_id.dropna(subset=["id"]).copy()
+_d3_players_by_id["id"] = _d3_players_by_id["id"].astype(int)
+_d3_players_by_id = _d3_players_by_id.set_index("id", drop=False)
+_d3_desk_by_id = _d3_desk_model.set_index("player_id", drop=False)
+
+# Current squad is used for HOLD/SELL whenever the approved Phase-11 state exists.
+_d3_current_squad = globals().get("phase11_current_squad_state")
+if not isinstance(_d3_current_squad, pd.DataFrame):
+    _d3_current_squad = pd.DataFrame()
+_d3_owned_ids = set()
+if not _d3_current_squad.empty and "player_id" in _d3_current_squad.columns:
+    _d3_owned_ids = set(
+        pd.to_numeric(_d3_current_squad["player_id"], errors="coerce")
+        .dropna().astype(int).tolist()
+    )
+
+def _d3_desk_unique_take(frame, count, used_ids):
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return []
+    out = []
+    for _, row in frame.iterrows():
+        pid = int(row["player_id"])
+        if pid in used_ids:
+            continue
+        out.append(row.to_dict())
+        used_ids.add(pid)
+        if len(out) >= int(count):
+            break
+    return out
+
+# BUY: Phase-11 legal incoming-transfer utility first; FPL market trend breaks ties.
+_d3_buy_pool = pd.DataFrame()
+_p11_buy = globals().get("phase11_buy_candidates")
+if isinstance(_p11_buy, pd.DataFrame) and not _p11_buy.empty:
+    _d3_buy_pool = _p11_buy.copy()
+    if "in_player_id" in _d3_buy_pool.columns:
+        _d3_buy_pool["player_id"] = pd.to_numeric(
+            _d3_buy_pool["in_player_id"], errors="coerce"
+        )
+    _d3_buy_pool = _d3_buy_pool.dropna(subset=["player_id"]).copy()
+    _d3_buy_pool["player_id"] = _d3_buy_pool["player_id"].astype(int)
+    _d3_buy_pool = _d3_buy_pool.merge(
+        _d3_desk_model,
+        on="player_id",
+        how="inner",
+        suffixes=("_p11", ""),
+    )
+    _d3_buy_pool["_buy_verdict"] = (
+        _d3_buy_pool.get("verdict", "").astype(str).str.upper().eq("BUY")
+        if "verdict" in _d3_buy_pool.columns else False
+    )
+    _d3_buy_pool["_actionable"] = (
+        _d3_buy_pool.get("actionable", False).fillna(False).astype(bool)
+        if "actionable" in _d3_buy_pool.columns else False
+    )
+    for _col in ("risk_adjusted_utility", "gain_next_5", "gain_next_gw"):
+        if _col not in _d3_buy_pool.columns:
+            _d3_buy_pool[_col] = np.nan
+        _d3_buy_pool[_col] = pd.to_numeric(_d3_buy_pool[_col], errors="coerce")
+    _d3_buy_pool = _d3_buy_pool.sort_values(
+        [
+            "_buy_verdict", "_actionable", "risk_adjusted_utility",
+            "gain_next_5", "xpts", "net_transfers",
+        ],
+        ascending=[False, False, False, False, False, False],
+        na_position="last",
+    )
+
+# Dynamic fallback: strongest model-ready non-owned players; market trend is final tie-break.
+_d3_global_buy = _d3_desk_model.loc[
+    ~_d3_desk_model["player_id"].isin(_d3_owned_ids)
+].copy()
+_d3_global_buy = _d3_global_buy.loc[
+    pd.to_numeric(_d3_global_buy["xmins"], errors="coerce").ge(
+        DAY3_SHORTLIST_MIN_XMINS
+    )
+    & pd.to_numeric(
+        _d3_global_buy["availability_probability"], errors="coerce"
+    ).fillna(0.0).ge(0.50)
+].sort_values(
+    [
+        "xpts", "phase11_weighted_horizon_xpts", "next_5_xpts",
+        "market_momentum", "net_transfers", "value",
+    ],
+    ascending=[False, False, False, False, False, False],
+    na_position="last",
+)
+
+# SELL/HOLD: use the Phase-11 current-squad replacement verdicts/edge when available.
+_d3_owned_decisions = pd.DataFrame()
+_p11_sell = globals().get("phase11_sell_candidates")
+if (
+    isinstance(_p11_sell, pd.DataFrame)
+    and not _p11_sell.empty
+    and _d3_owned_ids
+):
+    _d3_owned_decisions = _p11_sell.copy()
+    _d3_owned_decisions["player_id"] = pd.to_numeric(
+        _d3_owned_decisions["player_id"], errors="coerce"
+    )
+    _d3_owned_decisions = _d3_owned_decisions.dropna(subset=["player_id"]).copy()
+    _d3_owned_decisions["player_id"] = _d3_owned_decisions["player_id"].astype(int)
+    _d3_owned_decisions = _d3_owned_decisions.merge(
+        _d3_desk_model,
+        on="player_id",
+        how="inner",
+        suffixes=("_p11", ""),
+    )
+    for _col in ("decision_utility", "gain_next_5"):
+        if _col not in _d3_owned_decisions.columns:
+            _d3_owned_decisions[_col] = np.nan
+        _d3_owned_decisions[_col] = pd.to_numeric(
+            _d3_owned_decisions[_col], errors="coerce"
+        )
+    _d3_owned_decisions["_is_sell"] = (
+        _d3_owned_decisions.get("verdict", "").astype(str).str.upper().eq("SELL")
+        if "verdict" in _d3_owned_decisions.columns else False
+    )
+    _d3_owned_decisions["_is_hold"] = (
+        _d3_owned_decisions.get("verdict", "").astype(str).str.upper().eq("HOLD")
+        if "verdict" in _d3_owned_decisions.columns else False
+    )
+
+# If no approved squad state exists, derive HOLD/SELL from the global pool without fixed names:
+# established/high-ownership assets are classified by model strength + FPL market direction.
+if _d3_owned_decisions.empty:
+    _eligible = _d3_desk_model.loc[
+        pd.to_numeric(_d3_desk_model["xmins"], errors="coerce").gt(0)
+    ].copy()
+    _ownership_cut = float(
+        pd.to_numeric(_eligible["selected_by_percent"], errors="coerce")
+        .dropna().quantile(0.60)
+    ) if not _eligible.empty else 0.0
+    _d3_owned_decisions = _eligible.loc[
+        _eligible["selected_by_percent"].ge(_ownership_cut)
+    ].copy()
+    _d3_owned_decisions["decision_utility"] = np.nan
+    _d3_owned_decisions["gain_next_5"] = np.nan
+    _d3_owned_decisions["_is_sell"] = False
+    _d3_owned_decisions["_is_hold"] = False
+    DAY3_TRANSFER_DESK_SELECTION_MODE = "GLOBAL_MODEL_PLUS_FPL_MARKET"
+else:
+    DAY3_TRANSFER_DESK_SELECTION_MODE = (
+        "PHASE11_CURRENT_SQUAD_PLUS_FPL_MARKET"
+        if bool(globals().get("PHASE11_SQUAD_STATE_FRESH", False))
+        else "PHASE11_VISIBLE_SQUAD_BASELINE_PLUS_FPL_MARKET"
+    )
+
+_d3_sell_pool = _d3_owned_decisions.sort_values(
+    [
+        "_is_sell", "decision_utility", "gain_next_5",
+        "availability_probability", "xpts", "market_momentum", "net_transfers",
+    ],
+    ascending=[False, False, False, True, True, True, True],
+    na_position="last",
+)
+_d3_hold_pool = _d3_owned_decisions.sort_values(
+    [
+        "_is_hold", "xpts", "phase11_weighted_horizon_xpts",
+        "next_5_xpts", "availability_probability",
+        "market_momentum", "net_transfers",
+    ],
+    ascending=[False, False, False, False, False, False, False],
+    na_position="last",
+)
+
+_used_ids = set()
+_d3_buy_rows = _d3_desk_unique_take(_d3_buy_pool, 3, _used_ids)
+if len(_d3_buy_rows) < 3:
+    _d3_buy_rows += _d3_desk_unique_take(
+        _d3_global_buy, 3 - len(_d3_buy_rows), _used_ids
+    )
+
+_d3_sell_rows = _d3_desk_unique_take(_d3_sell_pool, 3, _used_ids)
+_d3_hold_rows = _d3_desk_unique_take(_d3_hold_pool, 3, _used_ids)
+
+# If HOLD/SELL were competing for the same owned player, refill from the remaining model pool.
+if len(_d3_sell_rows) < 3:
+    _d3_sell_rows += _d3_desk_unique_take(
+        _d3_owned_decisions.sort_values(
+            ["xpts", "xmins", "market_momentum", "net_transfers"],
+            ascending=[True, True, True, True],
+            na_position="last",
+        ),
+        3 - len(_d3_sell_rows),
+        _used_ids,
+    )
+if len(_d3_hold_rows) < 3:
+    _d3_hold_rows += _d3_desk_unique_take(
+        _d3_owned_decisions.sort_values(
+            [
+                "xpts", "phase11_weighted_horizon_xpts",
+                "availability_probability", "market_momentum",
+            ],
+            ascending=[False, False, False, False],
+            na_position="last",
+        ),
+        3 - len(_d3_hold_rows),
+        _used_ids,
+    )
+
+# Last-resort global refill remains model/market driven and never inserts a named player.
+if len(_d3_sell_rows) < 3:
+    _d3_sell_rows += _d3_desk_unique_take(
+        _d3_desk_model.sort_values(
+            ["xpts", "xmins", "availability_probability", "net_transfers"],
+            ascending=[True, True, True, True],
+            na_position="last",
+        ),
+        3 - len(_d3_sell_rows),
+        _used_ids,
+    )
+if len(_d3_hold_rows) < 3:
+    _d3_hold_rows += _d3_desk_unique_take(
+        _d3_desk_model.sort_values(
+            [
+                "xpts", "phase11_weighted_horizon_xpts",
+                "availability_probability", "selected_by_percent",
+            ],
+            ascending=[False, False, False, False],
+            na_position="last",
+        ),
+        3 - len(_d3_hold_rows),
+        _used_ids,
+    )
+
+if not all(len(rows) == 3 for rows in (_d3_buy_rows, _d3_hold_rows, _d3_sell_rows)):
+    raise RuntimeError(
+        "Day 3_3 Transfer Desk could not derive three unique BUY/HOLD/SELL players "
+        "from the current model and FPL market snapshot"
+    )
 
 DAY3_TRANSFER_DESK = {"BUY": [], "HOLD": [], "SELL": []}
 DAY3_TRANSFER_DESK_ORDER = []
+DAY3_TRANSFER_DESK_SEQUENCE = []
 
-for _desk_i, (_action, _requested_name) in enumerate(_D3_DESK_EDITORIAL):
-    _p = _d3_desk_find_player(_requested_name)
-    _pid = int(_p["id"])
-    if _pid not in _d3_desk_model.index:
-        raise RuntimeError(
-            f"Day 3_3 Transfer Desk has no READY Phase-10 row for {_requested_name}"
-        )
-    _m = _d3_desk_model.loc[_pid]
-    _team_id = int(_p["team"])
-    _meta = team_meta_by_id.get(_team_id, {})
-    _proj = _d3_proj_by_id.loc[_team_id] if _team_id in _d3_proj_by_id.index else {}
-    _opponent = str(
-        _proj.get("gw1_opponent", "TBD") if hasattr(_proj, "get") else "TBD"
+def _d3_desk_record(action, row, index):
+    pid = int(row["player_id"])
+    if pid not in _d3_players_by_id.index or pid not in _d3_desk_by_id.index:
+        raise RuntimeError(f"Transfer Desk player {pid} is missing metadata/model data")
+    p = _d3_players_by_id.loc[pid]
+    m = _d3_desk_by_id.loc[pid]
+    team_id = int(p["team"])
+    meta = team_meta_by_id.get(team_id, {})
+    proj = _d3_proj_by_id.loc[team_id] if team_id in _d3_proj_by_id.index else {}
+    opponent = str(
+        proj.get("gw1_opponent", "TBD") if hasattr(proj, "get") else "TBD"
     ).upper()
-    _tin = _d3_desk_num(_p.get("transfers_in_event"))
-    _tout = _d3_desk_num(_p.get("transfers_out_event"))
-    _record = {
-        "index": int(_desk_i),
-        "action": str(_action),
-        "name": str(_requested_name),
-        "player_id": _pid,
-        "team_id": _team_id,
-        "team": str(_meta.get("short", _p.get("team_short", "")) or "").upper(),
-        "position": str(_p.get("position", "") or "").upper(),
-        "price": _d3_desk_num(_p.get("price")),
-        "photo": str(resolve_player_photo(_p) or ""),
-        "badge": str(_meta.get("badge", "") or ""),
-        "opponent": _opponent,
-        "xpts": _d3_desk_num(_m.get("xpts")),
-        "xmins": _d3_desk_num(_m.get("xmins")),
-        "availability": 100.0 * _d3_desk_num(_m.get("availability_probability")),
-        "start_probability": 100.0 * _d3_desk_num(_m.get("start_probability")),
-        "ownership": _d3_desk_num(_p.get("selected_by_percent")),
-        "transfers_in": _tin,
-        "transfers_out": _tout,
-        "net_transfers": _tin - _tout,
-        "model_rank": int(_d3_desk_rank_map.get(_pid, 0)),
+    return {
+        "index": int(index),
+        "action": str(action),
+        "name": str(m.get("player_name") or p.get("web_name") or f"PLAYER {pid}"),
+        "player_id": pid,
+        "team_id": team_id,
+        "team": str(meta.get("short", p.get("team_short", "")) or "").upper(),
+        "position": str(p.get("position", m.get("position", "")) or "").upper(),
+        "price": _d3_desk_num(p.get("price", m.get("price"))),
+        "photo": str(resolve_player_photo(p) or ""),
+        "badge": str(meta.get("badge", "") or ""),
+        "opponent": opponent,
+        "xpts": _d3_desk_num(m.get("xpts")),
+        "xmins": _d3_desk_num(m.get("xmins")),
+        "availability": 100.0 * _d3_desk_num(m.get("availability_probability")),
+        "start_probability": 100.0 * _d3_desk_num(m.get("start_probability")),
+        "ownership": _d3_desk_num(m.get("selected_by_percent")),
+        "transfers_in": _d3_desk_num(m.get("transfers_in_event")),
+        "transfers_out": _d3_desk_num(m.get("transfers_out_event")),
+        "net_transfers": _d3_desk_num(m.get("net_transfers")),
+        "market_momentum": _d3_desk_num(m.get("market_momentum")),
+        "next_5_xpts": _d3_desk_num(m.get("next_5_xpts")),
+        "horizon_xpts": _d3_desk_num(m.get("phase11_weighted_horizon_xpts")),
+        "decision_utility": _d3_desk_num(row.get("decision_utility", row.get("risk_adjusted_utility", 0.0))),
+        "gain_next_5": _d3_desk_num(row.get("gain_next_5", 0.0)),
+        "model_rank": int(_d3_desk_rank_map.get(pid, 0)),
+        "selection_mode": DAY3_TRANSFER_DESK_SELECTION_MODE,
     }
-    DAY3_TRANSFER_DESK[_action].append(_record)
-    DAY3_TRANSFER_DESK_ORDER.append(str(_requested_name))
+
+_index = 0
+for _action, _rows in (
+    ("BUY", _d3_buy_rows),
+    ("HOLD", _d3_hold_rows),
+    ("SELL", _d3_sell_rows),
+):
+    for _row in _rows:
+        _record = _d3_desk_record(_action, _row, _index)
+        DAY3_TRANSFER_DESK[_action].append(_record)
+        DAY3_TRANSFER_DESK_ORDER.append(_record["name"])
+        DAY3_TRANSFER_DESK_SEQUENCE.append((_action, _record["name"]))
+        _index += 1
 
 if [len(DAY3_TRANSFER_DESK[x]) for x in ("BUY","HOLD","SELL")] != [3,3,3]:
     raise RuntimeError("Transfer Desk must contain exactly three BUY, three HOLD and three SELL players")
 if len({r["player_id"] for g in DAY3_TRANSFER_DESK.values() for r in g}) != 9:
-    raise RuntimeError("Transfer Desk contains a duplicate player")
+    raise RuntimeError("Transfer Desk contains duplicate players")
 
+# Persist the exact dynamic selection so later QA checks narration/ordering without fixed names.
+_d3_desk_manifest_path = Path(DATA_DIR) / "transfer_decision_desk.json"
+_d3_desk_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+_d3_desk_manifest = {
+    "gameweek": int(NEXT_GW),
+    "selection_mode": DAY3_TRANSFER_DESK_SELECTION_MODE,
+    "squad_state_status": str(globals().get("PHASE11_SQUAD_STATE_STATUS", "NOT_AVAILABLE")),
+    "market_source": "OFFICIAL_FPL_BOOTSTRAP_STATIC",
+    "model_source": "PHASE11_TRANSFER_MATH_WITH_PHASE10_CURRENT_GW_XPTS",
+    "rules": {
+        "buy": "Phase11 legal incoming utility first; xPts/horizon then FPL market momentum",
+        "hold": "current-squad model strength first; FPL market momentum as supporting signal",
+        "sell": "Phase11 replacement edge first; weak xPts/minutes and negative FPL market trend support the sell case",
+    },
+    "players": [
+        {
+            key: value for key, value in record.items()
+            if key not in {"photo", "badge"}
+        }
+        for action in ("BUY","HOLD","SELL")
+        for record in DAY3_TRANSFER_DESK[action]
+    ],
+}
+_d3_desk_manifest_path.write_text(
+    json.dumps(_d3_desk_manifest, indent=2, ensure_ascii=False),
+    encoding="utf-8",
+)
+
+def _d3_desk_short_reason(r):
 def _d3_desk_short_reason(r):
     if r["action"] == "BUY":
         return f'{r["xpts"]:.1f} xPTS • {r["xmins"]:.0f} xMINS • {r["opponent"]} NEXT'
@@ -1507,7 +1835,8 @@ print("✅ defcon_scene_4k.png = DEFCON")
 print("✅ final_shortlists_scene_4k.png = Final Shortlists")
 print("✅ transfer_decision_desk_scene_4k.png = Transfer Decision Desk")
 print("✅ Final Shortlists uses dynamic xMins/xPts/price/value from Phase 10")
-print("✅ Transfer Desk values come from the live Day 3 pipeline")
+print("✅ Transfer Desk players + values come from VORTEX math and official FPL market trends")
+print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
 """
           # Preserve every existing FDR / Projected Goals / Clean Sheet data/model
           # calculation in Cell 14B. The original slide files may be created transiently,
@@ -1973,7 +2302,7 @@ if "05_outro" in manifest:
 
         windows=[]
         lane_dy={"BUY":-390.0,"HOLD":20.0,"SELL":430.0}
-        for i,(action,name) in enumerate(_D3_DESK_EDITORIAL):
+        for i,(action,name) in enumerate(DAY3_TRANSFER_DESK_SEQUENCE):
             start=float(player_times[i])
             next_start=float(player_times[i+1]) if i+1<len(player_times) else float(close_at)
             move=min(start+8.2,next_start-1.9)
@@ -2155,6 +2484,9 @@ if "05_outro" in manifest:
               'DAY3_DEFCON_TARGETS',
               'DAY3_SHORTLISTS',
               'DAY3_TRANSFER_DESK',
+              'DAY3_TRANSFER_DESK_SEQUENCE',
+              'DAY3_TRANSFER_DESK_SELECTION_MODE',
+              'transfer_decision_desk.json',
               '<span>GLS</span><span>CS%</span>',
               '<b>GLS</b><b>CS%</b>',
               '# 21. BUILD PROJECTED GOALS HTML',
@@ -2714,6 +3046,7 @@ if "05_outro" in manifest:
               root / "SLIDE" / "defcon_scene_4k.png",
               root / "SLIDE" / "final_shortlists_scene_4k.png",
               root / "SLIDE" / "transfer_decision_desk_scene_4k.png",
+              root / "DATA" / "transfer_decision_desk.json",
               root / "MP4" / "02_fdr.mp4",
               root / "MP4" / "03_projected_goals.mp4",
               root / "MP4" / "03_defcon.mp4",
@@ -2772,16 +3105,35 @@ if "05_outro" in manifest:
                   f"Transfer Decision Desk must be about 4:40, found {desk_duration:.2f}s"
               )
           desk_script = str(desk_info.get("script") or "")
-          desk_names = (
-              "Cole Palmer", "Morgan Rogers", "Cody Gakpo",
-              "Erling Haaland", "João Pedro", "Bryan Mbeumo",
-              "Bruno Fernandes", "Dominik Szoboszlai", "Nico O’Reilly",
-          )
+          desk_manifest_path = root / "DATA" / "transfer_decision_desk.json"
+          desk_manifest = json.loads(desk_manifest_path.read_text(encoding="utf-8"))
+          desk_rows = list(desk_manifest.get("players") or [])
+          if len(desk_rows) != 9:
+              raise SystemExit(
+                  f"Transfer Desk selection manifest must contain 9 players, found {len(desk_rows)}"
+              )
+          desk_names = [str(row.get("name") or "") for row in desk_rows]
+          desk_actions = [str(row.get("action") or "") for row in desk_rows]
+          if len(set(desk_names)) != 9 or not all(desk_names):
+              raise SystemExit(f"Transfer Desk dynamic selection has duplicate/blank names: {desk_names}")
+          if desk_actions != ["BUY"] * 3 + ["HOLD"] * 3 + ["SELL"] * 3:
+              raise SystemExit(f"Transfer Desk action ordering is wrong: {desk_actions}")
+          if not str(desk_manifest.get("market_source") or "").startswith("OFFICIAL_FPL"):
+              raise SystemExit("Transfer Desk is not using the official FPL market snapshot")
+          if "PHASE11" not in str(desk_manifest.get("model_source") or ""):
+              raise SystemExit("Transfer Desk is not grounded in the VORTEX Phase-11 transfer model")
+          for row in desk_rows:
+              for field in (
+                  "player_id", "xpts", "xmins", "price", "ownership",
+                  "transfers_in", "transfers_out", "net_transfers",
+              ):
+                  if field not in row:
+                      raise SystemExit(f"Transfer Desk row missing dynamic field {field}: {row}")
           desk_positions = []
           for desk_name in desk_names:
               if desk_script.count(desk_name) != 1:
                   raise SystemExit(
-                      f"Transfer Desk narration must contain {desk_name!r} exactly once"
+                      f"Transfer Desk narration must contain selected player {desk_name!r} exactly once"
                   )
               desk_positions.append(desk_script.index(desk_name))
           if desk_positions != sorted(desk_positions):
