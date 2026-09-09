@@ -6702,7 +6702,7 @@ jobs:
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _narr_cell,
-              '_outro_word_count=len(re.findall(r"\\b[\\w’\\'-]+\\b", scripts["05_outro"]))',
+              "_outro_word_count=len(re.findall(r\"\\\\b[\\\\w’'-]+\\\\b\", scripts[\"05_outro\"]))",
               '# Narration QA:',
               _day3_elite_outro_word_qa,
               "Day 3 replace old short-outro word-count QA",
