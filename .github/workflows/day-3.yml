@@ -17,6 +17,7 @@ env:
   DAY3_DRIVE_PATH: FPL_VORTEX/Day_3_3
   DAY1_ASSET_FOLDER_ID: 1h3Loznr5RnsMyh-kUd-zMxEgOf98uFSt
   DAY1_ASSET_DIR: /content/drive/MyDrive/FPL_VORTEX/Assets
+  DAY3_CHIP_ASSET_DIR: /content/FPL_VORTEX_DAY3_CHIP_ASSETS
   GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
   GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
   GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
@@ -955,6 +956,23 @@ print(
               "Day 3 keep legacy clean-sheet scene disabled",
           )
 
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              '_DAY3_OLD_CLEAN_SHEETS = False  # Day 3_3: disabled legacy Day 1 clean-sheet slide',
+              'SLIDE_07_CHIP_STRATEGY = True  # Day 3_3: repurposed 04_clean_sheets path',
+              1,
+              "Day 3 activate Slide 7 Chip Strategy",
+          )
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _cell0,
+              '"04_clean_sheets": _DAY3_OLD_CLEAN_SHEETS,',
+              '"04_clean_sheets": SLIDE_07_CHIP_STRATEGY,',
+              1,
+              "Day 3 map legacy clean-sheet key to Slide 7 Chip Strategy",
+          )
+
 
           _day3_plan_controls = r'''
 # @markdown ---
@@ -1056,12 +1074,12 @@ MY_PLAN_RENDER_5H = _my_plan_render("H_TRANSFER_1_TO_5_TRIPLE_CAPTAIN")
               "Day 3 add MY PLAN scenario controls",
           )
 
-          _day3_selection_anchor = '''    "04_clean_sheets": SLIDE_05_CLEAN_SHEETS,
+          _day3_selection_anchor = '''    "04_clean_sheets": SLIDE_07_CHIP_STRATEGY,
     "05_outro": SLIDE_06_OUTRO,
 }
 
 SELECTED_SCENES = ['''
-          _day3_selection_replacement = '''    "04_clean_sheets": SLIDE_05_CLEAN_SHEETS,
+          _day3_selection_replacement = '''    "04_clean_sheets": SLIDE_07_CHIP_STRATEGY,
     "03_defcon": True,
     "04_final_shortlists": True,
     "05_transfer_decision_desk": True,
@@ -5517,24 +5535,536 @@ if _d3_desk_html.count('class="d3DeskSlot ') != 9:
     raise RuntimeError("Transfer Desk settled-card count is not nine")
 
 
+# ============================================================
+# DAY 3_3 — SLIDE 7 • CHIP STRATEGY
+# Completely repurposes the legacy clean_sheet_scene_4k path.
+# Weekly values come from the current official FPL snapshot,
+# the user's current entry history and the existing VORTEX model.
+# ============================================================
+import base64 as _d3_chip_b64
+import os as _d3_chip_os
+from PIL import Image as _D3ChipImage
+
+CHIP_HTML_PATH = CS_HTML_PATH
+CHIP_PNG_PATH = CS_PNG_PATH
+CHIP_MANIFEST_PATH = Path(DATA_DIR) / "chip_strategy.json"
+for _stale in (CHIP_HTML_PATH, CHIP_PNG_PATH, CHIP_MANIFEST_PATH):
+    Path(_stale).unlink(missing_ok=True)
+
+_D3_CHIP_ASSET_IDS = {
+    "wildcard": "1BzqSRdeHNNtOv6lPEON-_uSv_QeosYR9",
+    "triple_captain": "12SlsuTm4AVBOKTlG-dOlswoQre_GcbI1",
+    "free_hit": "13hCnmdw2lAilJfNafZPoVAo0VPBoJ_MB",
+    "bench_boost": "1gMjLzNh60n33TwdpBm3F6WHJvxPXWyUo",
+}
+_D3_CHIP_FILES = {
+    "wildcard": "WC.png",
+    "triple_captain": "TC.png",
+    "free_hit": "FH.png",
+    "bench_boost": "BB.png",
+}
+_d3_chip_asset_dir = Path(_d3_chip_os.environ.get("DAY3_CHIP_ASSET_DIR", "")).resolve()
+if not _d3_chip_asset_dir.is_dir():
+    raise RuntimeError(f"Slide 7 chip asset directory is missing: {_d3_chip_asset_dir}")
+
+_d3_chip_asset_paths = {
+    key: _d3_chip_asset_dir / filename
+    for key, filename in _D3_CHIP_FILES.items()
+}
+for _chip_key, _chip_path in _d3_chip_asset_paths.items():
+    if not _chip_path.is_file() or _chip_path.stat().st_size <= 0:
+        raise RuntimeError(f"Slide 7 chip image is missing: {_chip_key} -> {_chip_path}")
+
+def _d3_chip_uri(path):
+    path = Path(path)
+    with _D3ChipImage.open(path) as _im:
+        _fmt = str(_im.format or "").upper()
+    _mime = {
+        "JPEG": "image/jpeg",
+        "JPG": "image/jpeg",
+        "PNG": "image/png",
+        "WEBP": "image/webp",
+    }.get(_fmt)
+    if not _mime:
+        raise RuntimeError(f"Unsupported Slide 7 chip image format: {path} -> {_fmt}")
+    return f"data:{_mime};base64," + _d3_chip_b64.b64encode(path.read_bytes()).decode("ascii")
+
+_d3_chip_uris = {
+    key: _d3_chip_uri(path)
+    for key, path in _d3_chip_asset_paths.items()
+}
+
+_D3_CHIP_META = {
+    "bboost": {"key": "bench_boost", "label": "BENCH BOOST", "short": "BB"},
+    "3xc": {"key": "triple_captain", "label": "TRIPLE CAPTAIN", "short": "TC"},
+    "wildcard": {"key": "wildcard", "label": "WILDCARD", "short": "WC"},
+    "freehit": {"key": "free_hit", "label": "FREE HIT", "short": "FH"},
+}
+_D3_CHIP_ORDER = ("bboost", "3xc", "wildcard", "freehit")
+
+def _d3_chip_plays(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if value is None:
+        return []
+    try:
+        if pd.isna(value):
+            return []
+    except Exception:
+        pass
+    if isinstance(value, str):
+        _txt = value.strip()
+        if not _txt:
+            return []
+        try:
+            _parsed = ast.literal_eval(_txt)
+        except Exception:
+            return []
+        return list(_parsed) if isinstance(_parsed, (list, tuple)) else []
+    return []
+
+_d3_bootstrap = data.get("bootstrap") if isinstance(data, dict) else None
+if not isinstance(_d3_bootstrap, dict):
+    raise RuntimeError("Slide 7 requires the canonical official FPL bootstrap snapshot")
+_d3_total_entries = int(_d3_bootstrap.get("total_players") or 0)
+if _d3_total_entries <= 0:
+    raise RuntimeError("Slide 7 official FPL active-manager total is unavailable")
+
+_d3_usage_counts = {code: 0 for code in _D3_CHIP_ORDER}
+_d3_usage_gws = {code: [] for code in _D3_CHIP_ORDER}
+for _, _event in events.iterrows():
+    _event_id_value = pd.to_numeric(_event.get("id"), errors="coerce")
+    _event_id = int(_event_id_value) if pd.notna(_event_id_value) else 0
+    if _event_id <= 0 or _event_id >= int(NEXT_GW):
+        continue
+    for _play in _d3_chip_plays(_event.get("chip_plays")):
+        _code = str((_play or {}).get("chip_name") or "").strip().lower()
+        if _code not in _d3_usage_counts:
+            continue
+        _played_value = pd.to_numeric((_play or {}).get("num_played"), errors="coerce")
+        _played = int(_played_value) if pd.notna(_played_value) else 0
+        if _played < 0:
+            raise RuntimeError(f"Slide 7 received negative chip usage for {_code}")
+        _d3_usage_counts[_code] += _played
+        if _played:
+            _d3_usage_gws[_code].append({"gw": _event_id, "managers": _played})
+
+_d3_usage = []
+for _code in _D3_CHIP_ORDER:
+    _meta = _D3_CHIP_META[_code]
+    _count = int(_d3_usage_counts[_code])
+    _pct = 100.0 * _count / float(_d3_total_entries)
+    _d3_usage.append({
+        "code": _code,
+        "key": _meta["key"],
+        "label": _meta["label"],
+        "short": _meta["short"],
+        "managers": _count,
+        "percentage": float(_pct),
+        "gameweeks": list(_d3_usage_gws[_code]),
+        "asset_file": _D3_CHIP_FILES[_meta["key"]],
+        "asset_drive_id": _D3_CHIP_ASSET_IDS[_meta["key"]],
+    })
+
+# Official 2026/27 rule: one of each chip in each half; the set refreshes after GW19.
+_d3_chip_period_start = 1 if int(NEXT_GW) <= 19 else 20
+_d3_chip_period_end = 19 if int(NEXT_GW) <= 19 else 38
+_d3_entry_id = int(
+    globals().get("FPL_TEAM_ID")
+    or globals().get("TEAM_ID")
+    or globals().get("ENTRY_ID")
+    or 0
+)
+if _d3_entry_id <= 0:
+    raise RuntimeError("Slide 7 requires the current FPL entry ID")
+
+_d3_entry_history = None
+if isinstance(globals().get("GW_REVIEW"), dict):
+    _candidate_history = globals()["GW_REVIEW"].get("history")
+    if isinstance(_candidate_history, dict):
+        _d3_entry_history = _candidate_history
+
+_d3_fpl_session = None
+if _d3_entry_history is None:
+    if "_fpl_module" not in globals():
+        raise RuntimeError("Slide 7 requires the canonical fpl_data module")
+    _d3_fpl_session = _fpl_module._vx_http_session()
+    _d3_entry_history = _fpl_module._vx_get_json(
+        _d3_fpl_session,
+        f"/entry/{_d3_entry_id}/history/",
+    )
+if not isinstance(_d3_entry_history, dict):
+    raise RuntimeError("Slide 7 could not resolve the current entry chip history")
+
+_d3_used_period = set()
+_d3_used_rows = []
+for _row in list(_d3_entry_history.get("chips") or []):
+    _code = str((_row or {}).get("name") or "").strip().lower()
+    _gw_value = pd.to_numeric((_row or {}).get("event"), errors="coerce")
+    _gw = int(_gw_value) if pd.notna(_gw_value) else 0
+    if _code in _D3_CHIP_META and _d3_chip_period_start <= _gw <= _d3_chip_period_end:
+        _d3_used_period.add(_code)
+        _d3_used_rows.append({"code": _code, "gw": _gw})
+
+_d3_remaining_codes = [code for code in _D3_CHIP_ORDER if code not in _d3_used_period]
+_d3_remaining_labels = [_D3_CHIP_META[code]["label"] for code in _d3_remaining_codes]
+
+# Highest score that can be verified from an official weekly overall winner whose active chip is exposed.
+_d3_highest_chip = None
+_d3_review_ready = {int(gw) for gw in (data.get("review_ready_gws") or [])}
+_d3_winner_candidates = []
+for _, _event in events.iterrows():
+    _gw_value = pd.to_numeric(_event.get("id"), errors="coerce")
+    _entry_value = pd.to_numeric(_event.get("highest_scoring_entry"), errors="coerce")
+    _score_value = pd.to_numeric(_event.get("highest_score"), errors="coerce")
+    _gw = int(_gw_value) if pd.notna(_gw_value) else 0
+    _entry = int(_entry_value) if pd.notna(_entry_value) else 0
+    _score = int(_score_value) if pd.notna(_score_value) else 0
+    if _gw in _d3_review_ready and _gw < int(NEXT_GW) and _entry > 0 and _score > 0:
+        _d3_winner_candidates.append((_score, _gw, _entry))
+_d3_winner_candidates.sort(reverse=True)
+
+if "_fpl_module" in globals() and _d3_winner_candidates:
+    if _d3_fpl_session is None:
+        _d3_fpl_session = _fpl_module._vx_http_session()
+    for _score, _gw, _entry in _d3_winner_candidates:
+        try:
+            _picks = _fpl_module._vx_get_json(
+                _d3_fpl_session,
+                f"/entry/{int(_entry)}/event/{int(_gw)}/picks/",
+            )
+            _active = str((_picks or {}).get("active_chip") or "").strip().lower()
+        except Exception as _chip_winner_exc:
+            print(f"⚠️ Slide 7 weekly-winner chip verification skipped GW{_gw}: {_chip_winner_exc}")
+            continue
+        if _active in _D3_CHIP_META:
+            _d3_highest_chip = {
+                "points": int(_score),
+                "gw": int(_gw),
+                "code": _active,
+                "label": _D3_CHIP_META[_active]["label"],
+                "entry_id": int(_entry),
+                "source": "OFFICIAL_FPL_WEEKLY_HIGHEST_SCORING_ENTRY_ACTIVE_CHIP",
+            }
+            break
+
+if "phase11_current_squad_state" not in globals() or len(phase11_current_squad_state) != 15:
+    raise RuntimeError("Slide 7 requires the validated Phase-11 current 15-player squad")
+_d3_squad = phase11_current_squad_state.copy()
+_d3_squad["player_id"] = pd.to_numeric(_d3_squad["player_id"], errors="coerce").astype("Int64")
+_d3_squad["team_id"] = pd.to_numeric(_d3_squad["team_id"], errors="coerce").astype("Int64")
+if _d3_squad["player_id"].isna().any() or _d3_squad["team_id"].isna().any():
+    raise RuntimeError("Slide 7 current squad contains missing official IDs")
+
+_d3_chip_horizon = list(range(int(NEXT_GW), min(38, int(NEXT_GW) + 9) + 1))
+_d3_fixture_pressure = []
+for _gw in _d3_chip_horizon:
+    _gw_fx = fixtures_raw.loc[
+        pd.to_numeric(fixtures_raw["event"], errors="coerce").eq(int(_gw))
+    ].copy()
+    _team_counts = {}
+    for _team_id in _d3_squad["team_id"].astype(int).unique().tolist():
+        _team_counts[int(_team_id)] = int(
+            (
+                pd.to_numeric(_gw_fx["team_h"], errors="coerce").eq(int(_team_id))
+                | pd.to_numeric(_gw_fx["team_a"], errors="coerce").eq(int(_team_id))
+            ).sum()
+        )
+    _blank_players = int(sum(_team_counts[int(tid)] == 0 for tid in _d3_squad["team_id"].astype(int)))
+    _double_players = int(sum(_team_counts[int(tid)] >= 2 for tid in _d3_squad["team_id"].astype(int)))
+    _d3_fixture_pressure.append({
+        "gw": int(_gw),
+        "blank_players": _blank_players,
+        "double_players": _double_players,
+    })
+
+_d3_current_pressure = next(row for row in _d3_fixture_pressure if int(row["gw"]) == int(NEXT_GW))
+_d3_fh_target = max(_d3_fixture_pressure, key=lambda row: (int(row["blank_players"]), -int(row["gw"])))
+_d3_bb_target = max(
+    _d3_fixture_pressure,
+    key=lambda row: (int(row["double_players"]) - int(row["blank_players"]), -int(row["gw"])),
+)
+
+_d3_tc_target = None
+if "phase10_player_fixture_expected_points" in globals():
+    _tc = phase10_player_fixture_expected_points.copy()
+    _tc["gameweek"] = pd.to_numeric(_tc["gameweek"], errors="coerce")
+    _tc["player_id"] = pd.to_numeric(_tc["player_id"], errors="coerce")
+    _tc["fixture_expected_points"] = pd.to_numeric(_tc["fixture_expected_points"], errors="coerce")
+    if "calculation_status" in _tc.columns:
+        _tc = _tc.loc[_tc["calculation_status"].astype(str).eq("READY")]
+    _tc = _tc.loc[
+        _tc["gameweek"].isin(_d3_chip_horizon)
+        & _tc["player_id"].notna()
+        & _tc["fixture_expected_points"].notna()
+    ]
+    if not _tc.empty:
+        _agg = {"xpts": ("fixture_expected_points", "sum")}
+        _agg["fixtures"] = ("fixture_id", "nunique") if "fixture_id" in _tc.columns else ("fixture_expected_points", "size")
+        _tc_rank = (
+            _tc.groupby(["gameweek", "player_id"], as_index=False)
+            .agg(**_agg)
+            .sort_values(["xpts", "fixtures", "gameweek"], ascending=[False, False, True])
+            .reset_index(drop=True)
+        )
+        _tc_top = _tc_rank.iloc[0]
+        _tc_pid = int(_tc_top["player_id"])
+        _player_rows = players.loc[pd.to_numeric(players["id"], errors="coerce").eq(_tc_pid)]
+        _tc_name = (
+            str(_player_rows.iloc[0].get("web_name") or _player_rows.iloc[0].get("second_name") or _tc_pid)
+            if not _player_rows.empty else str(_tc_pid)
+        )
+        _d3_tc_target = {
+            "gw": int(_tc_top["gameweek"]),
+            "player_id": _tc_pid,
+            "player_name": _tc_name,
+            "xpts": float(_tc_top["xpts"]),
+            "fixtures": int(_tc_top["fixtures"]),
+        }
+
+_d3_wc_candidates = [
+    row for row in _d3_fixture_pressure
+    if max(int(NEXT_GW), 6, _d3_chip_period_start) <= int(row["gw"]) <= min(12, _d3_chip_period_end)
+]
+_d3_wc_target = (
+    max(_d3_wc_candidates, key=lambda row: (
+        int(row["blank_players"]) + int(row["double_players"]), -int(row["gw"])
+    ))
+    if _d3_wc_candidates else None
+)
+
+_d3_low_availability = 0
+for _availability_col in ("availability", "current_gw_availability", "availability_probability"):
+    if _availability_col in _d3_squad.columns:
+        _vals = pd.to_numeric(_d3_squad[_availability_col], errors="coerce")
+        if _vals.notna().any():
+            _d3_low_availability = int((_vals.fillna(1.0) < 0.70).sum())
+            break
+
+_d3_recommendation = "NO CHIP"
+_d3_recommendation_reason = "The current squad has no strong blank, double or availability trigger."
+if "freehit" in _d3_remaining_codes and int(NEXT_GW) > 1 and int(_d3_current_pressure["blank_players"]) >= 4:
+    _d3_recommendation = "FREE HIT"
+    _d3_recommendation_reason = f"{int(_d3_current_pressure['blank_players'])} current-squad players have no fixture."
+elif "bboost" in _d3_remaining_codes and int(_d3_current_pressure["blank_players"]) == 0 and int(_d3_current_pressure["double_players"]) >= 4:
+    _d3_recommendation = "BENCH BOOST"
+    _d3_recommendation_reason = f"{int(_d3_current_pressure['double_players'])} current-squad players have multiple fixtures."
+elif "3xc" in _d3_remaining_codes and _d3_tc_target is not None and int(_d3_tc_target["gw"]) == int(NEXT_GW) and int(_d3_tc_target["fixtures"]) >= 2:
+    _d3_recommendation = "TRIPLE CAPTAIN"
+    _d3_recommendation_reason = (
+        f"{_d3_tc_target['player_name']} leads the horizon at {float(_d3_tc_target['xpts']):.1f} xPts with multiple fixtures."
+    )
+elif "wildcard" in _d3_remaining_codes and 6 <= int(NEXT_GW) <= 12 and int(_d3_low_availability) >= 4:
+    _d3_recommendation = "WILDCARD"
+    _d3_recommendation_reason = f"{int(_d3_low_availability)} current-squad players are below the availability threshold."
+
+def _d3_chip_total_text(value):
+    _v = float(value)
+    return f"{_v/1_000_000:.1f} million" if _v >= 1_000_000 else f"{int(_v):,}"
+
+_d3_usage_cards = []
+for _i, _row in enumerate(_d3_usage):
+    _asset_key = _row["key"]
+    _d3_usage_cards.append(f'''
+      <article class="d3ChipUsageCard {_asset_key}" data-chip-card="{_i}" data-target-pct="{float(_row['percentage']):.4f}">
+        <div class="d3ChipTop">
+          <div class="d3ChipIconWrap"><img class="d3ChipIcon" src="{_d3_chip_uris[_asset_key]}" alt="{escape(_row['label'])}"/></div>
+          <div><div class="d3ChipName">{escape(_row['label'])}</div><div class="d3ChipShort">{escape(_row['short'])}</div></div>
+        </div>
+        <div class="d3ChipCounter"><span class="d3ChipPct" data-target="{float(_row['percentage']):.4f}">{float(_row['percentage']):.1f}%</span><small>USED SO FAR</small></div>
+        <div class="d3ChipManagers">{int(_row['managers']):,} <span>manager activations</span></div>
+        <div class="d3ChipProgress"><div class="d3ChipProgressFill" style="--target:{min(100.0,float(_row['percentage']))/100.0:.6f}"></div></div>
+      </article>
+    ''')
+
+_d3_left_panel = f'''
+<section class="table-panel d3ChipPanel d3ChipUsagePanel">
+  <div class="d3ChipPanelHead"><span>SEASON CHIP USAGE</span><b>OFFICIAL FPL</b></div>
+  <div class="d3ChipUsageGrid">{''.join(_d3_usage_cards)}</div>
+  <div class="d3ChipPopulation">OUT OF ~{_d3_chip_total_text(_d3_total_entries)} ACTIVE MANAGERS</div>
+</section>
+'''
+
+_d3_highest_points = str(int(_d3_highest_chip["points"])) if _d3_highest_chip else "—"
+_d3_highest_sub = (
+    f"GW{int(_d3_highest_chip['gw'])} • {escape(_d3_highest_chip['label'])}"
+    if _d3_highest_chip else "NO VERIFIED WEEKLY-WINNER CHIP SCORE YET"
+)
+_d3_highest_note = (
+    "OFFICIAL WEEKLY OVERALL WINNER • ACTIVE CHIP VERIFIED"
+    if _d3_highest_chip else "WILL UPDATE WHEN OFFICIAL WINNER + ACTIVE CHIP CAN BE VERIFIED"
+)
+
+_d3_remaining_cards = []
+for _code in _D3_CHIP_ORDER:
+    _meta = _D3_CHIP_META[_code]
+    _is_remaining = _code in _d3_remaining_codes
+    _asset_key = _meta["key"]
+    _state = "AVAILABLE" if _is_remaining else "USED"
+    _d3_remaining_cards.append(f'''
+      <div class="d3ChipRemainCard {'available' if _is_remaining else 'used'}">
+        <img src="{_d3_chip_uris[_asset_key]}" alt="{escape(_meta['label'])}"/>
+        <strong>{escape(_meta['short'])}</strong><span>{_state}</span>
+      </div>
+    ''')
+
+_d3_tc_target_text = (
+    f"GW{int(_d3_tc_target['gw'])} • {escape(_d3_tc_target['player_name'])} • {float(_d3_tc_target['xpts']):.1f} xPTS"
+    if _d3_tc_target else "BEST VERIFIED HAUL WINDOW"
+)
+_d3_fh_target_text = (
+    f"GW{int(_d3_fh_target['gw'])} • {int(_d3_fh_target['blank_players'])} SQUAD BLANKS"
+    if int(_d3_fh_target["blank_players"]) > 0 else "NEXT MAJOR BLANK WINDOW"
+)
+_d3_bb_target_text = (
+    f"GW{int(_d3_bb_target['gw'])} • {int(_d3_bb_target['double_players'])} SQUAD DOUBLES"
+    if int(_d3_bb_target["double_players"]) > 0 else "NEXT STRONG DOUBLE WINDOW"
+)
+_d3_wc_target_text = (
+    f"GW{int(_d3_wc_target['gw'])} • DATA-RANKED INSIDE GW6–12"
+    if _d3_wc_target else "GW6–12 • LONG-TERM SQUAD RESET"
+)
+
+_d3_right_panel = f'''
+<section class="table-panel d3ChipPanel d3ChipStrategyPanel">
+  <div class="d3ChipHighest">
+    <div class="d3ChipEyebrow">HIGHEST CHIP SCORE SO FAR</div>
+    <div class="d3ChipHighestNumber" data-target-score="{_d3_highest_points}">{_d3_highest_points}<small>PTS</small></div>
+    <div class="d3ChipHighestSub">{_d3_highest_sub}</div><div class="d3ChipHighestNote">{_d3_highest_note}</div>
+  </div>
+  <div class="d3ChipRemaining">
+    <div class="d3ChipSectionTitle">MY REMAINING CHIPS <span>GW{_d3_chip_period_start}–{_d3_chip_period_end} SET</span></div>
+    <div class="d3ChipRemainGrid">{''.join(_d3_remaining_cards)}</div>
+  </div>
+  <div class="d3ChipRecommendation">
+    <div class="d3ChipSectionTitle">STRATEGY RECOMMENDATION</div>
+    <div class="d3ChipThisWeek">THIS WEEK <span>{escape(_d3_recommendation)}</span></div>
+    <div class="d3ChipRecReason">{escape(_d3_recommendation_reason)}</div>
+    <div class="d3ChipTargets">
+      <div class="d3ChipRecLine"><b>WC</b><span>{_d3_wc_target_text}</span><i class="d3ChipUnderline"></i></div>
+      <div class="d3ChipRecLine"><b>TC</b><span>{_d3_tc_target_text}</span><i class="d3ChipUnderline"></i></div>
+      <div class="d3ChipRecLine"><b>FH</b><span>{_d3_fh_target_text}</span><i class="d3ChipUnderline"></i></div>
+      <div class="d3ChipRecLine"><b>BB</b><span>{_d3_bb_target_text}</span><i class="d3ChipUnderline"></i></div>
+    </div>
+  </div>
+  <div class="d3ChipClose">THAT'S THE CHIP STRATEGY FOR <b>GAMEWEEK {int(NEXT_GW)}</b></div>
+</section>
+'''
+
+_d3_chip_css = r'''
+.scene{background:radial-gradient(circle at 82% 12%,rgba(0,212,255,.13),transparent 30%),radial-gradient(circle at 15% 78%,rgba(245,197,24,.08),transparent 32%),linear-gradient(145deg,#0B1120 0%,#07111f 52%,#050914 100%)!important}
+.main-title span{color:#F5C518!important}.subtitle{border-color:rgba(0,212,255,.55)!important;background:linear-gradient(90deg,rgba(0,112,150,.98),rgba(5,48,86,.98))!important}.scale-heading{color:#F5C518!important}
+.tables{gap:34px!important;position:relative}.d3ChipPanel{padding:26px 28px 24px!important;background:linear-gradient(160deg,rgba(15,25,43,.94),rgba(7,15,28,.98))!important;border:1px solid rgba(0,212,255,.22)!important;box-shadow:0 30px 90px rgba(0,0,0,.40),inset 0 1px 0 rgba(255,255,255,.06)}
+.d3ChipPanelHead,.d3ChipSectionTitle{display:flex;align-items:center;justify-content:space-between;font:1000 30px Arial;letter-spacing:3px;color:#fff}.d3ChipPanelHead b,.d3ChipSectionTitle span{font:1000 19px Arial;letter-spacing:2px;color:#00D4FF}
+.d3ChipUsageGrid{height:calc(100% - 96px);margin-top:20px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:20px}.d3ChipUsageCard{min-width:0;border-radius:25px;padding:24px;background:linear-gradient(145deg,rgba(21,35,58,.94),rgba(9,17,31,.98));border:1px solid rgba(255,255,255,.11);box-shadow:0 18px 45px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.06);transform-style:preserve-3d}
+.d3ChipUsageCard.wildcard,.d3ChipUsageCard.triple_captain{border-color:rgba(245,197,24,.38)}.d3ChipUsageCard.free_hit,.d3ChipUsageCard.bench_boost{border-color:rgba(0,212,255,.38)}
+.d3ChipTop{height:150px;display:flex;align-items:center;gap:22px}.d3ChipIconWrap{width:146px;height:146px;border-radius:22px;display:grid;place-items:center;background:rgba(255,255,255,.05);overflow:hidden}.d3ChipIcon{width:138px;height:138px;object-fit:contain}.d3ChipName{font-size:35px;font-weight:1000;line-height:1.02;color:#fff}.d3ChipShort{margin-top:10px;font:1000 22px Arial;letter-spacing:5px;color:#F5C518}
+.d3ChipCounter{margin-top:16px;display:flex;align-items:end;justify-content:space-between}.d3ChipPct{font-size:68px;line-height:.9;font-weight:1000;color:#00D4FF}.d3ChipCounter small{font:1000 16px Arial;letter-spacing:3px;color:#99adc6}.d3ChipManagers{margin-top:17px;font:1000 29px Arial;color:#fff}.d3ChipManagers span{font-size:17px;color:#95a9c1;text-transform:uppercase;letter-spacing:1.8px}
+.d3ChipProgress{height:15px;border-radius:999px;margin-top:20px;background:rgba(255,255,255,.08);overflow:hidden}.d3ChipProgressFill{height:100%;width:100%;transform-origin:left center;transform:scaleX(var(--target));border-radius:999px;background:linear-gradient(90deg,#00D4FF,#F5C518)}
+.d3ChipPopulation{height:48px;display:flex;align-items:flex-end;justify-content:center;font:1000 17px Arial;letter-spacing:3px;color:#9db1ca}
+.d3ChipStrategyPanel{display:grid;grid-template-rows:270px 270px minmax(0,1fr) 64px;gap:16px}.d3ChipHighest{border-radius:22px;padding:24px 30px;background:linear-gradient(110deg,rgba(64,50,5,.48),rgba(10,28,47,.84));border:1px solid rgba(245,197,24,.43);position:relative;overflow:hidden}.d3ChipHighest:after{content:"";position:absolute;inset:-50%;background:radial-gradient(circle,rgba(245,197,24,.16),transparent 40%);pointer-events:none}
+.d3ChipEyebrow{font:1000 19px Arial;letter-spacing:4px;color:#F5C518}.d3ChipHighestNumber{margin-top:10px;font-size:90px;line-height:.9;font-weight:1000;color:#fff;text-shadow:0 0 35px rgba(245,197,24,.25)}.d3ChipHighestNumber small{font:1000 22px Arial;color:#F5C518;margin-left:12px}.d3ChipHighestSub{margin-top:14px;font:1000 25px Arial;color:#00D4FF}.d3ChipHighestNote{margin-top:9px;font:900 13px Arial;letter-spacing:1.5px;color:#95a9c1}
+.d3ChipRemaining{border-radius:22px;padding:20px 24px;background:rgba(8,18,33,.78);border:1px solid rgba(0,212,255,.20)}.d3ChipRemainGrid{margin-top:17px;display:grid;grid-template-columns:repeat(4,1fr);gap:13px}.d3ChipRemainCard{height:175px;border-radius:18px;display:grid;grid-template-rows:92px 30px 22px;place-items:center;padding:8px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10)}.d3ChipRemainCard.available{border-color:rgba(245,197,24,.48);box-shadow:0 0 28px rgba(245,197,24,.09)}.d3ChipRemainCard.used{filter:grayscale(1);opacity:.46}.d3ChipRemainCard img{width:90px;height:90px;object-fit:contain}.d3ChipRemainCard strong{font:1000 21px Arial;color:#fff}.d3ChipRemainCard span{font:1000 12px Arial;letter-spacing:2px;color:#F5C518}.d3ChipRemainCard.used span{color:#9aa6b7}
+.d3ChipRecommendation{border-radius:22px;padding:20px 24px;background:linear-gradient(145deg,rgba(6,31,49,.88),rgba(11,18,32,.94));border:1px solid rgba(0,212,255,.28)}.d3ChipThisWeek{margin-top:18px;font:1000 24px Arial;letter-spacing:3px;color:#a7b9cf}.d3ChipThisWeek span{margin-left:16px;font-size:46px;letter-spacing:1px;color:#F5C518}.d3ChipRecReason{margin-top:8px;font:900 17px/1.25 Arial;color:#e8f4ff}
+.d3ChipTargets{margin-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:12px}.d3ChipRecLine{position:relative;height:80px;border-radius:15px;padding:14px 17px;display:grid;grid-template-columns:52px 1fr;align-items:center;gap:10px;background:rgba(255,255,255,.045);overflow:hidden}.d3ChipRecLine b{font:1000 25px Arial;color:#00D4FF}.d3ChipRecLine span{font:900 15px/1.18 Arial;color:#fff}.d3ChipUnderline{position:absolute;left:16px;right:16px;bottom:8px;height:4px;border-radius:999px;background:linear-gradient(90deg,#F5C518,#00D4FF);transform-origin:left center}
+.d3ChipClose{display:flex;align-items:center;justify-content:center;font:1000 18px Arial;letter-spacing:3px;color:#9fb2c8}.d3ChipClose b{margin-left:10px;color:#F5C518}
+.d3ChipParticle{position:absolute;width:10px;height:10px;border-radius:50%;background:#F5C518;box-shadow:0 0 24px rgba(245,197,24,.7);opacity:.20;pointer-events:none;z-index:3}
+'''
+
+_d3_chip_html = scene_template.substitute(
+    document_title="FPL VORTEX — Chip Strategy",
+    vortex_logo=vortex_logo_html,
+    header_kicker='<span style="position:relative;left:-560px;">GAMEWEEK STRATEGY</span>',
+    title_first="CHIP",
+    title_second="STRATEGY",
+    subtitle="FREE HIT • WILDCARD • TRIPLE CAPTAIN • BENCH BOOST",
+    scale_heading=f"GW{int(NEXT_GW)} • LIVE FPL DATA",
+    left_panel=_d3_left_panel,
+    right_panel=_d3_right_panel,
+    source_text="OFFICIAL FPL CHIP USAGE • VORTEX FIXTURE + xPTS MODEL",
+    youtube_icon=youtube_icon,
+    x_icon=x_icon,
+    data_updated=data_updated,
+)
+_d3_chip_particles = "".join(
+    f'<i class="d3ChipParticle" data-particle="{i}" style="left:{6 + (i*11)%88}%;top:{8 + (i*17)%78}%"></i>'
+    for i in range(8)
+)
+_d3_chip_html = _d3_chip_html.replace('<div class="tables">', '<div class="tables">' + _d3_chip_particles, 1)
+_d3_chip_html = _d3_chip_html.replace("</style>", _d3_chip_css + "\n</style>", 1)
+_d3_chip_html = vx_apply_pl_lockup(_d3_chip_html)
+_d3_chip_html = vx_polish_branding(_d3_chip_html)
+CHIP_HTML_PATH.write_text(_d3_chip_html, encoding="utf-8")
+
+DAY3_CHIP_STRATEGY = {
+    "gameweek": int(NEXT_GW),
+    "scene_key": "04_clean_sheets",
+    "scene_number": 7,
+    "total_active_managers": int(_d3_total_entries),
+    "usage": _d3_usage,
+    "highest_verified_chip_score": _d3_highest_chip,
+    "chip_period": {
+        "start_gw": int(_d3_chip_period_start),
+        "end_gw": int(_d3_chip_period_end),
+        "rule_source": "FPL_2026_27_TWO_SETS_ONE_OF_EACH_PER_HALF",
+    },
+    "used_this_period": _d3_used_rows,
+    "remaining_codes": _d3_remaining_codes,
+    "remaining_labels": _d3_remaining_labels,
+    "recommendation": _d3_recommendation,
+    "recommendation_reason": _d3_recommendation_reason,
+    "targets": {
+        "wildcard": _d3_wc_target,
+        "free_hit": _d3_fh_target,
+        "bench_boost": _d3_bb_target,
+        "triple_captain": _d3_tc_target,
+    },
+    "current_fixture_pressure": _d3_current_pressure,
+    "assets": {
+        key: {"file": _D3_CHIP_FILES[key], "drive_id": _D3_CHIP_ASSET_IDS[key]}
+        for key in _D3_CHIP_FILES
+    },
+    "sources": [
+        "OFFICIAL_FPL_BOOTSTRAP_EVENTS_CHIP_PLAYS",
+        "OFFICIAL_FPL_ENTRY_HISTORY",
+        "OFFICIAL_FPL_FIXTURES",
+        "VORTEX_PHASE10_PLAYER_FIXTURE_EXPECTED_POINTS",
+        "VORTEX_PHASE11_CURRENT_SQUAD_STATE",
+    ],
+}
+CHIP_MANIFEST_PATH.write_text(
+    json.dumps(DAY3_CHIP_STRATEGY, indent=2, ensure_ascii=False, default=str),
+    encoding="utf-8",
+)
+
+if _d3_chip_html.count("CHIP STRATEGY") != 1:
+    raise RuntimeError("Slide 7 CHIP STRATEGY heading must occur exactly once")
+if _d3_chip_html.count('class="d3ChipUsageCard ') != 4:
+    raise RuntimeError("Slide 7 must contain exactly four season-usage chip cards")
+if _d3_chip_html.count('class="d3ChipRemainCard ') != 4:
+    raise RuntimeError("Slide 7 must contain exactly four remaining-chip cards")
+if len({row["asset_drive_id"] for row in _d3_usage}) != 4:
+    raise RuntimeError("Slide 7 chip artwork must resolve to four unique Drive assets")
+
+
 if "export_4k_png" not in globals():
     raise RuntimeError("Day 3_3 requires the shared 4K renderer")
 await export_4k_png(FDR_HTML_PATH, FDR_PNG_PATH)
 await export_4k_png(DEFCON_HTML_PATH, DEFCON_PNG_PATH)
 await export_4k_png(FINAL_SHORTLISTS_HTML_PATH, FINAL_SHORTLISTS_PNG_PATH)
 await export_4k_png(TRANSFER_DESK_HTML_PATH, TRANSFER_DESK_PNG_PATH)
+await export_4k_png(CHIP_HTML_PATH, CHIP_PNG_PATH)
 
-# Preserve projected_goals_scene_4k exactly as generated by the original logic.
-# Only the now-merged standalone clean-sheet presentation file is removed.
-for _obsolete in (CS_HTML_PATH, CS_PNG_PATH):
-    Path(_obsolete).unlink(missing_ok=True)
-
+# The legacy clean-sheet file path is now authoritative Slide 7 output.
 for _required in (
     FDR_HTML_PATH, FDR_PNG_PATH,
     XG_HTML_PATH, XG_PNG_PATH,
     DEFCON_HTML_PATH, DEFCON_PNG_PATH,
     FINAL_SHORTLISTS_HTML_PATH, FINAL_SHORTLISTS_PNG_PATH,
     TRANSFER_DESK_HTML_PATH, TRANSFER_DESK_PNG_PATH,
+    CHIP_HTML_PATH, CHIP_PNG_PATH, CHIP_MANIFEST_PATH,
 ):
     if not Path(_required).is_file() or Path(_required).stat().st_size <= 0:
         raise RuntimeError(f"Day 3_3 section output missing: {_required}")
@@ -5553,6 +6083,8 @@ if DEFCON_HTML_PATH.read_text(encoding="utf-8").count("d3DefRow") < 20:
     raise RuntimeError("Day 3_3 DEFCON slide does not contain all 20 ranked teams")
 if FINAL_SHORTLISTS_HTML_PATH.read_text(encoding="utf-8").count("d3ShortPos") < 4:
     raise RuntimeError("Day 3_3 Final Shortlists slide is missing position columns")
+if CHIP_HTML_PATH.read_text(encoding="utf-8").count("CHIP STRATEGY") != 1:
+    raise RuntimeError("Day 3_3 Slide 7 CHIP STRATEGY heading is missing")
 
 print("✅ DAY 3_3 SECTION READY")
 print("✅ fdr_scene_4k.png = Slide 6 • BENCHING DILEMMA")
@@ -5560,6 +6092,7 @@ print("✅ projected_goals_scene_4k.png = ORIGINAL PRESERVED")
 print("✅ defcon_scene_4k.png = DEFCON")
 print("✅ final_shortlists_scene_4k.png = Final Shortlists")
 print("✅ transfer_decision_desk_scene_4k.png = Transfer Decision Desk")
+print("✅ clean_sheet_scene_4k.png = Slide 7 • CHIP STRATEGY")
 print("✅ Final Shortlists uses dynamic xMins/xPts/price/value from Phase 10")
 print("✅ Transfer Desk players + values come from VORTEX math and official FPL market trends")
 print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
@@ -5584,6 +6117,15 @@ print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
               '("02_fdr", "BENCHING DILEMMA", "fdr_scene_4k.html"),',
               1,
               "Day 3 preview combined projection label",
+          )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _preview_cell,
+              '("04_clean_sheets", "CLEAN SHEET ODDS", "clean_sheet_scene_4k.html"),',
+              '("04_clean_sheets", "07 • CHIP STRATEGY", "clean_sheet_scene_4k.html"),',
+              1,
+              "Day 3 repurpose clean-sheet preview as Slide 7 Chip Strategy",
           )
           _day3_preview_anchor = '("03_projected_goals", "PROJECTED GOALS", "projected_goals_scene_4k.html"),'
           _day3_preview_extra = _day3_preview_anchor + '''
@@ -6275,6 +6817,15 @@ CACHE.pop("02_fdr", None)
               1,
               "Day 3 remove old Day 1 GW Review master position",
           )
+
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _assembly_cell,
+              '    ("04_clean_sheets",    "CLEAN SHEET ODDS", VIDEO / "04_clean_sheets.mp4"),',
+              '    ("04_clean_sheets",    "07 • CHIP STRATEGY", VIDEO / "04_clean_sheets.mp4"),',
+              1,
+              "Day 3 repurpose legacy clean-sheet master row as Slide 7 Chip Strategy",
+          )
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _assembly_cell,
@@ -6286,7 +6837,7 @@ CACHE.pop("02_fdr", None)
           )
 
           _day3_section_required = (
-              '_DAY3_OLD_CLEAN_SHEETS = False',
+              'SLIDE_07_CHIP_STRATEGY = True',
               '"03_defcon": True',
               '"04_final_shortlists": True',
               '"05_transfer_decision_desk": True',
@@ -6350,9 +6901,11 @@ CACHE.pop("02_fdr", None)
               '"BENCHING DILEMMA"',
               '# 21. BUILD PROJECTED GOALS HTML',
               'xg_sorted = (',
-              'cs_sorted = (',
               'xg_html = scene_template.substitute(',
-              'cs_html = scene_template.substitute(',
+              'DAY3_CHIP_STRATEGY',
+              'chip_strategy.json',
+              'clean_sheet_scene_4k.png = Slide 7 • CHIP STRATEGY',
+              '"04_clean_sheets": SLIDE_07_CHIP_STRATEGY',
           )
           _day3_section_missing = [
               marker for marker in _day3_section_required
@@ -6363,7 +6916,7 @@ CACHE.pop("02_fdr", None)
                   "Day 3_3 two-slide runtime patch incomplete: "
                   + " | ".join(_day3_section_missing)
               )
-          print("Day 3_3 Slide 6 Benching Dilemma + Projected Goals + DEFCON + Final Shortlists + Transfer Decision Desk + MY PLAN 5A–5H runtime override: PASS")
+          print("Day 3_3 Slides 1–7 runtime override: Projected Goals + DEFCON + Final Shortlists + Transfer Desk + Slide 5 Review + MY PLAN 5A–5H + Slide 6 Benching + Slide 7 Chip Strategy: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
@@ -6661,6 +7214,23 @@ CACHE.pop("02_fdr", None)
           done
           echo "Restored opening and audio assets by confirmed Drive folder ID"
 
+
+          rm -rf "${DAY3_CHIP_ASSET_DIR}"
+          mkdir -p "${DAY3_CHIP_ASSET_DIR}"
+          rclone copy "day1-assets:" "${DAY3_CHIP_ASSET_DIR}" \
+            --filter "+ /WC.png" \
+            --filter "+ /TC.png" \
+            --filter "+ /FH.png" \
+            --filter "+ /BB.png" \
+            --filter "- **" \
+            --transfers 4 --checkers 6
+          for chip_asset in WC.png TC.png FH.png BB.png; do
+            if [[ ! -s "${DAY3_CHIP_ASSET_DIR}/${chip_asset}" ]]; then
+              echo "Required Day 3 chip artwork is missing: ${chip_asset}" >&2
+              exit 1
+            fi
+          done
+          echo "Restored Day 3 Slide 7 chip artwork: WC.png • TC.png • FH.png • BB.png"
 
       - name: Reset only previous Day 3 outputs locally
         shell: bash
