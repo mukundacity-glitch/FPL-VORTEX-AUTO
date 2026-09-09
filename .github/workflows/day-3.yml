@@ -147,17 +147,17 @@ jobs:
           _narr_cell = "# CELL 18 — INTRO + FDR + GOALS + CS + OUTRO NARRATION"
           _anim_cell = "# CELL 19 — SHARED ANIMATION ENGINE"
           
-          _new_agenda_css = """.agendaStage{position:absolute;left:120px;right:120px;top:535px;bottom:185px;z-index:14;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:60px}
+          _new_agenda_css = """.agendaStage{position:absolute;left:120px;right:120px;top:535px;bottom:320px;z-index:14;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:60px}
           .agendaColumn{min-width:0;display:flex;flex-direction:column;gap:22px}
-          .agendaHeader{height:112px;border-radius:28px;display:flex;align-items:center;justify-content:space-between;gap:28px;padding:0 34px;background:linear-gradient(110deg,rgba(10,32,54,.985),rgba(4,17,31,.99));border:2px solid rgba(53,230,255,.38);box-shadow:0 18px 48px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08)}
+          .agendaHeader{height:104px;border-radius:28px;display:flex;align-items:center;justify-content:space-between;gap:28px;padding:0 34px;background:linear-gradient(110deg,rgba(10,32,54,.985),rgba(4,17,31,.99));border:2px solid rgba(53,230,255,.38);box-shadow:0 18px 48px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08)}
           .leftAgendaHeader{border-color:rgba(255,212,71,.44)}
           .agendaHeaderTitle{font-size:46px;line-height:1;font-weight:1000;letter-spacing:2.2px;color:#fff;white-space:nowrap}
           .agendaHeaderTitle span{color:#ffd447}.rightAgendaHeader .agendaHeaderTitle span{color:#35e6ff}
           .agendaHeaderTag{font-size:24px;line-height:1;font-weight:1000;letter-spacing:3px;color:#9fc2d5;white-space:nowrap}
           .agendaList{min-height:0;flex:1;display:flex;flex-direction:column}
-          .day2List{gap:20px}.day3List{gap:14px}
+          .day2List{gap:16px}.day3List{gap:12px}
           .agenda-card{min-width:0;border-radius:25px;display:grid;grid-template-columns:122px minmax(0,1fr);align-items:center;padding:16px 25px;background:linear-gradient(110deg,rgba(10,32,54,.985),rgba(4,17,31,.99));border:2px solid rgba(255,212,71,.34);box-shadow:0 16px 40px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.07);overflow:hidden}
-          .day2List .agenda-card{height:226px}.day3List .agenda-card{height:160px;border-color:rgba(53,230,255,.32)}
+          .day2List .agenda-card{height:214px}.day3List .agenda-card{height:150px;border-color:rgba(53,230,255,.32)}
           .agenda-card:nth-child(even){border-color:rgba(53,230,255,.43)}.day3List .agenda-card:nth-child(even){border-color:rgba(255,212,71,.34)}
           .agendaNum{font-size:58px;line-height:1;font-weight:1000;color:#ffd447;opacity:.98;letter-spacing:-2px}
           .day3List .agendaNum{color:#35e6ff}
@@ -176,26 +176,9 @@ jobs:
               end_through_line=True,
           )
           
-          # Delete the obsolete Day 1 Slide 0 fixture-board styling and builder from
-          # the temporary clone; no stale intro board is retained as unused duplicate code.
-          runtime_source_text = _day3_replace_range_in_cell(
-              runtime_source_text,
-              _intro_cell,
-              ".fxGrid{position:absolute;left:260px;right:260px;top:525px;bottom:305px;",
-              ".fxGridDate{",
-              "",
-              "Remove stale Day 1 intro fixture-grid CSS",
-              end_through_line=True,
-          )
-          runtime_source_text = _day3_replace_range_in_cell(
-              runtime_source_text,
-              _intro_cell,
-              "def _vx_next_fixture_grid():",
-              "NEXT_FIXTURE_GRID_HTML = _vx_next_fixture_grid()",
-              'NEXT_FIXTURE_GRID_HTML = ""\n',
-              "Remove stale Day 1 intro fixture-grid builder",
-              end_through_line=True,
-          )
+          # Preserve the original fixture-grid CSS/builder unchanged. Day 3_3
+          # changes only the visible centre agenda content; shared Slide 0
+          # branding/support code remains intact in the runtime clone.
           
           _intro_start = "INTRO = Template(r'''<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><style>$style</style></head><body><div class=\"scene introScene\">"
           _new_intro = """INTRO = Template(r'''<!DOCTYPE html><html><head><meta charset="UTF-8"><style>$style</style></head><body><div class="scene introScene" data-vx-day3="intro-agenda-v3">
@@ -222,7 +205,7 @@ jobs:
           <div class="agenda-card v3-6"><div class="agendaNum">06</div><div><div class="agenda-title">CHIP STRATEGY</div><div class="agenda-sub">FREE HIT • WILDCARD • TRIPLE CAPTAIN • BENCH BOOST</div></div></div>
           <div class="agenda-card v3-7"><div class="agendaNum">07</div><div><div class="agenda-title">VORTEX CAPTAIN</div><div class="agenda-sub">FINAL CAPTAINCY VERDICT</div></div></div>
           </div></section>
-          </main><footer class="footer"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div></body></html>''').substitute(style=STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE))
+          </main>$results_strip<footer class="footer"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div></body></html>''').substitute(style=STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),results_strip=LATEST_GW_REVIEW_STRIP)
           
           OUTRO = Template"""
           runtime_source_text = _day3_replace_range_in_cell(
@@ -245,6 +228,7 @@ jobs:
               "VIDEO 3/3</span> • TODAY",
               "EXPECTED MINUTES",
               "VORTEX CAPTAIN",
+              "prevResultsStrip introReviewStrip",
           )
           _missing_intro_markers = [
               marker for marker in _required_intro_markers
@@ -262,9 +246,11 @@ jobs:
               )
           if 'id="vxFixtureGrid"' in _on_disk_intro:
               raise RuntimeError("Stale Day 1 fixture-board markup survived in Day 3_3 Slide 0.")
+          if "bottom:320px" not in _on_disk_intro:
+              raise RuntimeError("Day 3_3 centre agenda lost protected clearance above the original bottom strip.")
           if "MY PREVIOUS GAMEWEEK SQUAD • PLAYER BY PLAYER" in _on_disk_intro:
               raise RuntimeError("Stale Day 1 agenda copy survived in Day 3_3 Slide 0.")
-          print("✅ Verified Day 3_3 Slide 0 HTML: 5 recap cards + 7 Video 3/3 cards; no stale fixture board")'''
+          print("✅ Verified Day 3_3 Slide 0 HTML: 5 recap + 7 Video 3/3 cards; original bottom review strip/footer preserved")'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _intro_cell,
@@ -418,15 +404,7 @@ jobs:
               end_through_line=True,
           )
           
-          runtime_source_text = _day3_replace_range_in_cell(
-              runtime_source_text,
-              _anim_cell,
-              '        /* pre-agenda fixture grid — plain show/hide window, no typewriter */',
-              '    }\n        /* row zoom-to-center: only the currently narrated team row */',
-              '        /* Day 3_3: legacy intro fixture-grid animation removed. */\n'
-              '        /* row zoom-to-center: only the currently narrated team row */',
-              "Remove stale Day 1 intro fixture-grid JavaScript",
-          )
+          # Preserve the original shared animation JavaScript unchanged.
           
           _new_prints = '''print("✅ Intro sequence: left Video 2 recap first → right Video 3/3 agenda second")
           print("✅ All 12 agenda cards pop exactly on Ryan WordBoundary timing")
