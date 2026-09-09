@@ -652,6 +652,918 @@ SELECTED_SCENES = ['''
               "Day 3 MY PLAN current-team source override",
           )
 
+          _day3_plan5a_block = r'''
+# ============================================================
+# DAY 3_3 — SLIDE 5A • MY PLAN • ROLL
+# Exact GW Review visual/player-card/timeline copy.
+# Original GW Review HTML/PNG/narration/MP4 remain untouched.
+# ============================================================
+
+if globals().get("SLIDE_SELECTION", {}).get("05a_my_plan_roll", False):
+    import copy as _d3_copy
+    import json as _d3_json
+    import math as _d3_math
+    import re as _d3_re
+    import subprocess as _d3_subprocess
+    import unicodedata as _d3_unicodedata
+
+    _d3_plan5a_required = (
+        "phase11_current_squad_state",
+        "phase11_recommended_lineup",
+        "phase11_bench_order",
+        "phase11_player_decision_pool",
+        "PHASE11_BEST_CAPTAIN",
+        "PHASE11_BEST_VICE",
+        "_vx_build_review_timeline",
+        "GW_REVIEW_ANIMATION_TIMING",
+        "_pc_fixture_pack",
+        "PLAYER_CARD_CSS",
+        "PLAYER_CARD_JS",
+        "vx_edge_tts_stream",
+        "vx_tts_profile",
+        "vx_media_duration",
+        "vx_full_word_narration",
+        "vx_full_word_display",
+        "vx_narration_player",
+        "resolve_player_photo",
+        "export_4k_png",
+    )
+    _d3_plan5a_missing = [
+        name for name in _d3_plan5a_required if name not in globals()
+    ]
+    if _d3_plan5a_missing:
+        raise RuntimeError(
+            "Day 3_3 MY PLAN 5A missing upstream objects: "
+            + ", ".join(_d3_plan5a_missing)
+        )
+
+    _d3_squad = phase11_current_squad_state.copy()
+    _d3_xi = phase11_recommended_lineup.copy()
+    _d3_bench = phase11_bench_order.copy()
+    _d3_pool = phase11_player_decision_pool.copy()
+
+    if len(_d3_squad) != 15:
+        raise RuntimeError(
+            f"MY PLAN 5A requires exactly 15 current players, found {len(_d3_squad)}. "
+            "Use MY_PLAN_TEAM_SOURCE and supply the current squad before rendering."
+        )
+    if len(_d3_xi) != 11 or len(_d3_bench) != 4:
+        raise RuntimeError(
+            f"MY PLAN 5A requires an optimized 11 + 4 bench; "
+            f"found XI={len(_d3_xi)}, bench={len(_d3_bench)}"
+        )
+    if _d3_squad["player_id"].duplicated().any():
+        raise RuntimeError("MY PLAN 5A current squad contains duplicate player IDs")
+
+    _d3_pool["player_id"] = pd.to_numeric(
+        _d3_pool["player_id"], errors="coerce"
+    )
+    _d3_pool = _d3_pool.dropna(subset=["player_id"]).copy()
+    _d3_pool["player_id"] = _d3_pool["player_id"].astype(int)
+    _d3_pool_by_id = _d3_pool.drop_duplicates("player_id").set_index("player_id")
+
+    _d3_xi_ids = [int(x) for x in _d3_xi["player_id"].tolist()]
+    _d3_bench = _d3_bench.sort_values(
+        "bench_order" if "bench_order" in _d3_bench.columns else "player_id"
+    ).reset_index(drop=True)
+    _d3_bench_ids = [int(x) for x in _d3_bench["player_id"].tolist()]
+    if set(_d3_xi_ids) | set(_d3_bench_ids) != set(
+        _d3_squad["player_id"].astype(int).tolist()
+    ):
+        raise RuntimeError("MY PLAN 5A optimized XI/bench does not match the current 15")
+
+    _d3_cap_raw = (
+        (PHASE11_BEST_CAPTAIN or {}).get("player_id")
+        if isinstance(PHASE11_BEST_CAPTAIN, dict) else 0
+    )
+    _d3_vice_raw = (
+        (PHASE11_BEST_VICE or {}).get("player_id")
+        if isinstance(PHASE11_BEST_VICE, dict) else 0
+    )
+    _d3_cap_id = int(_d3_cap_raw or 0)
+    _d3_vice_id = int(_d3_vice_raw or 0)
+    if _d3_cap_id not in _d3_xi_ids:
+        _d3_cap_id = int(
+            _d3_xi.sort_values(
+                "final_gameweek_xpts", ascending=False
+            ).iloc[0]["player_id"]
+        )
+    if _d3_vice_id not in _d3_xi_ids or _d3_vice_id == _d3_cap_id:
+        _d3_vice_candidates = [
+            pid for pid in _d3_xi.sort_values(
+                "final_gameweek_xpts", ascending=False
+            )["player_id"].astype(int).tolist()
+            if pid != _d3_cap_id
+        ]
+        _d3_vice_id = int(_d3_vice_candidates[0])
+
+    _d3_boot_elements = globals().get("review_elements") or {}
+    _d3_boot_teams = globals().get("review_teams") or {}
+    if not _d3_boot_elements or not _d3_boot_teams:
+        _d3_boot = (
+            globals().get("GW_REVIEW", {}).get("bootstrap")
+            if isinstance(globals().get("GW_REVIEW"), dict)
+            else None
+        )
+        if isinstance(_d3_boot, dict):
+            _d3_boot_elements = {
+                int(row["id"]): row for row in _d3_boot.get("elements", [])
+            }
+            _d3_boot_teams = {
+                int(row["id"]): row for row in _d3_boot.get("teams", [])
+            }
+    if not _d3_boot_elements or not _d3_boot_teams:
+        raise RuntimeError(
+            "MY PLAN 5A requires the same official bootstrap metadata used by GW Review"
+        )
+
+    _d3_next_fixtures = fixtures_raw.loc[
+        pd.to_numeric(fixtures_raw["event"], errors="coerce").eq(int(NEXT_GW))
+    ].copy()
+
+    def _d3_plan_fixture(team_id):
+        team_id = int(team_id)
+        rows = _d3_next_fixtures.loc[
+            _d3_next_fixtures["team_h"].eq(team_id)
+            | _d3_next_fixtures["team_a"].eq(team_id)
+        ]
+        if rows.empty:
+            return {"opp":"BLANK", "ha":"", "score":"", "state":"PENDING"}
+        row = rows.iloc[0]
+        home = int(row["team_h"]) == team_id
+        opp_id = int(row["team_a"] if home else row["team_h"])
+        opp = str((_d3_boot_teams.get(opp_id) or {}).get("short_name", "TBD"))
+        return {
+            "opp": opp,
+            "ha": "H" if home else "A",
+            "score": "",
+            "state": "PENDING",
+        }
+
+    def _d3_plan_number(value, default=0.0):
+        value = pd.to_numeric(value, errors="coerce")
+        return float(value) if pd.notna(value) else float(default)
+
+    def _d3_plan_player(pid, *, bench, bench_order=0):
+        pid = int(pid)
+        if pid not in _d3_pool_by_id.index:
+            raise RuntimeError(f"MY PLAN 5A player {pid} is missing Phase-11 data")
+        if pid not in _d3_boot_elements:
+            raise RuntimeError(f"MY PLAN 5A player {pid} is missing official FPL metadata")
+
+        row = _d3_pool_by_id.loc[pid]
+        e = _d3_boot_elements[pid]
+        team_id = int(e["team"])
+        team = _d3_boot_teams.get(team_id) or {}
+        pos = str(row.get("position") or "").upper().replace("GKP", "GK")
+        xpts = _d3_plan_number(row.get("final_gameweek_xpts"))
+        xmins = _d3_plan_number(row.get("current_gw_expected_minutes"))
+        if xmins <= 0:
+            xmins = _d3_plan_number(row.get("expected_minutes"), 0.0)
+        next3 = _d3_plan_number(row.get("next_3_xpts"))
+        next5 = _d3_plan_number(row.get("next_5_xpts"))
+        fixture = _d3_plan_fixture(team_id)
+        team_short = str(team.get("short_name", row.get("team_name", "TEAM"))).upper()
+        team_name = str(team.get("name", row.get("team_name", team_short)))
+        team_code = int(team.get("code") or e.get("team_code") or 0)
+        price = _d3_plan_number(e.get("now_cost")) / 10.0
+        ownership = _d3_plan_number(e.get("selected_by_percent"))
+        captain = pid == _d3_cap_id
+        vice = pid == _d3_vice_id
+        multiplier = 0 if bench else (2 if captain else 1)
+        photo = str(resolve_player_photo(e) or "")
+        badge = str((team_meta_by_short.get(team_short, {}) or {}).get("badge", "") or "")
+
+        first = str(e.get("first_name", "") or "")
+        second = str(e.get("second_name", "") or "")
+        web_name = str(e.get("web_name", row.get("player_name", f"PLAYER {pid}")) or "")
+        full_name = f"{first} {second}".strip() or web_name
+        position_label = _POSITION_LABEL.get(pos, pos or "PLAYER")
+
+        display_stats = [
+            {"icon":"spark", "label":"PROJECTED xPTS", "value":f"{xpts:.1f}"},
+            {"icon":"target", "label":"EXPECTED MINUTES", "value":f"{xmins:.0f}"},
+            {"icon":"ball", "label":"NEXT 3 xPTS", "value":f"{next3:.1f}"},
+            {"icon":"boot", "label":"NEXT 5 xPTS", "value":f"{next5:.1f}"},
+            {"icon":"target", "label":"OWNERSHIP", "value":f"{ownership:.1f}%"},
+        ]
+        duty = "BENCH" if bench else "STARTER"
+        leadership = "CAPTAIN" if captain else "VICE CAPTAIN" if vice else "MY PLAN"
+        card = {
+            "id": pid,
+            "name": web_name,
+            "full_name": full_name,
+            "first_name": first or full_name.split(" ")[0],
+            "surname": second or " ".join(full_name.split(" ")[1:]) or web_name,
+            "position": pos,
+            "position_label": position_label,
+            "club": team_name,
+            "club_short": team_short,
+            "club_badge": badge,
+            "player_image": photo,
+            "asset_label": f"GW {int(NEXT_GW)} MY PLAN",
+            "price": f"£{price:.1f}m",
+            "total_points": int(e.get("total_points", 0) or 0),
+            "form": str(e.get("form", "—")),
+            "ownership": f"{ownership:.1f}%",
+            "avg_minutes_per_start": f"{xmins:.0f}",
+            "captain": bool(captain),
+            "vice": bool(vice),
+            "display_stats": display_stats,
+            "stats_heading": f"GW {int(NEXT_GW)} • {position_label} MODEL",
+            "fixtures": _pc_fixture_pack(team_short, pos, pid),
+            "verdict_main": "MY PLAN • START" if not bench else "MY PLAN • BENCH",
+            "verdict_sub": (
+                f"{xpts:.1f} xPTS  |  {xmins:.0f} xMINS  |  "
+                f"{fixture['opp']} {fixture['ha']}"
+            ),
+            "tags": [
+                position_label,
+                duty,
+                leadership,
+                f"{xpts:.1f} xPTS",
+                f"{xmins:.0f} xMINS",
+            ],
+            "season_label": "MY PLAN",
+        }
+
+        type_map = {"GK":1, "DEF":2, "MID":3, "FWD":4}
+        return {
+            "id": pid,
+            "name": web_name,
+            "first_name": first,
+            "second_name": second,
+            "full_name": full_name,
+            "team": team_short,
+            "team_name": team_name,
+            "team_code": team_code,
+            "type": int(type_map.get(pos, 3)),
+            "pos": pos,
+            "code": int(e.get("code") or 0),
+            "price": price,
+            "ownership": ownership,
+            "photo": photo,
+            "fixture": fixture,
+            "fixture_label": f"{fixture['opp']} ({fixture['ha']})".strip(),
+            "bench": bool(bench),
+            "bench_order": int(bench_order),
+            "captain": bool(captain),
+            "vice": bool(vice),
+            "multiplier": int(multiplier),
+            "points": round(xpts, 1),
+            "appliedPoints": round(
+                xpts * (2 if captain and not bench else 1), 1
+            ),
+            "xpts": xpts,
+            "xmins": xmins,
+            "next3_xpts": next3,
+            "next5_xpts": next5,
+            "card": card,
+        }
+
+    _d3_plan_starters = [
+        _d3_plan_player(pid, bench=False)
+        for pid in _d3_xi_ids
+    ]
+    _d3_plan_bench = [
+        _d3_plan_player(pid, bench=True, bench_order=index + 1)
+        for index, pid in enumerate(_d3_bench_ids)
+    ]
+
+    _d3_pos_order = {"GK":0, "DEF":1, "MID":2, "FWD":3}
+    _d3_plan_starters = sorted(
+        _d3_plan_starters,
+        key=lambda p: (_d3_pos_order.get(p["pos"], 9), -float(p["xpts"]), p["name"]),
+    )
+
+    _d3_groups = {
+        pos:[p for p in _d3_plan_starters if p["pos"] == pos]
+        for pos in ("GK","DEF","MID","FWD")
+    }
+    _d3_ys = {"GK":13.5, "DEF":35.5, "MID":58.2, "FWD":82.0}
+    for _pos, _arr in _d3_groups.items():
+        _span = 0 if _pos == "GK" else 47 if _pos == "FWD" else 56
+        for _i, _p in enumerate(_arr):
+            _p["pitch_x"] = (
+                50 if len(_arr) == 1
+                else 50 - _span / 2 + _span * (_i / (len(_arr) - 1))
+            )
+            _p["pitch_y"] = _d3_ys[_pos]
+
+    _d3_cap = next(p for p in _d3_plan_starters if p["id"] == _d3_cap_id)
+    _d3_vice = next(p for p in _d3_plan_starters if p["id"] == _d3_vice_id)
+    _d3_xi_xpts = sum(float(p["xpts"]) for p in _d3_plan_starters)
+    _d3_projected_score = _d3_xi_xpts + float(_d3_cap["xpts"])
+    _d3_bench_xpts = sum(float(p["xpts"]) for p in _d3_plan_bench)
+    _d3_formation = "-".join(
+        str(len(_d3_groups[pos])) for pos in ("DEF","MID","FWD")
+    )
+    _d3_ft = globals().get("PHASE11_FREE_TRANSFERS")
+    _d3_ft_text = "—" if _d3_ft is None else str(int(_d3_ft))
+    _d3_bank = _d3_plan_number(globals().get("PHASE11_BANK"), 0.0)
+    _d3_state = str(globals().get("PHASE11_SQUAD_STATE_STATUS", "UNKNOWN"))
+
+    def _d3_plan_spoken_fixture(p):
+        fx = p.get("fixture") or {}
+        opp = str(fx.get("opp") or "the next opponent")
+        side = str(fx.get("ha") or "")
+        return (
+            f"{opp} at home" if side == "H"
+            else f"{opp} away" if side == "A"
+            else opp
+        )
+
+    def _d3_plan_player_text(p, bench=False, first_goalkeeper=False):
+        name = vx_narration_player(int(p["id"]))
+        if first_goalkeeper:
+            return (
+                f"{name}. I start him in goal. The model gives him {p['xpts']:.1f} expected points "
+                f"from {p['xmins']:.0f} expected minutes against {_d3_plan_spoken_fixture(p)}. "
+                "Because this is the roll scenario, I am not spending a transfer here; "
+                "the current goalkeeper keeps his place on the strength of this Gameweek projection."
+            )
+        if bench:
+            return (
+                f"{name}. He stays in the fifteen but starts on my bench. VORTEX projects "
+                f"{p['xpts']:.1f} points from {p['xmins']:.0f} expected minutes against "
+                f"{_d3_plan_spoken_fixture(p)}. Rolling the transfer means I keep this squad depth, "
+                "while the higher projected starters take the active places. He remains useful autosub cover."
+            )
+        captain_note = (
+            " He is also my model captain, so his expected return is counted twice in the projected team score."
+            if p["captain"] else
+            " He is my vice captain, giving the plan a secure fallback."
+            if p["vice"] else ""
+        )
+        return (
+            f"{name}. He starts in my {p['pos']} line. The model projects {p['xpts']:.1f} expected points "
+            f"from {p['xmins']:.0f} expected minutes against {_d3_plan_spoken_fixture(p)}. "
+            "With no transfer used, this place is earned by the current squad's own expected value, "
+            f"minutes security and fixture rather than by forcing a move.{captain_note}"
+        )
+
+    _d3_plan_segments = [{
+        "id":"headline",
+        "text":(
+            "This is my plan. Scenario A: roll the transfer. "
+            "No move and no chip; optimize the current fifteen."
+        ),
+    }]
+
+    for _i, _p in enumerate(_d3_plan_starters):
+        _d3_plan_segments.append({
+            "id":f"plan_player_{_p['id']}",
+            "player_id":int(_p["id"]),
+            "name":vx_narration_player(int(_p["id"])),
+            "kind":"starter",
+            "text":_d3_plan_player_text(
+                _p,
+                bench=False,
+                first_goalkeeper=(_i == 0 and _p["pos"] == "GK"),
+            ),
+        })
+
+    _d3_plan_segments.append({
+        "id":"bench_intro",
+        "text":(
+            "Now the substitutes. I am not selling any of them in Scenario A; "
+            "the question is simply how the model orders the four bench places behind the optimized eleven."
+        ),
+    })
+    for _p in _d3_plan_bench:
+        _d3_plan_segments.append({
+            "id":f"plan_player_{_p['id']}",
+            "player_id":int(_p["id"]),
+            "name":vx_narration_player(int(_p["id"])),
+            "kind":"bench",
+            "text":_d3_plan_player_text(_p, bench=True),
+        })
+
+    _d3_plan_segments += [
+        {
+            "id":"metrics_intro",
+            "text":(
+                "With the full fifteen placed, here is the decision board for my roll scenario. "
+                "These numbers describe the optimized team without inventing a transfer."
+            ),
+        },
+        {
+            "id":"metric_points",
+            "text":(
+                f"The optimized starting eleven projects for {_d3_projected_score:.1f} points "
+                "after applying the captain multiplier."
+            ),
+        },
+        {
+            "id":"metric_orank",
+            "text":(
+                f"The legal formation is {_d3_formation}. It is chosen from the current fifteen "
+                "only, with the FPL formation rules enforced."
+            ),
+        },
+        {
+            "id":"metric_gwrank",
+            "text":(
+                f"I carry {_d3_ft_text} free transfers into this decision. Scenario A uses zero, "
+                "so every available transfer rolls forward under the current FPL rules."
+            ),
+        },
+        {
+            "id":"metric_captain",
+            "text":(
+                f"The model captain is {vx_narration_player(_d3_cap_id)}, projected for "
+                f"{_d3_cap['xpts']:.1f} raw points. "
+                f"{vx_narration_player(_d3_vice_id)} is the vice captain."
+            ),
+        },
+        {
+            "id":"metric_bench",
+            "text":(
+                f"The four substitutes carry {_d3_bench_xpts:.1f} combined expected points. "
+                "That gives the roll plan usable autosub depth without spending a move."
+            ),
+        },
+        {
+            "id":"metric_hit",
+            "text":(
+                f"Transfer cost is zero and the bank is {_d3_bank:.1f} million. "
+                "This scenario deliberately preserves both the squad and the transfer resource."
+            ),
+        },
+        {
+            "id":"review_close",
+            "text":(
+                "That is Scenario A: roll. Keep the current fifteen, start the mathematically strongest "
+                "legal eleven, order the bench by expected points, and protect the transfer for a later "
+                "Gameweek. This is one scenario, not an automatic instruction; the other plan branches "
+                "will be compared as we build them."
+            ),
+        },
+    ]
+
+    _d3_plan_audio_dir = Path(
+        globals().get("AUDIO_WORK_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/audio")
+    ) / "my_plan_5a_roll_segments"
+    _d3_plan_audio_dir.mkdir(parents=True, exist_ok=True)
+
+    def _d3_plan_boundary_key(value):
+        value = _d3_unicodedata.normalize("NFKD", str(value or "").casefold())
+        value = "".join(ch for ch in value if not _d3_unicodedata.combining(ch))
+        return "".join(ch for ch in value if ch.isalnum())
+
+    def _d3_plan_rate(profile, speed_factor):
+        raw = str(profile.get("rate", "+0%")).strip().replace("%", "")
+        try:
+            base_pct = float(raw)
+        except Exception:
+            base_pct = 0.0
+        base_speed = max(0.20, 1.0 + base_pct / 100.0)
+        new_speed = max(0.65, min(1.45, base_speed * float(speed_factor)))
+        pct = (new_speed - 1.0) * 100.0
+        return f"{pct:+.0f}%"
+
+    def _d3_plan_mood(seg):
+        sid = str(seg.get("id", ""))
+        if sid == "headline":
+            return "intro"
+        if sid.startswith("metric_") or sid == "metrics_intro":
+            return "key_stat"
+        if sid == "review_close":
+            return "outro"
+        return "analysis"
+
+    async def _d3_plan_synth(seg, speed_factor=1.0):
+        mood = _d3_plan_mood(seg)
+        profile = vx_tts_profile(mood)
+        if abs(float(speed_factor) - 1.0) > 1e-6:
+            profile["rate"] = _d3_plan_rate(profile, speed_factor)
+
+        seg["text"] = vx_full_word_narration(
+            seg["text"], context=f"MY PLAN 5A {seg['id']}"
+        )
+        seg["display_text"] = vx_full_word_display(
+            seg["text"], context=f"MY PLAN 5A display {seg['id']}"
+        )
+        audio_bytes, words = await vx_edge_tts_stream(seg["text"], profile)
+        path = _d3_plan_audio_dir / f"{seg['id']}.mp3"
+        path.write_bytes(audio_bytes)
+        seg["audio"] = str(path)
+        seg["duration"] = float(vx_media_duration(path))
+        seg["words"] = words
+        seg["tts_mood"] = mood
+        seg["tts_profile"] = profile
+        seg["name_time"] = 0.0
+
+        if seg.get("player_id") is not None:
+            canonical = str(vx_narration_player(int(seg["player_id"]))).strip()
+            seg["name"] = canonical
+            target = _d3_plan_boundary_key(canonical)
+            keys = [_d3_plan_boundary_key(w.get("text", "")) for w in words]
+            found = None
+            for j in range(len(keys)):
+                combined = ""
+                for k in range(j, min(len(keys), j + 8)):
+                    if not keys[k]:
+                        continue
+                    combined += keys[k]
+                    if combined == target:
+                        found = float(words[j]["start"])
+                        seg["name_boundary_span"] = [int(j), int(k)]
+                        break
+                    if len(combined) >= len(target):
+                        break
+                if found is not None:
+                    break
+            if found is None:
+                raise RuntimeError(
+                    f"MY PLAN 5A Ryan boundary missing for {canonical!r}"
+                )
+            seg["name_time"] = found
+
+    for _seg in _d3_plan_segments:
+        await _d3_plan_synth(_seg)
+
+    _d3_plan_pkg = {
+        "gw":int(NEXT_GW),
+        "scenario":"A_ROLL",
+        "players":_d3_plan_starters + _d3_plan_bench,
+        "starters":_d3_plan_starters,
+        "bench":_d3_plan_bench,
+        "segments":_d3_plan_segments,
+        "summary":{
+            "projected_score":round(_d3_projected_score, 2),
+            "formation":_d3_formation,
+            "free_transfers":_d3_ft_text,
+            "transfers_used":0,
+            "transfer_cost":0,
+            "chip":"NONE",
+            "bench_xpts":round(_d3_bench_xpts, 2),
+            "bank":round(_d3_bank, 2),
+            "captain_id":int(_d3_cap_id),
+            "vice_id":int(_d3_vice_id),
+            "squad_state":_d3_state,
+        },
+    }
+
+    _d3_plan_timing = dict(GW_REVIEW_ANIMATION_TIMING)
+    _d3_plan_timing["final_hold"] = 3.0
+
+    def _d3_rebuild_plan_timeline():
+        return _vx_build_review_timeline(_d3_plan_pkg, _d3_plan_timing)
+
+    _d3_plan_timeline = _d3_rebuild_plan_timeline()
+    _d3_plan_target = 270.0
+    _d3_speed_factor = 1.0
+    for _attempt in range(2):
+        _d3_total = float(_d3_plan_timeline["total"])
+        if 265.0 <= _d3_total <= 275.0:
+            break
+        _gate = (
+            float(_d3_plan_timing["goalkeeper_card_out"])
+            + float(_d3_plan_timing["hero_fade_out"])
+        )
+        _target_rest = max(
+            1.0,
+            _d3_plan_target - _gate - float(_d3_plan_timing["final_hold"]),
+        )
+        _rest_segments = _d3_plan_segments[2:]
+        _current_rest = sum(float(seg["duration"]) for seg in _rest_segments)
+        _d3_speed_factor = max(
+            0.72,
+            min(1.35, _d3_speed_factor * (_current_rest / _target_rest)),
+        )
+        for _seg in _rest_segments:
+            await _d3_plan_synth(_seg, speed_factor=_d3_speed_factor)
+        _d3_plan_timeline = _d3_rebuild_plan_timeline()
+
+    _d3_plan_total = float(_d3_plan_timeline["total"])
+    if not 260.0 <= _d3_plan_total <= 280.0:
+        raise RuntimeError(
+            f"MY PLAN 5A narration must stay near 4:30; got {_d3_plan_total:.2f}s"
+        )
+
+    _d3_plan_narr_end = float(_d3_plan_timeline["narration_end"])
+    _d3_plan_mp3 = Path(
+        globals().get("MP3_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/mp3")
+    ) / "05a_my_plan_roll.mp3"
+    _d3_audio_inputs = []
+    _d3_audio_filters = []
+    _d3_audio_labels = []
+    for _idx, _seg in enumerate(_d3_plan_segments):
+        _d3_audio_inputs += ["-i", str(_seg["audio"])]
+        _delay = max(0, int(round(float(_seg["t0"]) * 1000.0)))
+        _label = f"plan5a{_idx}"
+        _d3_audio_filters.append(
+            f"[{_idx}:a]aresample=48000,adelay=delays={_delay}:all=1[{_label}]"
+        )
+        _d3_audio_labels.append(f"[{_label}]")
+    _d3_audio_filters.append(
+        "".join(_d3_audio_labels)
+        + f"amix=inputs={len(_d3_audio_labels)}:duration=longest:normalize=0,"
+          f"apad=pad_dur={float(_d3_plan_timing['final_hold']):.6f},"
+          f"atrim=start=0:end={_d3_plan_total:.6f}[planmaster]"
+    )
+    _d3_subprocess.run(
+        [
+            "ffmpeg","-y","-v","error",
+            *_d3_audio_inputs,
+            "-filter_complex",";".join(_d3_audio_filters),
+            "-map","[planmaster]",
+            "-c:a","libmp3lame","-b:a","192k","-ar","48000",
+            str(_d3_plan_mp3),
+        ],
+        check=True,
+    )
+    _d3_master_duration = float(vx_media_duration(_d3_plan_mp3))
+    if abs(_d3_master_duration - _d3_plan_total) > 0.12:
+        raise RuntimeError(
+            f"MY PLAN 5A MP3/timeline drift: "
+            f"audio={_d3_master_duration:.3f}, timeline={_d3_plan_total:.3f}"
+        )
+
+    _d3_metric_ids = {
+        "points":"metric_points",
+        "orank":"metric_orank",
+        "gwrank":"metric_gwrank",
+        "captain":"metric_captain",
+        "bench":"metric_bench",
+        "hit":"metric_hit",
+    }
+    _d3_metric_map = {}
+    for _key, _sid in _d3_metric_ids.items():
+        _seg = next(seg for seg in _d3_plan_segments if seg["id"] == _sid)
+        _d3_metric_map[_key] = [float(_seg["t0"]), float(_seg["t1"])]
+
+    _d3_bench_intro = next(
+        seg for seg in _d3_plan_segments if seg["id"] == "bench_intro"
+    )
+    _d3_metrics_intro = next(
+        seg for seg in _d3_plan_segments if seg["id"] == "metrics_intro"
+    )
+
+    _d3_plan_js = {
+        "gw":int(NEXT_GW),
+        "starters":_d3_plan_starters,
+        "bench":_d3_plan_bench,
+        "segments":_d3_plan_segments,
+        "total":_d3_plan_total,
+        "narration_end":_d3_plan_narr_end,
+        "timeline":_d3_plan_timing,
+        "bench_t":float(_d3_bench_intro["t0"]),
+        "metrics_t":float(_d3_metrics_intro["t0"]),
+        "metric_times":_d3_metric_map,
+        "plan_summary":_d3_plan_pkg["summary"],
+    }
+
+    _d3_plan_anim_html = Path(HTML) / "my_plan_5a_roll_scene_4k_animated.html"
+    _d3_plan_static_html = Path(HTML) / "my_plan_5a_roll_scene_4k.html"
+    _d3_plan_png = Path(globals().get("SLIDE_DIR")) / "my_plan_5a_roll_scene_4k.png"
+
+    _d3_review_anim_source = Path(ANIM_HTML)
+    if not _d3_review_anim_source.is_file():
+        raise FileNotFoundError(
+            "MY PLAN 5A requires the preserved GW Review animated HTML copy source"
+        )
+    _d3_html = _d3_review_anim_source.read_text(encoding="utf-8")
+
+    _d3_vx_pattern = _d3_re.compile(
+        r"const VX = \{.*?\};\s*window\.VX = VX;",
+        flags=_d3_re.S,
+    )
+    _d3_vx_replacement = (
+        "const VX = "
+        + _d3_json.dumps(_d3_plan_js, ensure_ascii=False, separators=(",",":"))
+        + ";\nwindow.VX = VX;"
+    )
+    _d3_html, _d3_vx_count = _d3_vx_pattern.subn(
+        lambda _m: _d3_vx_replacement,
+        _d3_html,
+        count=1,
+    )
+    if _d3_vx_count != 1:
+        raise RuntimeError(
+            f"MY PLAN 5A could not replace the copied GW Review VX payload: {_d3_vx_count}"
+        )
+
+    _d3_bench_anchor = '    const benchCards=[...document.querySelectorAll(".benchPanel .mini")];'
+    _d3_bench_rebuild = r"""
+    const planBenchHost=$v("#benchCards");
+    if(!planBenchHost) throw new Error("MY PLAN bench host missing");
+    planBenchHost.innerHTML=VX.bench.map((p,i)=>{
+        const img=p.code
+          ? "<img class='miniPlayerImg' src='"+playerImg(p.code)+"' onerror='this.style.display=\"none\";this.nextElementSibling.style.display=\"flex\"'>"
+          : "";
+        const crest=p.team_code
+          ? "<img class='miniCrest' src='"+crestImg(p.team_code)+"' onerror='this.style.display=\"none\"'>"
+          : "";
+        return "<div class='mini'>"
+          +"<div class='miniPos'>"+(i+1)+". "+posLabel(p.type)+"</div>"
+          +"<div class='miniPhoto'>"+img
+          +"<div class='miniAvatar' style='"+(p.code?"display:none":"")+"'>"+safe(initials(p.name))+"</div>"
+          +crest+"</div>"
+          +"<div class='miniName'>"+safe(p.name)+"</div>"
+          +"<div class='miniMeta'>"+safe(p.fixture_label||"MY PLAN")+"</div>"
+          +"<div class='miniPts "+pointsClass(p.points)+"'>"+Number(p.points||0).toFixed(1)+"</div>"
+          +"</div>";
+    }).join("");
+"""
+    if _d3_html.count(_d3_bench_anchor) != 1:
+        raise RuntimeError("MY PLAN 5A copied animation bench anchor changed")
+    _d3_html = _d3_html.replace(
+        _d3_bench_anchor,
+        _d3_bench_rebuild + "\n" + _d3_bench_anchor,
+        1,
+    )
+
+    _d3_loading_anchor = '    $v("#loading").classList.add("hide");'
+    _d3_plan_ui = r"""
+    const ps=VX.plan_summary||{};
+    const reviewTitle=document.querySelector(".reviewPanel .panelTitle span");
+    if(reviewTitle) reviewTitle.textContent="MY PLAN";
+
+    const labels=[...document.querySelectorAll(".reviewPanel .metricLabel")];
+    const labelText=["PROJECTED XI","FORMATION","FREE TRANSFERS","CAPTAIN xPTS","BENCH xPTS","TRANSFER COST"];
+    labels.forEach((el,i)=>{ if(labelText[i]) el.textContent=labelText[i]; });
+
+    const setText=(sel,value)=>{ const el=$v(sel); if(el) el.textContent=String(value); };
+    setText("#gwPoints", Number(ps.projected_score||0).toFixed(1));
+    setText("#vsAvg", "ROLL • NO TRANSFER");
+    setText("#overallRank", ps.formation||"—");
+    setText("#rankDelta", "OPTIMISED LEGAL XI");
+    setText("#gwRank", ps.free_transfers??"—");
+    setText("#gwPercentile", "FREE TRANSFERS AVAILABLE");
+    const cap=VX.starters.find(p=>p.id===ps.captain_id);
+    const vice=VX.starters.find(p=>p.id===ps.vice_id);
+    setText("#captainReturn", cap ? Number(cap.xpts||0).toFixed(1) : "—");
+    setText("#captainName", cap ? cap.name : "MODEL CAPTAIN");
+    setText("#benchPoints", Number(ps.bench_xpts||0).toFixed(1));
+    const benchMetric=$v("#benchPoints")?.closest(".metric")?.querySelector(".metricSub");
+    if(benchMetric) benchMetric.textContent="COMBINED BENCH xPTS";
+    setText("#hitPoints", "0");
+    setText("#teamValue", "BANK £"+Number(ps.bank||0).toFixed(1)+"m");
+
+    const chipTitle=document.querySelector(".chipsPanel .panelTitle span");
+    if(chipTitle) chipTitle.textContent="PLAN STATUS";
+    const chipSmall=document.querySelector(".chipsPanel .smallTitle");
+    if(chipSmall) chipSmall.textContent="SCENARIO 5A";
+    const chipRow=$v("#chipRow");
+    if(chipRow){
+      const cards=[["A","ROLL","SELECTED"],["TR","TRANSFER","0"],["CH","CHIP","NONE"],["FT","FREE TRANSFERS",String(ps.free_transfers??"—")]];
+      chipRow.innerHTML=cards.map(row=>
+        "<div class='chip'><div class='chipIcon' style='display:grid;place-items:center;font-size:34px;font-weight:1000;color:#082544'>"
+        +safe(row[0])+"</div><div class='chipName'>"+safe(row[1])
+        +"</div><div class='chipStatus available'>"+safe(row[2])+"</div></div>"
+      ).join("");
+    }
+
+    setText("#fixtureTitle","MY PLAN • CAPTAIN");
+    const fixtureSmall=document.querySelector(".fixturesPanel .smallTitle");
+    if(fixtureSmall) fixtureSmall.textContent="CAPTAIN • VICE";
+    const fixtureRow=$v("#fixtureRow");
+    if(fixtureRow){
+      const leaders=[cap,vice].filter(Boolean);
+      fixtureRow.innerHTML=leaders.map((p,i)=>{
+        const image=p.code
+          ? "<img class='fxCrest' style='border-radius:50%;object-fit:contain;background:rgba(255,255,255,.9)' src='"+playerImg(p.code)+"' onerror='this.style.display=\"none\"'>"
+          : "<div class='fxCrest ph'>"+safe(initials(p.name))+"</div>";
+        return "<div class='fx'>"+image+"<div class='fxOpp'>"
+          +(i===0?"C":"VC")+" • "+safe(p.name)+" • "+Number(p.xpts||0).toFixed(1)+" xPTS</div></div>";
+      }).join("");
+    }
+
+    setText("#benchSum", Number(ps.bench_xpts||0).toFixed(1)+" xPTS");
+    setText("#pitchGW", "GAMEWEEK "+VX.gw+" • MY PLAN");
+    setText("#entryName", "ROLL • OPTIMISED XI");
+    setText("#footerGW", "GAMEWEEK "+VX.gw+" • MY PLAN");
+    setText("#dataStamp", "VORTEX PHASE 11 • "+String(ps.squad_state||"SQUAD STATE"));
+
+    const ribbon=$v("#analysisRibbon");
+    if(ribbon){
+      const rows=[
+        ["PLAN","ROLL","good"],
+        ["XI",Number(ps.projected_score||0).toFixed(1)+" xPTS","good"],
+        ["FORMATION",String(ps.formation||"—"),""],
+        ["CAPTAIN",cap?cap.name:"—","good"],
+        ["BANK","£"+Number(ps.bank||0).toFixed(1)+"m",""]
+      ];
+      ribbon.innerHTML=rows.map(row=>
+        "<div class='insight'><div class='insightKey'>"+safe(row[0])
+        +"</div><div class='insightVal "+row[2]+"'>"+safe(row[1])+"</div></div>"
+      ).join("");
+    }
+"""
+    if _d3_html.count(_d3_loading_anchor) != 1:
+        raise RuntimeError("MY PLAN 5A copied animation loading anchor changed")
+    _d3_html = _d3_html.replace(
+        _d3_loading_anchor,
+        _d3_plan_ui + "\n" + _d3_loading_anchor,
+        1,
+    )
+
+    _d3_plan_anim_html.write_text(_d3_html, encoding="utf-8")
+
+    _d3_static = _d3_html
+    if _d3_static.count("window.__seek(0);") < 1:
+        raise RuntimeError("MY PLAN 5A copied animation lost its initial seek")
+    _d3_static = _d3_static.replace(
+        "window.__seek(0);",
+        "window.__seek(VX.total);",
+        1,
+    )
+    _d3_plan_static_html.write_text(_d3_static, encoding="utf-8")
+    await export_4k_png(_d3_plan_static_html, _d3_plan_png)
+    if not _d3_plan_png.is_file() or _d3_plan_png.stat().st_size <= 0:
+        raise RuntimeError("MY PLAN 5A static PNG was not generated")
+
+    _d3_motion_windows = [
+        {"id":"premier_league_logo","start":float(_d3_plan_timing["premier_league_logo_at"]),"end":float(_d3_plan_timing["premier_league_logo_at"])+0.46},
+        {"id":"plan_title","start":float(_d3_plan_timing["review_title_at"]),"end":float(_d3_plan_timing["review_title_at"])+0.52},
+        {"id":"soccer_pitch","start":float(_d3_plan_timing["pitch_at"]),"end":float(_d3_plan_timing["pitch_at"])+0.62},
+    ]
+    for _seg in _d3_plan_segments:
+        if _seg.get("player_id") is not None:
+            _d3_motion_windows.append({
+                "id":f"player_{_seg['player_id']}_reveal",
+                "start":float(_seg["reveal_at"]),
+                "end":float(_seg["reveal_at"])+float(_d3_plan_timing["entrance_duration"]),
+            })
+        if _seg.get("kind") == "starter":
+            _d3_motion_windows.append({
+                "id":f"hero_{_seg['player_id']}_in",
+                "start":float(_seg["hero_on"]),
+                "end":float(_seg["hero_on"])+float(_d3_plan_timing["hero_fade_in"]),
+            })
+            _d3_motion_windows.append({
+                "id":f"hero_{_seg['player_id']}_out",
+                "start":float(_seg["hero_exit_at"]),
+                "end":float(_seg["hero_off"]),
+            })
+    _d3_motion_windows += [
+        {"id":"substitutes_panel","start":float(_d3_plan_js["bench_t"]),"end":float(_d3_plan_js["bench_t"])+0.46},
+        {"id":"left_information_panels","start":float(_d3_plan_js["metrics_t"]),"end":float(_d3_plan_js["metrics_t"])+float(_d3_plan_timing["table_reveal_duration"])},
+    ]
+    _d3_metric_items = list(_d3_metric_map.items())
+    for _idx, (_key, _span) in enumerate(_d3_metric_items):
+        _start = float(_span[0])
+        _end = float(_span[1])
+        _next = float(_d3_metric_items[_idx+1][1][0]) if _idx+1<len(_d3_metric_items) else float("inf")
+        _d3_motion_windows.append({
+            "id":f"metric_{_key}_highlight",
+            "start":_start,
+            "end":min(_end,_start+float(_d3_plan_timing["metric_highlight_duration"]),_next),
+        })
+
+    _d3_plan_manifest = {
+        "html":str(_d3_plan_anim_html),
+        "audio":str(_d3_plan_mp3),
+        "duration":float(_d3_plan_total),
+        "audio_duration":float(_d3_master_duration),
+        "narration_end":float(_d3_plan_narr_end),
+        "final_hold_start":float(_d3_plan_narr_end),
+        "final_hold_seconds":float(_d3_plan_timing["final_hold"]),
+        "canvas":[3840,2160],
+        "gw":int(NEXT_GW),
+        "scenario":"A_ROLL",
+        "starting_xi":11,
+        "bench":4,
+        "first_starter_id":int(_d3_plan_timeline["first_starter_id"]),
+        "timeline":_d3_plan_timing,
+        "metric_times":_d3_metric_map,
+        "motion_windows":_d3_motion_windows,
+        "segments":_d3_plan_segments,
+        "summary":_d3_plan_pkg["summary"],
+    }
+
+    _d3_plan_package_path = Path(TIMING) / "my_plan_5a_roll_package.json"
+    _d3_plan_manifest_path = Path(TIMING) / "my_plan_5a_roll_animation_manifest.json"
+    _d3_plan_package_path.write_text(
+        _d3_json.dumps(_d3_plan_pkg, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    _d3_plan_manifest_path.write_text(
+        _d3_json.dumps(_d3_plan_manifest, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    DAY3_MY_PLAN_5A_PACKAGE = _d3_plan_pkg
+    DAY3_MY_PLAN_5A_MANIFEST = _d3_plan_manifest
+
+    print("✅ DAY 3_3 SLIDE 5A — MY PLAN • ROLL READY")
+    print("✅ Visual shell: exact preserved GW Review animated HTML copy")
+    print("✅ Scenario: zero transfers • zero hit • no chip")
+    print(f"✅ XI: {_d3_formation} • projected {_d3_projected_score:.1f} xPTS")
+    print(f"✅ Captain: {_d3_cap['name']} • Vice: {_d3_vice['name']}")
+    print(f"✅ Ryan master: {_d3_plan_total:.2f}s")
+    print("✅ Original gw_review_scene_4k / narration / MP4 untouched")
+'''
+          runtime_source_text = _day3_replace_in_cell(
+              runtime_source_text,
+              _gw_review_anim_cell,
+              'print("✅ AUDIO:",MASTER_MP3)',
+              'print("✅ AUDIO:",MASTER_MP3)\n' + _day3_plan5a_block,
+              1,
+              "Day 3 build MY PLAN 5A from copied GW Review animation",
+          )
+
           _day3_design_block = r"""
 # ============================================================
 # DAY 3_3 ONLY — PROJECTED GOALS + CLEAN SHEET ODDS / DEFCON
