@@ -157,7 +157,7 @@ jobs:
           .agendaList{min-height:0;flex:1;display:flex;flex-direction:column}
           .day2List{gap:16px}.day3List{gap:12px}
           .agenda-card{min-width:0;border-radius:25px;display:grid;grid-template-columns:122px minmax(0,1fr);align-items:center;padding:16px 25px;background:linear-gradient(110deg,rgba(10,32,54,.985),rgba(4,17,31,.99));border:2px solid rgba(255,212,71,.34);box-shadow:0 16px 40px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.07);overflow:hidden}
-          .day2List .agenda-card{height:214px}.day3List .agenda-card{height:150px;border-color:rgba(53,230,255,.32)}
+          .day2List .agenda-card{height:214px}.day3List .agenda-card{height:134px;border-color:rgba(53,230,255,.32)}
           .agenda-card:nth-child(even){border-color:rgba(53,230,255,.43)}.day3List .agenda-card:nth-child(even){border-color:rgba(255,212,71,.34)}
           .agendaNum{font-size:58px;line-height:1;font-weight:1000;color:#ffd447;opacity:.98;letter-spacing:-2px}
           .day3List .agendaNum{color:#35e6ff}
@@ -215,13 +215,14 @@ jobs:
           <section class="agendaColumn todayColumn">
           <div class="agendaHeader rightAgendaHeader"><div class="agendaHeaderTitle"><span>VIDEO 3/3</span> • TODAY</div><div class="agendaHeaderTag">FINAL DECISIONS</div></div>
           <div class="agendaList day3List">
-          <div class="agenda-card v3-1"><div class="agendaNum">01</div><div><div class="agenda-title">PROJECTED GOALS + CLEAN SHEET ODDS</div><div class="agenda-sub">GAMEWEEK MODEL • DEFCON # FOR BOTH SLIDES</div></div></div>
-          <div class="agenda-card v3-2"><div class="agendaNum">02</div><div><div class="agenda-title">FINAL SHORTLISTS</div><div class="agenda-sub">VALIDATED PLAYERS • FINAL DECISION POOL</div></div></div>
-          <div class="agenda-card v3-3"><div class="agendaNum">03</div><div><div class="agenda-title">TRANSFER DECISION DESK</div><div class="agenda-sub">BUY • HOLD • SELL • AVOID</div></div></div>
-          <div class="agenda-card v3-4"><div class="agendaNum">04</div><div><div class="agenda-title">MY GAMEWEEK PLAN</div><div class="agenda-sub">TRANSFERS • STARTING ELEVEN • STRUCTURE</div></div></div>
-          <div class="agenda-card v3-5"><div class="agendaNum">05</div><div><div class="agenda-title">BENCHING DILEMMA</div><div class="agenda-sub">WHO STARTS • WHO SITS • AUTOSUB RISK</div></div></div>
-          <div class="agenda-card v3-6"><div class="agendaNum">06</div><div><div class="agenda-title">CHIP STRATEGY</div><div class="agenda-sub">FREE HIT • WILDCARD • TRIPLE CAPTAIN • BENCH BOOST</div></div></div>
-          <div class="agenda-card v3-7"><div class="agendaNum">07</div><div><div class="agenda-title">VORTEX CAPTAIN</div><div class="agenda-sub">FINAL CAPTAINCY VERDICT</div></div></div>
+          <div class="agenda-card v3-1"><div class="agendaNum">02</div><div><div class="agenda-title">PROJECTED GOALS + CLEAN SHEET ODDS</div><div class="agenda-sub">GAMEWEEK MODEL • DEFCON # FOR BOTH SLIDES</div></div></div>
+          <div class="agenda-card v3-2"><div class="agendaNum">03</div><div><div class="agenda-title">FINAL SHORTLISTS</div><div class="agenda-sub">VALIDATED PLAYERS • FINAL DECISION POOL</div></div></div>
+          <div class="agenda-card v3-3"><div class="agendaNum">04</div><div><div class="agenda-title">TRANSFER DECISION DESK</div><div class="agenda-sub">BUY • HOLD • SELL • AVOID</div></div></div>
+          <div class="agenda-card v3-4"><div class="agendaNum">05</div><div><div class="agenda-title">GAMEWEEK REVIEW</div><div class="agenda-sub">AUTO FPL TEAM REVIEW • POINTS • RANK • CAPTAIN</div></div></div>
+          <div class="agenda-card v3-5"><div class="agendaNum">5A</div><div><div class="agenda-title">MY GAMEWEEK PLAN</div><div class="agenda-sub">5A–5H • TRANSFERS • XI • CHIPS</div></div></div>
+          <div class="agenda-card v3-6"><div class="agendaNum">06</div><div><div class="agenda-title">BENCHING DILEMMA</div><div class="agenda-sub">WHO STARTS • WHO SITS • AUTOSUB RISK</div></div></div>
+          <div class="agenda-card v3-7"><div class="agendaNum">07</div><div><div class="agenda-title">CHIP STRATEGY</div><div class="agenda-sub">FREE HIT • WILDCARD • TRIPLE CAPTAIN • BENCH BOOST</div></div></div>
+          <div class="agenda-card v3-8"><div class="agendaNum">08</div><div><div class="agenda-title">VORTEX CAPTAIN</div><div class="agenda-sub">FINAL CAPTAINCY VERDICT</div></div></div>
           </div></section>
           </main>$results_strip<footer class="footer"><div class="footerLeft"><strong>FPL VORTEX</strong> &nbsp;|&nbsp; GAMEWEEK $gw</div><div class="footerSocial">$social</div><div class="footerRight"><span class="updated">UPDATED: $updated</span><span class="season">2026/27 SEASON</span></div></footer></div></body></html>''').substitute(style=STYLE,logo=vortex_logo_html,gw=int(NEXT_GW),social=SOCIAL,updated=str(VX_FOOTER_UPDATED_DATE),results_strip=LATEST_GW_REVIEW_STRIP)
           
@@ -245,6 +246,7 @@ jobs:
               "VIDEO 2</span> • WHAT WE LEARNED",
               "VIDEO 3/3</span> • TODAY",
               "EXPECTED MINUTES",
+              "GAMEWEEK REVIEW",
               "VORTEX CAPTAIN",
               "prevResultsStrip introReviewStrip",
           )
@@ -257,10 +259,10 @@ jobs:
                   f"{INTRO_HTML} is missing Day 3_3 Slide 0 markers: "
                   + " | ".join(_missing_intro_markers)
               )
-          if _on_disk_intro.count('class="agenda-card') != 12:
+          if _on_disk_intro.count('class="agenda-card') != 13:
               raise RuntimeError(
-                  "Day 3_3 Slide 0 must contain exactly 12 agenda cards "
-                  "(5 Video 2 recap + 7 Video 3/3 agenda)."
+                  "Day 3_3 Slide 0 must contain exactly 13 agenda cards "
+                  "(5 Video 2 recap + 8 Video 3/3 agenda)."
               )
           if 'id="vxFixtureGrid"' in _on_disk_intro:
               raise RuntimeError("Stale Day 1 fixture-board markup survived in Day 3_3 Slide 0.")
@@ -268,7 +270,7 @@ jobs:
               raise RuntimeError("Day 3_3 centre agenda lost protected clearance above the original bottom strip.")
           if "MY PREVIOUS GAMEWEEK SQUAD • PLAYER BY PLAYER" in _on_disk_intro:
               raise RuntimeError("Stale Day 1 agenda copy survived in Day 3_3 Slide 0.")
-          print("✅ Verified Day 3_3 Slide 0 HTML: 5 recap + 7 Video 3/3 cards; original bottom review strip/footer preserved")'''
+          print("✅ Verified Day 3_3 Slide 0 HTML: 5 recap + 8 Video 3/3 cards; Slide 5 Review precedes 5A; original bottom strip/footer preserved")'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
               _intro_cell,
@@ -302,7 +304,9 @@ jobs:
           
           Transfer decision desk: buy, hold, sell, or avoid.
           
-          My Gameweek plan: transfers, starting eleven, and structure.
+          Gameweek review: the previous Gameweek points, rank movement, captaincy, bench, and transfer outcome from my FPL team.
+          
+          My Gameweek plan: scenarios five A through five H, covering transfers, starting eleven, structure, and chips.
           
           Benching dilemma: who starts, who sits, and autosub risk.
           
@@ -340,10 +344,11 @@ jobs:
                       (".v3-1","Projected goals plus clean sheet odds"),
                       (".v3-2","Final shortlists"),
                       (".v3-3","Transfer decision desk"),
-                      (".v3-4","My Gameweek plan"),
-                      (".v3-5","Benching dilemma"),
-                      (".v3-6","Chip strategy"),
-                      (".v3-7","Vortex captain"),
+                      (".v3-4","Gameweek review"),
+                      (".v3-5","My Gameweek plan"),
+                      (".v3-6","Benching dilemma"),
+                      (".v3-7","Chip strategy"),
+                      (".v3-8","Vortex captain"),
                   ]
           
                   left_events=[]
@@ -433,7 +438,7 @@ jobs:
           )
           
           _new_prints = '''print("✅ Intro sequence: left Video 2 recap first → right Video 3/3 agenda second")
-          print("✅ All 12 agenda cards pop exactly on Ryan WordBoundary timing")
+          print("✅ All 13 agenda cards pop exactly on Ryan WordBoundary timing")
           print("✅ Right side stays blank until Ryan begins the Video 3/3 agenda")'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
@@ -447,7 +452,9 @@ jobs:
           _day3_required_runtime_markers = (
               'data-vx-day3="intro-agenda-v3"',
               'class="agenda-card v2-5"',
-              'class="agenda-card v3-7"',
+              'class="agenda-card v3-8"',
+              'GAMEWEEK REVIEW',
+              'agendaNum">5A',
               'Projected goals plus clean sheet odds',
               'right_times[0] <= left_times[-1]',
           )
