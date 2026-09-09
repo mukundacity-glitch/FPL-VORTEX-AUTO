@@ -3174,14 +3174,15 @@ print(f"✅ Transfer Desk selection mode: {DAY3_TRANSFER_DESK_SELECTION_MODE}")
           _day3_preview_extra = _day3_preview_anchor + '''
     ("03_defcon", "DEFCON", "defcon_scene_4k.html"),
     ("04_final_shortlists", "FINAL SHORTLISTS", "final_shortlists_scene_4k.html"),
-    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", "transfer_decision_desk_scene_4k.html"),'''
+    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", "transfer_decision_desk_scene_4k.html"),
+    ("05a_my_plan_roll", "MY PLAN • ROLL", "my_plan_5a_roll_scene_4k.html"),'''
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _preview_cell,
               _day3_preview_anchor,
               _day3_preview_extra,
               1,
-              "Day 3 preview preserve Projected Goals and add DEFCON/Final Shortlists",
+              "Day 3 preview preserve Projected Goals and add DEFCON/Final Shortlists/Transfer Desk/MY PLAN 5A",
           )
 
           _day3_narr_helpers = r'''
@@ -3766,9 +3767,10 @@ if "05_outro" in manifest:
               '''("03_projected_goals", "PROJECTED GOALS",  VIDEO / "03_projected_goals.mp4"),
     ("03_defcon",          "DEFCON",           VIDEO / "03_defcon.mp4"),
     ("04_final_shortlists", "FINAL SHORTLISTS", VIDEO / "04_final_shortlists.mp4"),
-    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", VIDEO / "05_transfer_decision_desk.mp4"),''',
+    ("05_transfer_decision_desk", "TRANSFER DECISION DESK", VIDEO / "05_transfer_decision_desk.mp4"),
+    ("05a_my_plan_roll",   "MY PLAN • ROLL",   VIDEO / "05a_my_plan_roll.mp4"),''',
               1,
-              "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists/Transfer Desk",
+              "Day 3 master preserves Projected Goals and adds DEFCON/Final Shortlists/Transfer Desk/MY PLAN 5A",
           )
 
           _day3_section_required = (
@@ -3776,6 +3778,7 @@ if "05_outro" in manifest:
               '"03_defcon": True',
               '"04_final_shortlists": True',
               '"05_transfer_decision_desk": True',
+              '"05a_my_plan_roll": MY_PLAN_RENDER_5A',
               'fdr_scene_4k.png = Projected Goals + Clean Sheet Odds',
               'projected_goals_scene_4k.png = ORIGINAL PRESERVED',
               'defcon_scene_4k.png = DEFCON',
@@ -3789,6 +3792,11 @@ if "05_outro" in manifest:
               '"03_defcon",          "DEFCON"',
               '"04_final_shortlists", "FINAL SHORTLISTS"',
               '"05_transfer_decision_desk", "TRANSFER DECISION DESK"',
+              '"05a_my_plan_roll",   "MY PLAN • ROLL"',
+              'my_plan_5a_roll_scene_4k.png',
+              'my_plan_5a_roll_animation_manifest.json',
+              '05a_my_plan_roll.mp4',
+              'DAY3_MY_PLAN_5A_PACKAGE',
               'Final Shortlists narration locked:',
               'Transfer Decision Desk narration locked:',
               'DAY3_PROJ_ATTACK_TARGETS',
@@ -3815,7 +3823,7 @@ if "05_outro" in manifest:
                   "Day 3_3 two-slide runtime patch incomplete: "
                   + " | ".join(_day3_section_missing)
               )
-          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + Transfer Decision Desk runtime override: PASS")
+          print("Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + Transfer Decision Desk + MY PLAN 5A runtime override: PASS")
           
           runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
@@ -4357,12 +4365,18 @@ if "05_outro" in manifest:
               root / "SLIDE" / "defcon_scene_4k.png",
               root / "SLIDE" / "final_shortlists_scene_4k.png",
               root / "SLIDE" / "transfer_decision_desk_scene_4k.png",
+              root / "SLIDE" / "my_plan_5a_roll_scene_4k.png",
               root / "DATA" / "transfer_decision_desk.json",
+              root / "DATA" / "my_plan_5a_roll_package.json",
+              root / "DATA" / "my_plan_5a_roll_animation_manifest.json",
+              root / "DATA" / "my_plan_5a_roll_render.json",
+              root / "MP3" / "05a_my_plan_roll.mp3",
               root / "MP4" / "02_fdr.mp4",
               root / "MP4" / "03_projected_goals.mp4",
               root / "MP4" / "03_defcon.mp4",
               root / "MP4" / "04_final_shortlists.mp4",
               root / "MP4" / "05_transfer_decision_desk.mp4",
+              root / "MP4" / "05a_my_plan_roll.mp4",
           )
           for section_file in section_files:
               if not section_file.is_file() or section_file.stat().st_size <= 0:
@@ -4450,6 +4464,70 @@ if "05_outro" in manifest:
           if desk_positions != sorted(desk_positions):
               raise SystemExit(f"Transfer Desk player order is wrong: {desk_positions}")
 
+
+          plan_package_path = root / "DATA" / "my_plan_5a_roll_package.json"
+          plan_manifest_path = root / "DATA" / "my_plan_5a_roll_animation_manifest.json"
+          plan_render_path = root / "DATA" / "my_plan_5a_roll_render.json"
+          plan_package = json.loads(plan_package_path.read_text(encoding="utf-8"))
+          plan_manifest = json.loads(plan_manifest_path.read_text(encoding="utf-8"))
+          plan_render = json.loads(plan_render_path.read_text(encoding="utf-8"))
+
+          if str(plan_package.get("scenario")) != "A_ROLL":
+              raise SystemExit(f"MY PLAN 5A scenario is wrong: {plan_package.get('scenario')}")
+          plan_players = list(plan_package.get("players") or [])
+          plan_starters = list(plan_package.get("starters") or [])
+          plan_bench = list(plan_package.get("bench") or [])
+          if len(plan_players) != 15 or len(plan_starters) != 11 or len(plan_bench) != 4:
+              raise SystemExit(
+                  f"MY PLAN 5A squad shape must be 15/11/4, found "
+                  f"{len(plan_players)}/{len(plan_starters)}/{len(plan_bench)}"
+              )
+          plan_ids = [int(row.get("id") or 0) for row in plan_players]
+          if len(set(plan_ids)) != 15 or any(pid <= 0 for pid in plan_ids):
+              raise SystemExit(f"MY PLAN 5A contains duplicate/invalid player IDs: {plan_ids}")
+
+          plan_summary = dict(plan_package.get("summary") or {})
+          if int(plan_summary.get("transfers_used") or 0) != 0:
+              raise SystemExit("MY PLAN 5A ROLL must use zero transfers")
+          if int(plan_summary.get("transfer_cost") or 0) != 0:
+              raise SystemExit("MY PLAN 5A ROLL must have zero transfer hit")
+          if str(plan_summary.get("chip") or "").upper() != "NONE":
+              raise SystemExit("MY PLAN 5A ROLL must not activate a chip")
+          if not str(plan_summary.get("formation") or ""):
+              raise SystemExit("MY PLAN 5A formation is missing")
+          if float(plan_summary.get("projected_score") or 0.0) <= 0:
+              raise SystemExit("MY PLAN 5A projected score is missing/non-positive")
+
+          plan_duration = float(plan_manifest.get("duration") or 0.0)
+          if not 260.0 <= plan_duration <= 280.0:
+              raise SystemExit(
+                  f"MY PLAN 5A must stay near 4:30, found {plan_duration:.2f}s"
+              )
+          if int(plan_manifest.get("starting_xi") or 0) != 11:
+              raise SystemExit("MY PLAN 5A manifest lost its starting XI")
+          if int(plan_manifest.get("bench") or 0) != 4:
+              raise SystemExit("MY PLAN 5A manifest lost its four substitutes")
+          if float(plan_manifest.get("final_hold_seconds") or 0.0) < 3.0:
+              raise SystemExit("MY PLAN 5A final composition hold is under three seconds")
+          if plan_render.get("passed") is not True:
+              raise SystemExit("MY PLAN 5A renderer QA did not pass")
+          if plan_render.get("visual_source") != "COPIED_GW_REVIEW_ANIMATED_DOM_HTML":
+              raise SystemExit("MY PLAN 5A is not using the copied GW Review animated visual source")
+          if plan_render.get("original_gw_review_preserved") is not True:
+              raise SystemExit("MY PLAN 5A renderer did not assert original GW Review preservation")
+
+          preserved_review_files = (
+              root / "SLIDE" / "gw_review_scene_4k.png",
+              root / "MP3" / "gw_review.mp3",
+              root / "MP4" / "gw_review.mp4",
+              root / "DATA" / "gw_review_animation_manifest.json",
+          )
+          for preserved_review_file in preserved_review_files:
+              if not preserved_review_file.is_file() or preserved_review_file.stat().st_size <= 0:
+                  raise SystemExit(
+                      f"Original GW Review asset was not preserved: {preserved_review_file}"
+                  )
+
           scene_keys = list(qa.get("scene_keys") or [])
           required_master_order = [
               "02_fdr",
@@ -4457,6 +4535,7 @@ if "05_outro" in manifest:
               "03_defcon",
               "04_final_shortlists",
               "05_transfer_decision_desk",
+              "05a_my_plan_roll",
           ]
           positions = []
           for scene_key in required_master_order:
@@ -4471,7 +4550,7 @@ if "05_outro" in manifest:
               )
           print(
               "Day 3_3 Projected Goals preserved + DEFCON + Final Shortlists + "
-              "Transfer Decision Desk PNG/MP4/narration contract: PASS"
+              "Transfer Decision Desk + MY PLAN 5A PNG/MP4/narration contract: PASS"
           )
 
           final_mp4s = [
