@@ -2721,7 +2721,7 @@ jobs:
                   (PHASE11_BEST_CAPTAIN or {}).get("player_id")
                   if isinstance(PHASE11_BEST_CAPTAIN, dict) else 0
               )
-          _d3_vice_raw = (
+              _d3_vice_raw = (
                   (PHASE11_BEST_VICE or {}).get("player_id")
                   if isinstance(PHASE11_BEST_VICE, dict) else 0
               )
