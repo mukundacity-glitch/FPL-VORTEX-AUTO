@@ -1,4 +1,4 @@
-name: Verify Day 3 Inter package
+name: Apply Day 3 Inter font setup once
 
 on:
   push:
@@ -8,14 +8,17 @@ on:
       - .github/workflows/_repair-day3-image-fallback-once.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  font-package:
+  repair:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: Verify locked files
+        with:
+          fetch-depth: 0
+
+      - name: Guard and patch Day 3 workflow only
         shell: bash
         run: |
           set -euo pipefail
@@ -23,16 +26,54 @@ jobs:
           test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
           test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
           test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
-      - name: Prove fonts-inter installs the authored Day 3 font
+          test "$(git hash-object .github/workflows/day-3.yml)" = "64e57f96a9c994dbd64975396ede83f21f4ace7b"
+          test "$(git hash-object vortex/day1_media.py)" = "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/day-3.yml')
+          s=p.read_text(encoding='utf-8')
+          old='''      - name: Install system dependencies\n        shell: bash\n        run: |\n          sudo apt-get update\n          sudo apt-get install --yes ffmpeg rclone\n'''
+          new='''      - name: Install system dependencies\n        shell: bash\n        run: |\n          set -euo pipefail\n          sudo apt-get update\n          sudo apt-get install --yes ffmpeg rclone fonts-inter\n          fc-cache -f\n          resolved_font="$(fc-match -f '%{family}\\n' Inter | head -n1)"\n          echo "Day 3 Inter font resolves to: ${resolved_font}"\n          printf '%s\\n' "${resolved_font}" | grep -Eiq '(^|,)Inter([ ,:]|$)' || {\n            echo "Day 3 requires the authored Inter font; fallback fonts are refused." >&2\n            exit 1\n          }\n'''
+          if s.count(old)!=1:
+              raise SystemExit(f'Expected exactly one Day 3 system-dependency block, found {s.count(old)}')
+          s=s.replace(old,new,1)
+          if s.count('sudo apt-get install --yes ffmpeg rclone fonts-inter')!=1:
+              raise SystemExit('Day 3 Inter dependency is not unique')
+          if s.count('Day 3 requires the authored Inter font; fallback fonts are refused.')!=1:
+              raise SystemExit('Day 3 Inter fail-closed check is not unique')
+          p.write_text(s,encoding='utf-8')
+          print('Day 3 deterministic Inter setup: PATCHED')
+          PY
+
+          git diff --check -- .github/workflows/day-3.yml
+          test "$(git diff --name-only | tr -d '\r')" = ".github/workflows/day-3.yml"
+          test "$(git hash-object 3_final_day3.py)" = "1e73f49a997eeebfba1a7f1ede305b89e1226bc1"
+          test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
+          test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
+          test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          test "$(git hash-object vortex/day1_media.py)" = "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+          echo "Locked Day 1/Day 2 files unchanged: PASS"
+
+      - name: Prove patched font setup on runner
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          apt-cache policy fonts-inter
           sudo apt-get install --yes fonts-inter
           fc-cache -f
           actual="$(fc-match -f '%{family}\n' Inter | head -n1)"
           echo "Inter resolves to: ${actual}"
           printf '%s\n' "${actual}" | grep -Eiq '(^|,)Inter([ ,:]|$)'
-          fc-list : family | grep -Ei '(^|,)Inter([ ,:]|$)' | head -n 5
-          echo "Ubuntu fonts-inter package: PASS"
+          echo "Day 3 authored font availability: PASS"
+
+      - name: Commit only Day 3 workflow correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- .github/workflows/day-3.yml
+          test "$(git diff --cached --name-only | tr -d '\r')" = ".github/workflows/day-3.yml"
+          git commit -m "Install authored Inter font for Day 3 renders"
+          git push origin HEAD:__day3-image-fallback-fix
