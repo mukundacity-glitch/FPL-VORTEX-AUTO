@@ -32,7 +32,7 @@ ENABLE_MARKET_ODDS = True  # @param {type:"boolean"}
 ENABLE_PLAYER_IMAGE_FALLBACK = True  # @param {type:"boolean"}
 
 # @markdown **Optional: comma-separated player names whose FPL photo is old/wrong-kit — force free fallback**
-FORCE_IMAGE_FALLBACK_PLAYERS = "Joao Pedro, "  # @param {type:"string"}
+FORCE_IMAGE_FALLBACK_PLAYERS = ""  # @param {type:"string"}
 
 # @markdown ---
 # @markdown ### 🎬 MP4 OUTPUT
