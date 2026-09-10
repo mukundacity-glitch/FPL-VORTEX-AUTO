@@ -14082,7 +14082,16 @@ def _vx_p12_fetch_player_actuals(gw):
 def _vx_p12_poisson_deviance(y, mu):
     y = np.asarray(y, dtype=float)
     mu = np.clip(np.asarray(mu, dtype=float), 1e-12, None)
-    term = np.where(y > 0, y * np.log(y / mu) - (y - mu), mu)
+
+    # np.where evaluates both branches, so y * log(y / mu) still computes
+    # log(0) for zero-count observations and emits avoidable RuntimeWarnings.
+    # Compute the positive-count branch only where it is mathematically used.
+    term = mu.copy()
+    positive = y > 0
+    term[positive] = (
+        y[positive] * np.log(y[positive] / mu[positive])
+        - (y[positive] - mu[positive])
+    )
     return float(2.0 * np.nanmean(term))
 
 
