@@ -1,0 +1,80 @@
+name: One-time Day 1 Day 2 history cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/_clean-day1-day2-history-temp.yml
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify protected source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
+          test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
+          test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          test "$(git hash-object .github/workflows/day-3.yml)" = "64e57f96a9c994dbd64975396ede83f21f4ace7b"
+          test "$(git hash-object 3_final_day3.py)" = "0d30e8fab93d58314e2300b909c13f9804fca2af"
+
+      - name: Delete completed Day 1 and Day 2 runs only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for workflow in day-1.yml day-2.yml; do
+            mapfile -t ids < <(
+              gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?per_page=100" \
+                --jq '.workflow_runs[] | select(.status == "completed") | .id'
+            )
+            echo "${workflow}: deleting ${#ids[@]} completed run(s)"
+            for id in "${ids[@]}"; do
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/${id}"
+            done
+            left="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?per_page=100" \
+              --jq '[.workflow_runs[] | select(.status == "completed")] | length' \
+              | awk '{n += $1} END {print n + 0}')"
+            test "$left" = "0"
+          done
+          echo "Completed Day 1/Day 2 run history: CLEARED"
+
+      - name: Remove obsolete temporary branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/day3-clean-flatten-temp" >/dev/null 2>&1; then
+            gh api "repos/${GITHUB_REPOSITORY}/compare/main...day3-clean-flatten-temp" \
+              --jq 'select(.ahead_by == 1 and (.files | length) == 1 and .files[0].filename == ".github/workflows/day3-flatten-export-temp.yml") | .ahead_by' \
+              | grep -qx '1'
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/day3-clean-flatten-temp"
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/__noop_check_do_not_use" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/__noop_check_do_not_use"
+          fi
+          ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/day3-clean-flatten-temp" >/dev/null 2>&1
+          ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/__noop_check_do_not_use" >/dev/null 2>&1
+          echo "Temporary branches: REMOVED"
+
+      - name: Remove this one-time cleanup workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -- .github/workflows/_clean-day1-day2-history-temp.yml
+          git commit -m "Remove one-time Day 1 Day 2 history cleanup"
+          git push origin HEAD:main
