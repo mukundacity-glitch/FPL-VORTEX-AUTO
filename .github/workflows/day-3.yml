@@ -394,7 +394,6 @@ jobs:
             exit 1
           fi
 
-          restore_optional "${DAY3_DRIVE_PATH}"
           restore_optional "FPL_VORTEX/MODEL_INPUTS"
           restore_optional "FPL_VORTEX/DECISION_ENGINE"
           restore_optional "FPL_VORTEX/RAW_DATA"
