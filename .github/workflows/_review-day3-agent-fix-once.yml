@@ -1,0 +1,170 @@
+name: Review Day 3 agent fix once
+
+on:
+  push:
+    branches:
+      - arena/01a08bdf-fpl-vortex-auto
+    paths:
+      - .github/workflows/_review-day3-agent-fix-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Guard and repair Day 3 only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "b2e811428603b4baa674345b28452757a9968cbf"
+          test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
+          test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
+          test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          test "$(git hash-object vortex/day1_media.py)" = "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+          test "$(git hash-object .github/workflows/day-3.yml)" = "64e57f96a9c994dbd64975396ede83f21f4ace7b"
+
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          import collections
+          import re
+
+          path = Path("3_final_day3.py")
+          source = path.read_text(encoding="utf-8")
+
+          old_fallback = '    for p in _MATCH_CANDIDATES:\n'
+          new_fallback = '    for p in (PHASE1_RAW_INPUT_DIR / "team_match_xg_raw.csv",):\n'
+          if source.count(old_fallback) != 1:
+              raise SystemExit(
+                  f"Expected exactly one undefined _MATCH_CANDIDATES fallback, found {source.count(old_fallback)}"
+              )
+          if source.count('PHASE1_RAW_INPUT_DIR / "team_match_xg_raw.csv"') != 1:
+              raise SystemExit("Expected exactly one documented Day 3 manual match-input CSV path before repair")
+          source = source.replace(old_fallback, new_fallback, 1)
+
+          old_qa = '''_bench_start_narrs=[_d3_bench_narr(DAY3_BENCHING_TOP10,i) for i in range(10)]
+_bench_avoid_narrs=[_d3_bench_narr(DAY3_BENCHING_BOTTOM5,i,avoid=True) for i in range(5)]
+if len(set(_bench_start_narrs)) != 10 or len(set(_bench_avoid_narrs)) != 5:
+    raise RuntimeError(
+        "Slide 6 narration repeats a full player narration; "
+        "check the Bench Dilemma top-10 / bottom-5 selections."
+    )
+if set(_bench_start_narrs) & set(_bench_avoid_narrs):
+    raise RuntimeError(
+        "Slide 6 start/avoid narration overlaps; "
+        "check the Bench Dilemma selections."
+    )
+'''
+          new_qa = '''_bench_start_ids=DAY3_BENCHING_TOP10["player_id"].astype(int).tolist()
+_bench_avoid_ids=DAY3_BENCHING_BOTTOM5["player_id"].astype(int).tolist()
+if len(_bench_start_ids) != 10 or len(set(_bench_start_ids)) != 10:
+    raise RuntimeError("Slide 6 start narration must contain ten unique player IDs.")
+if len(_bench_avoid_ids) != 5 or len(set(_bench_avoid_ids)) != 5:
+    raise RuntimeError("Slide 6 avoid narration must contain five unique player IDs.")
+if set(_bench_start_ids) & set(_bench_avoid_ids):
+    raise RuntimeError(
+        "Slide 6 start/avoid player IDs overlap; "
+        "check the Bench Dilemma selections."
+    )
+
+_bench_start_narrs=[_d3_bench_narr(DAY3_BENCHING_TOP10,i) for i in range(10)]
+_bench_avoid_narrs=[_d3_bench_narr(DAY3_BENCHING_BOTTOM5,i,avoid=True) for i in range(5)]
+if len(set(_bench_start_narrs)) != 10 or len(set(_bench_avoid_narrs)) != 5:
+    raise RuntimeError(
+        "Slide 6 narration repeats a full player narration; "
+        "check the Bench Dilemma narration template."
+    )
+'''
+          if source.count(old_qa) != 1:
+              raise SystemExit(f"Expected exactly one agent Slide 6 QA block, found {source.count(old_qa)}")
+          source = source.replace(old_qa, new_qa, 1)
+
+          if "_MATCH_CANDIDATES" in source:
+              raise SystemExit("Undefined _MATCH_CANDIDATES reference remains")
+          if source.count('for p in (PHASE1_RAW_INPUT_DIR / "team_match_xg_raw.csv",):') != 1:
+              raise SystemExit("Canonical manual match-input fallback is not unique")
+
+          tree = ast.parse(source, filename=str(path))
+          compile(
+              source,
+              str(path),
+              "exec",
+              flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+              dont_inherit=True,
+          )
+
+          definitions = collections.defaultdict(list)
+          for node in ast.walk(tree):
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                  definitions[node.name].append(node.lineno)
+              if isinstance(node, ast.Dict):
+                  keys = [
+                      key.value
+                      for key in node.keys
+                      if isinstance(key, ast.Constant)
+                      and isinstance(key.value, (str, int, float, bytes))
+                  ]
+                  duplicates = [
+                      key for key, count in collections.Counter(keys).items()
+                      if count > 1
+                  ]
+                  if duplicates:
+                      raise SystemExit(
+                          f"Duplicate literal dictionary keys near line {node.lineno}: {duplicates}"
+                      )
+          dup_defs = {name: locs for name, locs in definitions.items() if len(locs) > 1}
+          if dup_defs:
+              raise SystemExit("Duplicate Day 3 definitions: " + repr(dup_defs))
+
+          marker = re.compile(
+              r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
+          )
+          cells = [part for part in marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f"Expected 33 standalone Day 3 cell blocks, found {len(cells)}")
+          for index, cell in enumerate(cells, 1):
+              compile(
+                  cell,
+                  f"{path.name}::cell-{index}",
+                  "exec",
+                  flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                  dont_inherit=True,
+              )
+
+          # Small generic regressions for the repaired invariants.
+          start_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+          avoid_ids = [11, 12, 13, 14, 15]
+          assert not (set(start_ids) & set(avoid_ids))
+          bad_avoid = [10, 12, 13, 14, 15]
+          assert set(start_ids) & set(bad_avoid) == {10}
+
+          path.write_text(source, encoding="utf-8")
+          print("Day 3 manual match-input fallback: PASS")
+          print("Day 3 Slide 6 player-ID QA: PASS")
+          print("Day 3 AST/cell/duplicate validation: PASS")
+          PY
+
+          git diff --check -- 3_final_day3.py
+          test "$(git diff --name-only | tr -d '\r')" = "3_final_day3.py"
+          test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
+          test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
+          test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          test "$(git hash-object vortex/day1_media.py)" = "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+          echo "Locked Day 1/Day 2 files unchanged: PASS"
+
+      - name: Commit only the Day 3 corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- 3_final_day3.py
+          test "$(git diff --cached --name-only | tr -d '\r')" = "3_final_day3.py"
+          git commit -m "Harden Day 3 fallback and bench QA"
+          git push origin HEAD:arena/01a08bdf-fpl-vortex-auto
