@@ -2818,7 +2818,7 @@ def _vx_read_phase1_match_source():
         PHASE1_FPL_CORE_ADAPTER_ERROR = f"{type(exc).__name__}: {exc}"
         print("⛔ Phase 1 FPL_CORE adapter error:", PHASE1_FPL_CORE_ADAPTER_ERROR)
 
-    for p in _MATCH_CANDIDATES:
+    for p in (PHASE1_RAW_INPUT_DIR / "team_match_xg_raw.csv",):
         if not p.exists():
             continue
         if p.suffix.lower() == ".parquet":
@@ -37521,17 +37521,24 @@ print(f"✅ Elite Outro narration: {_outro_word_count} words • natural deliver
 # Slide 6 structural QA: the Benching Dilemma is a template-generated 15-player
 # countdown, so uniqueness is enforced at the player-narration level. A repeated
 # full player narration means a duplicated selection or a template fault.
+_bench_start_ids=DAY3_BENCHING_TOP10["player_id"].astype(int).tolist()
+_bench_avoid_ids=DAY3_BENCHING_BOTTOM5["player_id"].astype(int).tolist()
+if len(_bench_start_ids) != 10 or len(set(_bench_start_ids)) != 10:
+    raise RuntimeError("Slide 6 start narration must contain ten unique player IDs.")
+if len(_bench_avoid_ids) != 5 or len(set(_bench_avoid_ids)) != 5:
+    raise RuntimeError("Slide 6 avoid narration must contain five unique player IDs.")
+if set(_bench_start_ids) & set(_bench_avoid_ids):
+    raise RuntimeError(
+        "Slide 6 start/avoid player IDs overlap; "
+        "check the Bench Dilemma selections."
+    )
+
 _bench_start_narrs=[_d3_bench_narr(DAY3_BENCHING_TOP10,i) for i in range(10)]
 _bench_avoid_narrs=[_d3_bench_narr(DAY3_BENCHING_BOTTOM5,i,avoid=True) for i in range(5)]
 if len(set(_bench_start_narrs)) != 10 or len(set(_bench_avoid_narrs)) != 5:
     raise RuntimeError(
         "Slide 6 narration repeats a full player narration; "
-        "check the Bench Dilemma top-10 / bottom-5 selections."
-    )
-if set(_bench_start_narrs) & set(_bench_avoid_narrs):
-    raise RuntimeError(
-        "Slide 6 start/avoid narration overlaps; "
-        "check the Bench Dilemma selections."
+        "check the Bench Dilemma narration template."
     )
 
 # Narration QA: accidental repetition INSIDE one scene is a hard failure.
