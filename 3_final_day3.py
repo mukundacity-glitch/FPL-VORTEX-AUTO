@@ -37200,7 +37200,7 @@ def _d3_bench_narr(frame, i, *, avoid=False):
     verdict = "sit or avoid" if avoid else "start"
     return (
         f"{str(row['player_name'])}, {team_name}: {verdict}. "
-        f"VORTEX projects {float(row['xpts']):.1f} points from "
+        f"For {str(row['player_name'])}, VORTEX projects {float(row['xpts']):.1f} points from "
         f"{float(row['xmins']):.0f} expected minutes, with next-Gameweek FDR "
         f"{float(row['fdr']):.1f}. In short, {reason}."
     )
