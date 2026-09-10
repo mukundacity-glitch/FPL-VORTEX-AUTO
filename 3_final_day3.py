@@ -1258,7 +1258,7 @@ def fetch_event_live(event_id: int, *, snapshot_path: str | None = None) -> dict
     """Fetch one fresh official FPL event-live payload through the canonical retry session.
 
     Persistent files are write-through historical snapshots only. They are never
-    read as a substitute for the live FPL endpoint, so a manual Day 1 run cannot
+    read as a substitute for the live FPL endpoint, so a manual Day 3 run cannot
     inherit a partially-settled Gameweek from an earlier run.
     """
     event_id = int(event_id)
