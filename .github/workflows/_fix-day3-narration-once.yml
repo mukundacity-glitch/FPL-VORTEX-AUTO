@@ -45,8 +45,8 @@ jobs:
 
           normalizer = functions[0]
           lines = source.splitlines(keepends=True)
-          target = 'value = _vx_re.sub(r"\\bGK\\b", "goalkeeper", value, flags=_vx_re.IGNORECASE)'
-          replacement = 'value = _vx_re.sub(r"\\bFPL\\b", "Fantasy Premier League", value, flags=_vx_re.IGNORECASE)'
+          target = 'value = _vx_re.sub(r"\\bGK\\b", "goalkeeper", value)'
+          replacement = 'value = _vx_re.sub(r"\\bFPL\\b", "Fantasy Premier League", value)'
 
           function_lines = lines[normalizer.lineno - 1 : normalizer.end_lineno]
           existing = [line for line in function_lines if line.strip() == replacement]
@@ -115,7 +115,6 @@ jobs:
               r"\bFPL\b",
               "Fantasy Premier League",
               "FPL rank is trending upward",
-              flags=re.IGNORECASE,
           )
           if banned_re.findall(sample):
               raise SystemExit("Standalone FPL normalization self-test failed")
