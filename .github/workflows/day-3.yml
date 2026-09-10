@@ -20,11 +20,11 @@ permissions:
 
 concurrency:
   group: fpl-vortex-day-3
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   PYTHONUNBUFFERED: "1"
-  DAY3_RENDER_MODE: ${{ inputs.render_mode }}
+  DAY3_RENDER_MODE: ${{ inputs.render_mode || 'DRAFT' }}
   DAY3_RUNTIME_SOURCE: 3_final_day3.py
   DAY3_STUDIO_SCRIPT: vortex/day3_youtube_studio.py
   DAY3_UPLOAD_SCRIPT: vortex/day3_youtube_private_upload.py
@@ -136,6 +136,16 @@ jobs:
               )
           if source.count('VOICE = "en-GB-RyanNeural"') != 1:
               raise SystemExit("Day 3 must define Ryan narration exactly once")
+
+          vortex_normalizer = 'value = _vx_re.sub(r"\\bVORTEX\\b", "Vortex", value)'
+          if source.count(vortex_normalizer) != 1:
+              raise SystemExit(
+                  "Day 3 must normalize the FPL VORTEX brand exactly once before narration validation"
+              )
+          if "np.where(y > 0, y * np.log(y / mu)" in source:
+              raise SystemExit(
+                  "Unsafe Phase 12 Poisson deviance expression reintroduced; zero-count rows must be masked"
+              )
 
           tree = ast.parse(source, filename=str(source_path))
           compile(
