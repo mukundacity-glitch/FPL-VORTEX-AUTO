@@ -11450,6 +11450,10 @@ def _vx_phase10_player_features(row):
 
     set_piece_role = _vx_phase10_set_piece_role(row)
 
+    # Baseline bonus probability is shared by both no-row and inactive-row paths.
+    # An active provenance-safe override below may replace it exactly once.
+    bonus_probability = float(np.clip(appearance_probability * bonus_cond, 0.0, 1.0))
+
     # Explicit player override, if activated and provenance-safe.
     if pid in _override_idx.index:
         ov = _override_idx.loc[pid]
@@ -11491,10 +11495,6 @@ def _vx_phase10_player_features(row):
             spr = str(ov.get("set_piece_role_override", "")).strip()
             if spr:
                 set_piece_role = spr
-        else:
-            bonus_probability = float(np.clip(appearance_probability * bonus_cond, 0.0, 1.0))
-    else:
-        bonus_probability = float(np.clip(appearance_probability * bonus_cond, 0.0, 1.0))
 
     # Evidence confidence combines role depth and attacking-rate minutes.
     role_conf = 1.0 - math.exp(-role_n / 8.0)
