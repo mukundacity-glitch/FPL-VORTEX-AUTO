@@ -1,0 +1,193 @@
+name: Day 3_3 Position Narration Hotfix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/day3-3-position-narration-hotfix.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fpl-vortex-day3-position-narration-hotfix
+  cancel-in-progress: false
+
+jobs:
+  patch-day3-only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Patch and validate Day 3 only
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          verify_blob() {
+            local path="$1"
+            local expected="$2"
+            local actual
+            actual="$(git hash-object "$path")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "LOCK FAILURE: $path ($actual != $expected)" >&2
+              exit 1
+            fi
+          }
+
+          verify_blob "1_final_day1.py" "27ced793bb6934faada3a098815378512bac11c0"
+          verify_blob ".github/workflows/day-1.yml" "240ba9024f11f894e98fad2f3199db041083a904"
+          verify_blob ".github/workflows/day-2.yml" "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          verify_blob "vortex/day1_media.py" "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+          echo "PASS: Day 1/Day 2 locks unchanged before patch"
+
+          python - <<'PY'
+          import ast
+          import collections
+          import re
+          from pathlib import Path
+
+          path = Path("3_final_day3.py")
+          source = path.read_text(encoding="utf-8")
+
+          anchor = '    value = _vx_re.sub(r"\\bVORTEX\\b", "Vortex", value)\n'
+          def_line = '    value = _vx_re.sub(r"\\bDEF\\b", "defender", value)\n'
+          old_block = anchor + def_line
+          new_block = (
+              anchor
+              + '    value = _vx_re.sub(r"\\bGK\\b", "goalkeeper", value)\n'
+              + def_line
+              + '    value = _vx_re.sub(r"\\bMID\\b", "midfielder", value)\n'
+              + '    value = _vx_re.sub(r"\\bFWD\\b", "forward", value)\n'
+          )
+
+          if source.count(new_block) == 1:
+              print("Position narration block already complete")
+          else:
+              if source.count(old_block) != 1:
+                  raise SystemExit(
+                      f"Expected exactly one VORTEX+DEF narration anchor, found {source.count(old_block)}"
+                  )
+              for unexpected in (
+                  'value = _vx_re.sub(r"\\bGK\\b", "goalkeeper", value)',
+                  'value = _vx_re.sub(r"\\bMID\\b", "midfielder", value)',
+                  'value = _vx_re.sub(r"\\bFWD\\b", "forward", value)',
+              ):
+                  if unexpected in source:
+                      raise SystemExit(f"Unexpected pre-existing position normalizer: {unexpected}")
+              source = source.replace(old_block, new_block, 1)
+              path.write_text(source, encoding="utf-8")
+              print("PASS: expanded narration normalization to GK/DEF/MID/FWD")
+
+          source = path.read_text(encoding="utf-8")
+          required_lines = {
+              'GK': 'value = _vx_re.sub(r"\\bGK\\b", "goalkeeper", value)',
+              'DEF': 'value = _vx_re.sub(r"\\bDEF\\b", "defender", value)',
+              'MID': 'value = _vx_re.sub(r"\\bMID\\b", "midfielder", value)',
+              'FWD': 'value = _vx_re.sub(r"\\bFWD\\b", "forward", value)',
+          }
+          for label, line in required_lines.items():
+              count = source.count(line)
+              if count != 1:
+                  raise SystemExit(f"{label} narration normalizer count must be 1, found {count}")
+
+          tree = ast.parse(source, filename=str(path))
+          compile(
+              source,
+              str(path),
+              "exec",
+              flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+              dont_inherit=True,
+          )
+
+          definitions = collections.defaultdict(list)
+          for node in ast.walk(tree):
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                  definitions[node.name].append(node.lineno)
+              if isinstance(node, ast.Dict):
+                  keys = [
+                      key.value
+                      for key in node.keys
+                      if isinstance(key, ast.Constant)
+                      and isinstance(key.value, (str, int, float, bytes))
+                  ]
+                  duplicates = [
+                      key for key, count in collections.Counter(keys).items() if count > 1
+                  ]
+                  if duplicates:
+                      raise SystemExit(
+                          f"Duplicate literal dictionary keys near line {node.lineno}: {duplicates}"
+                      )
+
+          duplicate_definitions = {
+              name: locations
+              for name, locations in definitions.items()
+              if len(locations) > 1
+          }
+          if duplicate_definitions:
+              raise SystemExit("Duplicate Day 3 definitions: " + repr(duplicate_definitions))
+
+          marker = re.compile(
+              r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
+          )
+          cells = [part for part in marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f"Expected 33 Day 3 cell blocks, found {len(cells)}")
+          for index, cell in enumerate(cells, 1):
+              compile(
+                  cell,
+                  f"{path.name}::cell-{index}",
+                  "exec",
+                  flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                  dont_inherit=True,
+              )
+
+          # Verify the intended speech transform itself on all four FPL positions.
+          sample = "GK DEF MID FWD"
+          for code, word in (
+              ("GK", "goalkeeper"),
+              ("DEF", "defender"),
+              ("MID", "midfielder"),
+              ("FWD", "forward"),
+          ):
+              sample = re.sub(rf"\b{code}\b", word, sample)
+          if sample != "goalkeeper defender midfielder forward":
+              raise SystemExit(f"Position speech transform failed: {sample!r}")
+
+          print("PASS: full source AST compile")
+          print("PASS: all 33 Day 3 cells compile")
+          print("PASS: no duplicate definitions or literal dictionary keys")
+          print("PASS: all four FPL position narration transforms validated")
+          PY
+
+          git diff --check
+
+          verify_blob "1_final_day1.py" "27ced793bb6934faada3a098815378512bac11c0"
+          verify_blob ".github/workflows/day-1.yml" "240ba9024f11f894e98fad2f3199db041083a904"
+          verify_blob ".github/workflows/day-2.yml" "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          verify_blob "vortex/day1_media.py" "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+          echo "PASS: Day 1/Day 2 locks unchanged after patch"
+
+          git rm .github/workflows/day3-3-position-narration-hotfix.yml
+
+          mapfile -t changed < <(git diff HEAD --name-only | sort)
+          printf 'Final hotfix change set:\n'
+          printf '  %s\n' "${changed[@]}"
+          expected=(
+            ".github/workflows/day3-3-position-narration-hotfix.yml"
+            "3_final_day3.py"
+          )
+          if [[ "${changed[*]}" != "${expected[*]}" ]]; then
+            echo "Unexpected final change set" >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add 3_final_day3.py
+          git commit -m "Fix Day 3_3 FPL position narration [skip ci]"
+          git push origin HEAD:main
