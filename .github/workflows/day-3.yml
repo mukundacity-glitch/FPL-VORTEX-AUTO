@@ -1,5 +1,7 @@
 name: Day 3_3
 
+run-name: Day 3_3 • ${{ github.ref_name }} • ${{ inputs.render_mode }}
+
 on:
   workflow_dispatch:
     inputs:
