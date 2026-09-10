@@ -308,7 +308,7 @@ def upload_private(output_root: Path) -> dict[str, Any]:
         report["status"] = "channel_verified"
         _write_json_atomic(report_path, report)
 
-        # A Day 1 workflow can only be started manually. Every successful manual
+        # A Day 3 workflow can only be started manually. Every successful manual
         # run intentionally creates a new Private YouTube draft/review upload.
         # We do not search for or reuse a previous upload from the same Gameweek.
         video_id = _insert_private_video(youtube, package)
