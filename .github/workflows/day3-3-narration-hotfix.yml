@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   patch-day3-only:
-    if: ${{ github.event.head_commit.message == 'Bootstrap Day 3_3 DEF narration hotfix' }}
+    if: ${{ github.event.head_commit.message == 'Run Day 3_3 DEF narration hotfix' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -157,7 +157,8 @@ jobs:
           # Remove this one-use workflow from the resulting repository state.
           git rm .github/workflows/day3-3-narration-hotfix.yml
 
-          changed_after="$(git diff --name-only | sort)"
+          # Compare both staged and unstaged changes against HEAD.
+          changed_after="$(git diff HEAD --name-only | sort)"
           expected_after="$(printf '%s\n' '.github/workflows/day3-3-narration-hotfix.yml' '3_final_day3.py' | sort)"
           if [[ "$changed_after" != "$expected_after" ]]; then
             echo "Unexpected final hotfix change set:" >&2
