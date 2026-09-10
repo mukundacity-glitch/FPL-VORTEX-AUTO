@@ -1,4 +1,4 @@
-name: Apply Day 3 Inter font setup once
+name: Install authored Inter from Day 3 runtime once
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Guard and patch Day 3 workflow only
+      - name: Guard and patch Day 3 source only
         shell: bash
         run: |
           set -euo pipefail
@@ -31,49 +31,192 @@ jobs:
 
           python - <<'PY'
           from pathlib import Path
-          p=Path('.github/workflows/day-3.yml')
-          s=p.read_text(encoding='utf-8')
-          old='''      - name: Install system dependencies\n        shell: bash\n        run: |\n          sudo apt-get update\n          sudo apt-get install --yes ffmpeg rclone\n'''
-          new='''      - name: Install system dependencies\n        shell: bash\n        run: |\n          set -euo pipefail\n          sudo apt-get update\n          sudo apt-get install --yes ffmpeg rclone fonts-inter\n          fc-cache -f\n          resolved_font="$(fc-match -f '%{family}\\n' Inter | head -n1)"\n          echo "Day 3 Inter font resolves to: ${resolved_font}"\n          printf '%s\\n' "${resolved_font}" | grep -Eiq '(^|,)Inter([ ,:]|$)' || {\n            echo "Day 3 requires the authored Inter font; fallback fonts are refused." >&2\n            exit 1\n          }\n'''
-          if s.count(old)!=1:
-              raise SystemExit(f'Expected exactly one Day 3 system-dependency block, found {s.count(old)}')
-          s=s.replace(old,new,1)
-          if s.count('sudo apt-get install --yes ffmpeg rclone fonts-inter')!=1:
-              raise SystemExit('Day 3 Inter dependency is not unique')
-          if s.count('Day 3 requires the authored Inter font; fallback fonts are refused.')!=1:
-              raise SystemExit('Day 3 Inter fail-closed check is not unique')
-          p.write_text(s,encoding='utf-8')
-          print('Day 3 deterministic Inter setup: PATCHED')
+          import ast, collections, re
+
+          path = Path('3_final_day3.py')
+          source = path.read_text(encoding='utf-8')
+          anchor = 'FORCE_IMAGE_FALLBACK_PLAYERS = ""  # @param {type:"string"}\n'
+          if source.count(anchor) != 1:
+              raise SystemExit(f'Expected exactly one Day 3 fallback control anchor, found {source.count(anchor)}')
+          if 'def vx_ensure_inter_font()' in source:
+              raise SystemExit('Day 3 Inter runtime helper already exists')
+
+          helper = r'''
+
+# Day 3 typography contract: all authored layouts use Inter.  GitHub's
+# ubuntu runner otherwise falls back to DejaVu Sans, which changes text widths
+# and can create clipping/position drift.  Keep this Day-3-only and fail closed.
+def _vx_inter_font_available():
+    import re as _font_re
+    import shutil as _font_shutil
+    import subprocess as _font_subprocess
+
+    fc_match = _font_shutil.which("fc-match")
+    if not fc_match:
+        return False
+    probe = _font_subprocess.run(
+        [fc_match, "-f", "%{family}\\n", "Inter"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    family = (probe.stdout or "").strip()
+    return bool(
+        probe.returncode == 0
+        and _font_re.search(r"(^|,)\\s*Inter(?:\\s|,|$)", family, _font_re.IGNORECASE)
+    )
+
+
+def vx_ensure_inter_font():
+    import os as _font_os
+    import shutil as _font_shutil
+    import subprocess as _font_subprocess
+
+    if _vx_inter_font_available():
+        return
+
+    apt_get = _font_shutil.which("apt-get")
+    if not apt_get:
+        raise RuntimeError(
+            "Day 3 requires the authored Inter font, but Inter is unavailable "
+            "and apt-get is not present."
+        )
+
+    prefix = []
+    if hasattr(_font_os, "geteuid") and _font_os.geteuid() != 0:
+        sudo = _font_shutil.which("sudo")
+        if not sudo:
+            raise RuntimeError(
+                "Day 3 requires the authored Inter font, but font installation "
+                "needs elevated privileges and sudo is unavailable."
+            )
+        prefix = [sudo]
+
+    env = dict(_font_os.environ)
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+    _font_subprocess.run(
+        prefix + [apt_get, "update", "-qq"],
+        check=True,
+        env=env,
+        timeout=180,
+    )
+    _font_subprocess.run(
+        prefix + [apt_get, "install", "--yes", "fonts-inter"],
+        check=True,
+        env=env,
+        timeout=180,
+    )
+    fc_cache = _font_shutil.which("fc-cache")
+    if fc_cache:
+        _font_subprocess.run([fc_cache, "-f"], check=True, timeout=60)
+    if not _vx_inter_font_available():
+        raise RuntimeError(
+            "Day 3 installed fonts-inter but the Inter family still does not resolve."
+        )
+    print("Day 3 typography: authored Inter font available")
+
+
+vx_ensure_inter_font()
+'''
+          source = source.replace(anchor, anchor + helper, 1)
+
+          if source.count('def vx_ensure_inter_font()') != 1:
+              raise SystemExit('Day 3 Inter helper is not unique')
+          if source.count('vx_ensure_inter_font()') != 2:
+              raise SystemExit('Day 3 Inter helper must have one definition and one startup call')
+          if source.count('fonts-inter') != 2:
+              raise SystemExit('Unexpected Day 3 fonts-inter marker count')
+
+          tree = ast.parse(source, filename=str(path))
+          compile(source, str(path), 'exec', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT, dont_inherit=True)
+          definitions = collections.defaultdict(list)
+          for node in ast.walk(tree):
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                  definitions[node.name].append(node.lineno)
+              if isinstance(node, ast.Dict):
+                  keys = [
+                      key.value for key in node.keys
+                      if isinstance(key, ast.Constant)
+                      and isinstance(key.value, (str, int, float, bytes))
+                  ]
+                  duplicate_keys = [
+                      key for key, count in collections.Counter(keys).items()
+                      if count > 1
+                  ]
+                  if duplicate_keys:
+                      raise SystemExit(
+                          f'Duplicate literal dictionary keys near line {node.lineno}: {duplicate_keys}'
+                      )
+          duplicate_defs = {
+              name: lines for name, lines in definitions.items() if len(lines) > 1
+          }
+          if duplicate_defs:
+              raise SystemExit('Duplicate Day 3 definitions: ' + repr(duplicate_defs))
+
+          marker = re.compile(
+              r'(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)'
+          )
+          cells = [part for part in marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f'Expected 33 standalone Day 3 cells, found {len(cells)}')
+          for index, cell in enumerate(cells, 1):
+              compile(
+                  cell,
+                  f'{path.name}::cell-{index}',
+                  'exec',
+                  flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                  dont_inherit=True,
+              )
+
+          path.write_text(source, encoding='utf-8')
+          print('Day 3 deterministic Inter runtime setup: PASS')
+          print('Day 3 AST/33-cell/duplicate validation: PASS')
           PY
 
-          git diff --check -- .github/workflows/day-3.yml
-          test "$(git diff --name-only | tr -d '\r')" = ".github/workflows/day-3.yml"
-          test "$(git hash-object 3_final_day3.py)" = "1e73f49a997eeebfba1a7f1ede305b89e1226bc1"
+          git diff --check -- 3_final_day3.py
+          test "$(git diff --name-only | tr -d '\r')" = "3_final_day3.py"
           test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
           test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
           test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          test "$(git hash-object .github/workflows/day-3.yml)" = "64e57f96a9c994dbd64975396ede83f21f4ace7b"
           test "$(git hash-object vortex/day1_media.py)" = "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
           echo "Locked Day 1/Day 2 files unchanged: PASS"
 
-      - name: Prove patched font setup on runner
+      - name: Prove Day 3 font helper on this runner
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install --yes fonts-inter
-          fc-cache -f
-          actual="$(fc-match -f '%{family}\n' Inter | head -n1)"
-          echo "Inter resolves to: ${actual}"
-          printf '%s\n' "${actual}" | grep -Eiq '(^|,)Inter([ ,:]|$)'
-          echo "Day 3 authored font availability: PASS"
+          python - <<'PY'
+          import ast
+          from pathlib import Path
 
-      - name: Commit only Day 3 workflow correction
+          source = Path('3_final_day3.py').read_text(encoding='utf-8')
+          tree = ast.parse(source)
+          wanted = {'_vx_inter_font_available', 'vx_ensure_inter_font'}
+          nodes = [
+              node for node in tree.body
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and node.name in wanted
+          ]
+          if {node.name for node in nodes} != wanted:
+              raise SystemExit('Unable to isolate Day 3 font helper definitions')
+          module = ast.Module(body=nodes, type_ignores=[])
+          ns = {}
+          exec(compile(module, '<day3-font-helper>', 'exec'), ns, ns)
+          ns['vx_ensure_inter_font']()
+          if not ns['_vx_inter_font_available']():
+              raise SystemExit('Inter did not resolve after Day 3 helper ran')
+          print('Day 3 authored Inter runtime verification: PASS')
+          PY
+
+      - name: Commit only Day 3 source correction
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- .github/workflows/day-3.yml
-          test "$(git diff --cached --name-only | tr -d '\r')" = ".github/workflows/day-3.yml"
-          git commit -m "Install authored Inter font for Day 3 renders"
+          git add -- 3_final_day3.py
+          test "$(git diff --cached --name-only | tr -d '\r')" = "3_final_day3.py"
+          git commit -m "Ensure authored Inter font for Day 3 renders"
           git push origin HEAD:__day3-image-fallback-fix
