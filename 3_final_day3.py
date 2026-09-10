@@ -17934,11 +17934,10 @@ def _vx_build_review_timeline(review_pkg, timing):
             name_time = float(segment.get("name_time") or 0.0)
             start = float(timing["first_player_at"]) - name_time
             if start < cursor - 1e-6:
-                raise RuntimeError(
-                    "Headline narration overlaps the fixed 0:08 goalkeeper reveal. "
-                    f"Headline ends at {cursor:.3f}s; goalkeeper audio must begin "
-                    f"at {start:.3f}s. Shorten the headline or adjust the override."
-                )
+                delay = cursor - start
+                timing["first_player_at"] = float(timing["first_player_at"]) + delay
+                timing["goalkeeper_card_out"] = float(timing["goalkeeper_card_out"]) + delay
+                start = cursor
             first_player_seen = True
         else:
             start = cursor
