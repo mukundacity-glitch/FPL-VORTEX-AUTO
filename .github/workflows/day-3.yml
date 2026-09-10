@@ -1,6 +1,9 @@
 name: Day 3_3
 
 on:
+  push:
+    branches:
+      - codex/day3-standalone-runtime
   workflow_dispatch:
     inputs:
       render_mode:
