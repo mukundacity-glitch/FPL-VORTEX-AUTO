@@ -37045,7 +37045,6 @@ SCENE_MOODS = {
 }
 
 narr_projection = team_projection_df.copy()
-narr_fdr = fdr_table.copy()
 
 # PROJECTED GOALS narration uses the exact same six-Gameweek team model
 # and ranking as the approved Projected Goals slide. No second ranking/model.
@@ -37088,22 +37087,9 @@ _goal_spoken_teams = (
 if len(set(_goal_spoken_teams)) != 8:
     raise RuntimeError("Projected-goals top-five/bottom-three narration overlaps teams.")
 
-# FDR narration has its own decision-focused ranking: five easiest to target,
-# then the three hardest to avoid for fresh transfers. Official FPL FDR remains
-# the sole source; this does not create a second fixture model.
-narr_fdr_ranked = narr_fdr.sort_values(["average_fdr", "team"], ascending=[True, True]).reset_index(drop=True)
-narr_target = narr_fdr_ranked.head(5).reset_index(drop=True)
-narr_avoid = narr_fdr_ranked.tail(3).sort_values(["average_fdr", "team"], ascending=[False, True]).reset_index(drop=True)
-
-# Compatibility name retained for downstream summary wording only.
-narr_hard = narr_avoid.copy()
-
-if len(narr_target) < 5 or len(narr_avoid) < 3:
-    raise RuntimeError("FDR narration requires at least 8 ranked Premier League teams.")
-
-_fdr_spoken_teams = narr_target["team"].astype(str).tolist() + narr_avoid["team"].astype(str).tolist()
-if len(set(_fdr_spoken_teams)) != 8:
-    raise RuntimeError("FDR target/avoid narration contains overlapping teams.")
+# Day 3 note: the Day 1 FDR target/avoid ranking prep lived here. Slide 6
+# ("02_fdr") now narrates the Benching Dilemma from Cell 14B selections, so the
+# Day 1-only ranking is intentionally absent instead of shadowing live data.
 
 
 def vx_narr_team(frame, i):
@@ -37111,109 +37097,13 @@ def vx_narr_team(frame, i):
     return vx_narration_team(row.get("team_id") if "team_id" in row.index else row.get("team"))
 
 
-def vx_narr_fdr_value(frame, i):
-    return float(frame.iloc[i]["average_fdr"])
-
-
-def vx_narr_good_fixtures(frame, i, max_items=2):
-    """Natural fixture descriptions built from canonical ids, never compact FDR labels."""
-    row=frame.iloc[i]
-    team_id=int(row["team_id"])
-    fdr_raw=row.get("fdr", [])
-    fdr_list=list(fdr_raw) if isinstance(fdr_raw, (list, tuple)) else [fdr_raw]
-
-    fixture_table=fixtures.copy() if isinstance(fixtures,pd.DataFrame) else pd.DataFrame(fixtures)
-    candidates=[]
-    for slot in range(6):
-        gw=int(NEXT_GW)+slot
-        rating=fdr_list[slot] if slot < len(fdr_list) else None
-        try:
-            rating_value=float(rating)
-        except Exception:
-            rating_value=9.0
-
-        gw_fixtures=fixture_table.loc[
-            (pd.to_numeric(fixture_table["event"],errors="coerce")==gw)
-            & (
-                (pd.to_numeric(fixture_table["team_h"],errors="coerce")==team_id)
-                | (pd.to_numeric(fixture_table["team_a"],errors="coerce")==team_id)
-            )
-        ].copy()
-        if gw_fixtures.empty:
-            continue
-
-        descriptions=[]
-        for _,fx in gw_fixtures.iterrows():
-            home=int(fx["team_h"])==team_id
-            opponent_id=int(fx["team_a"] if home else fx["team_h"])
-            descriptions.append(vx_narration_fixture(opponent_id,home))
-
-        if descriptions:
-            label=vx_review_join(descriptions) if "vx_review_join" in globals() else (
-                descriptions[0] if len(descriptions)==1 else " and ".join(descriptions)
-            )
-            candidates.append((rating_value,slot,label))
-
-    candidates.sort(key=lambda x:(x[0],x[1]))
-    labels=[label for _,_,label in candidates[:max_items]]
-    if not labels:
-        return "the softer fixtures in that six-Gameweek window"
-    if len(labels)==1:
-        return labels[0]
-    return f"{labels[0]} and {labels[1]}"
-
-
 def vx_narr_goals_6gw(frame, i):
     return float(frame.iloc[i]["projected_goals_6gw"])
 
 
-def vx_narr_cs_6gw(frame, i):
-    value=float(frame.iloc[i]["avg_cs"])
-    if value <= 1.000001:
-        value *= 100.0
-    return value
-
-
-def vx_narr_cross_table():
-    left=narr_projection[["team","avg_xg","avg_cs"]].copy()
-    right=narr_fdr[["team","average_fdr"]].copy()
-    cross=left.merge(right,on="team",how="left")
-    cross["xg_rank"]=pd.to_numeric(cross["avg_xg"],errors="coerce").rank(method="min",ascending=False)
-    cross["cs_rank"]=pd.to_numeric(cross["avg_cs"],errors="coerce").rank(method="min",ascending=False)
-    cross["fdr_rank"]=pd.to_numeric(cross["average_fdr"],errors="coerce").rank(method="min",ascending=True)
-    fallback=float(len(cross)+5)
-    cross["xg_rank"]=cross["xg_rank"].fillna(fallback)
-    cross["cs_rank"]=cross["cs_rank"].fillna(fallback)
-    cross["fdr_rank"]=cross["fdr_rank"].fillna(fallback)
-    cross["attack_combo"]=cross["xg_rank"] + cross["fdr_rank"]
-    cross["defence_combo"]=cross["cs_rank"] + cross["fdr_rank"]
-    return cross
-
-
-narr_cross = vx_narr_cross_table()
-narr_attack_pick = narr_cross.sort_values(["attack_combo","xg_rank","fdr_rank"]).iloc[0]
-narr_defence_pick = narr_cross.sort_values(["defence_combo","cs_rank","fdr_rank"]).iloc[0]
-
-attack_pick_team=str(narr_attack_pick["team"])
-defence_pick_team=str(narr_defence_pick["team"])
-defence_pick_cs=float(narr_defence_pick["avg_cs"])
-if defence_pick_cs <= 1.000001:
-    defence_pick_cs *= 100.0
-defence_pick_fdr=float(narr_defence_pick["average_fdr"])
-
-defence_top_team=vx_narr_team(narr_defence,0)
-hardest_team=vx_narr_team(narr_hard,0)
-
-if defence_pick_team == defence_top_team:
-    defence_crossover_line=(
-        f"That leading defence also has an average fixture difficulty rating of {defence_pick_fdr:.1f}. "
-        "When the schedule and clean-sheet model agree like that, their secure starters deserve serious consideration."
-    )
-else:
-    defence_crossover_line=(
-        f"For the schedule-plus-model combination, {defence_pick_team} stand out: {defence_pick_cs:.0f} percent clean-sheet projection "
-        f"with an average fixture difficulty rating of {defence_pick_fdr:.1f}. That is the sort of defensive profile I would rather buy than a green fixture box on its own."
-    )
+# Day 3 note: the Day 1 clean-sheet crossover prep lived here. Slide 7
+# ("04_clean_sheets") now narrates Chip Strategy from Cell 14B selections, so
+# the Day 1-only cross-table is intentionally absent instead of shadowing data.
 
 
 # DAY 3_3 narration helpers — consume exact dynamic selections built in Cell 14B.
@@ -37579,12 +37469,15 @@ Thank you for watching. This is FPL Vortex. Data over hype, decisions over noise
 
 }
 
-# FDR pacing target: with Ryan at the Professor/Calm -10% rate, this wording is
-# intentionally built for roughly a 3.5–4 minute spoken section. Actual duration
-# remains authoritative only after Edge TTS generates the MP3.
+# Slide 6 pacing target: 246 fixed template words plus 15 dynamic player
+# narrations of 22–30 words each (name + team + verdict + fixed numbers +
+# one of the nine fixed _d3_bench_reason strings), giving a structural band of
+# 576–696 words. The guard keeps a small margin for unusually short/long real
+# names while still catching a duplicated or truncated narration block.
+# Actual duration remains authoritative only after Edge TTS generates the MP3.
 _fdr_word_count=len(re.findall(r"\b[\w’'-]+\b", scripts["02_fdr"]))
-if not 320 <= _fdr_word_count <= 460:
-    raise RuntimeError(f"FDR narration pacing drifted outside target range: {_fdr_word_count} words")
+if not 560 <= _fdr_word_count <= 720:
+    raise RuntimeError(f"Slide 6 Benching Dilemma narration pacing drifted outside target range: {_fdr_word_count} words")
 print(f"✅ Slide 6 Benching Dilemma narration: {_fdr_word_count} words • top 10 start • bottom 5 avoid")
 
 _goals_word_count=len(re.findall(r"\b[\w’'-]+\b", scripts["03_projected_goals"]))
@@ -37597,8 +37490,15 @@ print(
     "next 5 GWs • top 5 target • bottom 3 caution"
 )
 
+# Slide 7 structural band: 285 fixed template words plus 108–167 insertion
+# words (four bounded usage lines, manager counts, one of two highest-score
+# wordings, remaining-chip wordings for 0–4 labels, four target/fallback
+# wordings, a 1–2 word recommendation title and one of five fixed
+# recommendation reasons), giving 393–452 words. The guard keeps a small
+# margin for real name/count variation while still catching a duplicated or
+# truncated chip section. Required-phrase anchors below verify each section.
 _chip_word_count=len(re.findall(r"\b[\w’'-]+\b", scripts["04_clean_sheets"]))
-if not 200 <= _chip_word_count <= 330:
+if not 370 <= _chip_word_count <= 480:
     raise RuntimeError(
         f"Slide 7 Chip Strategy narration drifted outside target range: {_chip_word_count} words"
     )
@@ -37607,10 +37507,32 @@ print(
     "usage → highest score → remaining → recommendation"
 )
 
+# Elite outro structural band: 216 fixed template words plus 10–20 insertion
+# words (Gameweek number, three 1–2 word team shorts, three fixed-format
+# model values, a 1–3 word captain name and the optional 5-word captain-xPts
+# phrase), giving 226–236 words. The guard keeps a small margin for real
+# name variation while still catching a duplicated or truncated takeaway.
+# Required-phrase anchors below verify each takeaway and the CTA order.
 _outro_word_count=len(re.findall(r"\b[\w’'-]+\b", scripts["05_outro"]))
-if not 145 <= _outro_word_count <= 230:
+if not 210 <= _outro_word_count <= 250:
     raise RuntimeError(f"Elite outro narration pacing drifted outside target range: {_outro_word_count} words")
 print(f"✅ Elite Outro narration: {_outro_word_count} words • natural delivery • final takeaways → CTA → thank you")
+
+# Slide 6 structural QA: the Benching Dilemma is a template-generated 15-player
+# countdown, so uniqueness is enforced at the player-narration level. A repeated
+# full player narration means a duplicated selection or a template fault.
+_bench_start_narrs=[_d3_bench_narr(DAY3_BENCHING_TOP10,i) for i in range(10)]
+_bench_avoid_narrs=[_d3_bench_narr(DAY3_BENCHING_BOTTOM5,i,avoid=True) for i in range(5)]
+if len(set(_bench_start_narrs)) != 10 or len(set(_bench_avoid_narrs)) != 5:
+    raise RuntimeError(
+        "Slide 6 narration repeats a full player narration; "
+        "check the Bench Dilemma top-10 / bottom-5 selections."
+    )
+if set(_bench_start_narrs) & set(_bench_avoid_narrs):
+    raise RuntimeError(
+        "Slide 6 start/avoid narration overlaps; "
+        "check the Bench Dilemma selections."
+    )
 
 # Narration QA: accidental repetition INSIDE one scene is a hard failure.
 # The same short sentence appearing in two different scenes is not a runtime
@@ -37622,6 +37544,13 @@ for _scene_key,_scene_text in scripts.items():
         for s in re.split(r"(?<=[.!?])\s+", _scene_text)
         if s.strip()
     ]
+    if _scene_key == "02_fdr":
+        # Slide 6's fifteen player narrations each close with the template
+        # sentence "In short, {reason}." drawn from nine fixed reason variants,
+        # so those short closers repeat by design across players. Uniqueness of
+        # the fifteen narrations is enforced by the structural check above; the
+        # generic prose check below still guards every other Slide 6 sentence.
+        _sentences=[s for s in _sentences if not s.startswith("in short, ")]
     _duplicates=sorted({s for s in _sentences if _sentences.count(s) > 1})
     if _duplicates:
         raise RuntimeError(
