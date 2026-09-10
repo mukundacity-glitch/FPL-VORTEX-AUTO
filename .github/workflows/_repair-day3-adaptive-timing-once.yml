@@ -30,6 +30,7 @@ jobs:
 
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent, indent
           import ast
           import collections
           import re
@@ -37,7 +38,8 @@ jobs:
           path = Path("3_final_day3.py")
           source = path.read_text(encoding="utf-8")
 
-          old = '''        elif is_first_player:
+          old = indent(dedent('''\
+          elif is_first_player:
               name_time = float(segment.get("name_time") or 0.0)
               start = float(timing["first_player_at"]) - name_time
               if start < cursor - 1e-6:
@@ -47,8 +49,9 @@ jobs:
                       f"at {start:.3f}s. Shorten the headline or adjust the override."
                   )
               first_player_seen = True
-          '''
-          new = '''        elif is_first_player:
+          '''), "        ")
+          new = indent(dedent('''\
+          elif is_first_player:
               name_time = float(segment.get("name_time") or 0.0)
               start = float(timing["first_player_at"]) - name_time
               if start < cursor - 1e-6:
@@ -57,7 +60,7 @@ jobs:
                   timing["goalkeeper_card_out"] = float(timing["goalkeeper_card_out"]) + delay
                   start = cursor
               first_player_seen = True
-          '''
+          '''), "        ")
 
           if source.count(old) != 1:
               raise SystemExit(f"Expected exactly one Day 3 rigid goalkeeper timing block, found {source.count(old)}")
