@@ -32,7 +32,84 @@ ENABLE_MARKET_ODDS = True  # @param {type:"boolean"}
 ENABLE_PLAYER_IMAGE_FALLBACK = True  # @param {type:"boolean"}
 
 # @markdown **Optional: comma-separated player names whose FPL photo is old/wrong-kit — force free fallback**
-FORCE_IMAGE_FALLBACK_PLAYERS = "Joao Pedro, "  # @param {type:"string"}
+FORCE_IMAGE_FALLBACK_PLAYERS = ""  # @param {type:"string"}
+
+
+# Day 3 typography contract: all authored layouts use Inter. GitHub's
+# Ubuntu runner otherwise falls back to another font, which changes text widths
+# and can create clipping/position drift. Keep this Day-3-only and fail closed.
+def _vx_inter_font_available():
+    import re as _font_re
+    import shutil as _font_shutil
+    import subprocess as _font_subprocess
+
+    fc_match = _font_shutil.which("fc-match")
+    if not fc_match:
+        return False
+    probe = _font_subprocess.run(
+        [fc_match, "-f", "%{family}\n", "Inter"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    family = (probe.stdout or "").strip()
+    return bool(
+        probe.returncode == 0
+        and _font_re.search(r"(^|,)\s*Inter(?:\s|,|$)", family, _font_re.IGNORECASE)
+    )
+
+
+def vx_ensure_inter_font():
+    import os as _font_os
+    import shutil as _font_shutil
+    import subprocess as _font_subprocess
+
+    if _vx_inter_font_available():
+        return
+
+    apt_get = _font_shutil.which("apt-get")
+    if not apt_get:
+        raise RuntimeError(
+            "Day 3 requires the authored Inter font, but Inter is unavailable "
+            "and apt-get is not present."
+        )
+
+    prefix = []
+    if hasattr(_font_os, "geteuid") and _font_os.geteuid() != 0:
+        sudo = _font_shutil.which("sudo")
+        if not sudo:
+            raise RuntimeError(
+                "Day 3 requires the authored Inter font, but font installation "
+                "needs elevated privileges and sudo is unavailable."
+            )
+        prefix = [sudo]
+
+    env = dict(_font_os.environ)
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+    _font_subprocess.run(
+        prefix + [apt_get, "update", "-qq"],
+        check=True,
+        env=env,
+        timeout=180,
+    )
+    _font_subprocess.run(
+        prefix + [apt_get, "install", "--yes", "fonts-inter"],
+        check=True,
+        env=env,
+        timeout=180,
+    )
+    fc_cache = _font_shutil.which("fc-cache")
+    if fc_cache:
+        _font_subprocess.run([fc_cache, "-f"], check=True, timeout=60)
+    if not _vx_inter_font_available():
+        raise RuntimeError(
+            "Day 3 installed fonts-inter but the Inter family still does not resolve."
+        )
+    print("Day 3 typography: authored Inter font available")
+
+
+vx_ensure_inter_font()
 
 # @markdown ---
 # @markdown ### 🎬 MP4 OUTPUT
