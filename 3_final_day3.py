@@ -33363,18 +33363,26 @@ def _d3_desk_short_reason(r):
     return f'{r["availability"]:.0f}% AVAILABLE • {r["xmins"]:.0f} xMINS • FLOW {_d3_desk_flow(r["net_transfers"])}'
 
 def _d3_desk_narr(action, index):
-    r = DAY3_TRANSFER_DESK[str(action)][int(index)]
+    role = str(action).upper()
+    idx = int(index)
+    if role not in {"BUY", "HOLD", "SELL"} or idx not in {0, 1, 2}:
+        raise RuntimeError(f"Transfer Desk narration case is invalid: {role}/{idx}")
+    r = DAY3_TRANSFER_DESK[role][idx]
+    ordinal = ("one", "two", "three")[idx]
+    case_label = f"{role.lower()} case {ordinal}"
     action_line = {
-        "BUY": "That combination supports the buy call.",
-        "HOLD": "That is enough to justify the hold call.",
-        "SELL": "That makes the replacement case worth acting on.",
-    }[str(action)]
+        "BUY": f"{case_label.capitalize()} therefore supports the buy call.",
+        "HOLD": f"{case_label.capitalize()} therefore supports the hold call.",
+        "SELL": f"{case_label.capitalize()} therefore supports the replacement call.",
+    }[role]
     return (
-        f'{r["name"]}. {r["team"]} face {r["opponent"]} next. '
-        f'VORTEX projects {r["xpts"]:.1f} points from {r["xmins"]:.0f} expected minutes '
-        f'at £{r["price"]:.1f} million, with {r["availability"]:.0f} percent availability. '
-        f'Ownership is {r["ownership"]:.1f} percent and Gameweek transfer balance is '
-        f'{_d3_desk_flow(r["net_transfers"])}. {action_line}'
+        f'{r["name"]} of {r["team"]} face {r["opponent"]} next. '
+        f'For {case_label}, VORTEX projects {r["xpts"]:.1f} points from '
+        f'{r["xmins"]:.0f} expected minutes at £{r["price"]:.1f} million, '
+        f'with {r["availability"]:.0f} percent availability. '
+        f'For {case_label}, ownership is {r["ownership"]:.1f} percent and '
+        f'Gameweek transfer balance is {_d3_desk_flow(r["net_transfers"])}. '
+        f'{action_line}'
     )
 
 def _d3_desk_photo(r, css):
