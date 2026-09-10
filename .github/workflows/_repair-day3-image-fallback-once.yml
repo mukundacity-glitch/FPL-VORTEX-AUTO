@@ -1,0 +1,89 @@
+name: Repair Day 3 image fallback once
+
+on:
+  push:
+    branches:
+      - __day3-image-fallback-fix
+    paths:
+      - .github/workflows/_repair-day3-image-fallback-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Guard and repair Day 3 only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object 3_final_day3.py)" = "9094c426c31510bd1141e7c166b0d6304ac93cde"
+          test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
+          test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
+          test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          test "$(git hash-object vortex/day1_media.py)" = "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+
+          python - <<'PY'
+          from pathlib import Path
+          import ast, collections, re
+
+          path = Path('3_final_day3.py')
+          source = path.read_text(encoding='utf-8')
+          old = 'FORCE_IMAGE_FALLBACK_PLAYERS = "Joao Pedro, "  # @param {type:"string"}'
+          new = 'FORCE_IMAGE_FALLBACK_PLAYERS = ""  # @param {type:"string"}'
+          if source.count(old) != 1:
+              raise SystemExit(f'Expected exactly one hard-coded fallback default, found {source.count(old)}')
+          source = source.replace(old, new, 1)
+          if 'FORCE_IMAGE_FALLBACK_PLAYERS = "Joao Pedro, "' in source:
+              raise SystemExit('Hard-coded player fallback remains')
+          if source.count('FORCE_IMAGE_FALLBACK_PLAYERS = ""  # @param {type:"string"}') != 1:
+              raise SystemExit('Generic empty fallback default is not unique')
+
+          tree = ast.parse(source, filename=str(path))
+          compile(source, str(path), 'exec', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT, dont_inherit=True)
+          definitions = collections.defaultdict(list)
+          for node in ast.walk(tree):
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                  definitions[node.name].append(node.lineno)
+              if isinstance(node, ast.Dict):
+                  keys=[k.value for k in node.keys if isinstance(k, ast.Constant) and isinstance(k.value,(str,int,float,bytes))]
+                  dup=[k for k,c in collections.Counter(keys).items() if c>1]
+                  if dup:
+                      raise SystemExit(f'Duplicate literal dict keys near line {node.lineno}: {dup}')
+          dup_defs={k:v for k,v in definitions.items() if len(v)>1}
+          if dup_defs:
+              raise SystemExit('Duplicate definitions: '+repr(dup_defs))
+          marker=re.compile(r'(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)')
+          cells=[part for part in marker.split(source) if part.strip()]
+          if len(cells)!=33:
+              raise SystemExit(f'Expected 33 Day 3 cells, found {len(cells)}')
+          for i,cell in enumerate(cells,1):
+              compile(cell, f'{path.name}::cell-{i}', 'exec', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT, dont_inherit=True)
+          path.write_text(source, encoding='utf-8')
+          print('Day 3 generic image fallback default: PASS')
+          print('Day 3 AST/33-cell/duplicate validation: PASS')
+          PY
+
+          git diff --check -- 3_final_day3.py
+          test "$(git diff --name-only | tr -d '\r')" = "3_final_day3.py"
+          test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
+          test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
+          test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          test "$(git hash-object vortex/day1_media.py)" = "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+          echo "Locked Day 1/Day 2 files unchanged: PASS"
+
+      - name: Commit only Day 3 source correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- 3_final_day3.py
+          test "$(git diff --cached --name-only | tr -d '\r')" = "3_final_day3.py"
+          git commit -m "Remove hard-coded Day 3 image fallback player"
+          git push origin HEAD:__day3-image-fallback-fix
