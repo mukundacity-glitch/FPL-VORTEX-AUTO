@@ -22,7 +22,7 @@ concurrency:
 env:
   PYTHONUNBUFFERED: "1"
   DAY3_RENDER_MODE: ${{ inputs.render_mode }}
-  SOURCE_FILE: 1_final_day1.py
+  DAY3_BASE_SOURCE: 1_final_day1.py
   DAY3_OUTPUT_ROOT: /content/drive/MyDrive/FPL_VORTEX/Day_3_3
   DAY3_DRIVE_PATH: FPL_VORTEX/Day_3_3
   DAY1_ASSET_FOLDER_ID: 1h3Loznr5RnsMyh-kUd-zMxEgOf98uFSt
@@ -39,7 +39,7 @@ env:
 
 jobs:
   run-day-3:
-    name: Run isolated Day 3 — exact Day 1 video clone
+    name: Run isolated Day 3
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
@@ -53,17 +53,25 @@ jobs:
           python-version: "3.11"
 
 
-      - name: Prepare isolated Day 3 runtime without changing Day 1 or Day 2
+      - name: Prepare clean isolated Day 3 runtime
         shell: bash
         run: |
           set -euo pipefail
-          git diff --exit-code -- \
-            "${SOURCE_FILE}" \
-            .github/workflows/day-1.yml \
-            .github/workflows/day-2.yml \
-            vortex/day1_media.py \
-            vortex/youtube_studio_package.py \
-            vortex/youtube_private_upload.py
+          verify_blob() {
+            local path="$1"
+            local expected="$2"
+            local actual
+            actual="$(git hash-object "$path")"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "Locked file changed: $path ($actual != $expected)" >&2
+              exit 1
+            fi
+          }
+          verify_blob "1_final_day1.py" "27ced793bb6934faada3a098815378512bac11c0"
+          verify_blob ".github/workflows/day-1.yml" "240ba9024f11f894e98fad2f3199db041083a904"
+          verify_blob ".github/workflows/day-2.yml" "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
+          verify_blob "vortex/day1_media.py" "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
+          echo "Locked Day 1/Day 2 files: PASS"
           python - <<'PY'
           import ast
           import hashlib
@@ -93,20 +101,19 @@ jobs:
                   )
               return text.replace(old, new)
 
-          source_path = Path(os.environ["SOURCE_FILE"]).resolve()
+          source_path = Path(os.environ["DAY3_BASE_SOURCE"]).resolve()
           source_text = source_path.read_text(encoding="utf-8")
           runtime_source_text = replace_exact(
               source_text,
               "FIRST VIDEO",
               folder_name,
               9,
-              "Day 1 output-path isolation",
+              "Day 3 output-path isolation",
           )
 
           # ------------------------------------------------------------
           # DAY 3_3 ONLY — SLIDE 0 / INTRO AGENDA OVERRIDE
-          # The repository Day 1 source remains read-only. All edits below
-          # exist only inside the temporary Day 3 runtime clone.
+          # The locked base source remains read-only. Day 3 changes exist only in the isolated runtime.
           # ------------------------------------------------------------
           def _day3_cell_bounds(text, header):
               header_pos = text.find(header)
@@ -209,8 +216,7 @@ jobs:
               end_through_line=True,
           )
           
-          # Remove the obsolete pre-agenda fixture board from the temporary
-          # Day 3_3 clone only. The visible original bottom review strip/footer
+          # Remove the obsolete pre-agenda fixture board. The shared bottom review strip/footer
           # remain preserved by the new intro template below.
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
@@ -218,7 +224,7 @@ jobs:
               ".fxGrid{position:absolute;left:260px;right:260px;top:525px;bottom:305px;",
               ".fxGridDate{",
               "",
-              "Remove stale Day 1 intro fixture-grid CSS",
+              "Remove obsolete intro fixture-grid CSS",
               end_through_line=True,
           )
           runtime_source_text = _day3_replace_range_in_cell(
@@ -227,7 +233,7 @@ jobs:
               "def _vx_next_fixture_grid():",
               "NEXT_FIXTURE_GRID_HTML = _vx_next_fixture_grid()",
               'NEXT_FIXTURE_GRID_HTML = ""\n',
-              "Remove stale Day 1 intro fixture-grid builder",
+              "Remove obsolete intro fixture-grid builder",
               end_through_line=True,
           )
           
@@ -355,7 +361,7 @@ jobs:
           _new_validation = '''print("✅ Intro layout: Video 2 recap left → Video 3/3 agenda right")
                     print("✅ OUTRO HTML:",OUTRO_HTML)
           
-                    # Day 3_3 Slide 0 contract: no stale Day 1 fixture-board/agenda markup.
+                    # Day 3_3 Slide 0 contract: no obsolete fixture-board/agenda markup.
                     _on_disk_intro = INTRO_HTML.read_text(encoding="utf-8")
                     _required_intro_markers = (
                         'data-vx-day3="intro-agenda-v3"',
@@ -381,11 +387,11 @@ jobs:
                             "(5 Video 2 recap + 8 Video 3/3 agenda)."
                         )
                     if 'id="vxFixtureGrid"' in _on_disk_intro:
-                        raise RuntimeError("Stale Day 1 fixture-board markup survived in Day 3_3 Slide 0.")
+                        raise RuntimeError("Obsolete fixture-board markup survived in Day 3_3 Slide 0.")
                     if "bottom:320px" not in _on_disk_intro:
                         raise RuntimeError("Day 3_3 centre agenda lost protected clearance above the original bottom strip.")
                     if "MY PREVIOUS GAMEWEEK SQUAD • PLAYER BY PLAYER" in _on_disk_intro:
-                        raise RuntimeError("Stale Day 1 agenda copy survived in Day 3_3 Slide 0.")
+                        raise RuntimeError("Obsolete agenda copy survived in Day 3_3 Slide 0.")
                     print("✅ Verified Day 3_3 Slide 0 HTML: 5 recap + 8 Video 3/3 cards; Slide 5 Review precedes 5A; original bottom strip/footer preserved")'''
           runtime_source_text = _day3_replace_range_in_cell(
               runtime_source_text,
@@ -539,7 +545,7 @@ jobs:
               '    if key=="00_intro":\n        _fixture_event=',
               '            raise RuntimeError(f"Invalid intro fixture window:',
               _new_fixture_logic,
-              "Remove stale Day 1 intro fixture-window logic",
+              "Remove obsolete intro fixture-window logic",
               end_through_line=True,
           )
           
@@ -550,7 +556,7 @@ jobs:
               '    }\n        /* row zoom-to-center: only the currently narrated team row */',
               '        /* Day 3_3: legacy intro fixture-grid animation removed. */\n'
               '        /* row zoom-to-center: only the currently narrated team row */',
-              "Remove stale Day 1 intro fixture-grid JavaScript",
+              "Remove obsolete intro fixture-grid JavaScript",
           )
           
           _new_prints = '''print("✅ Intro sequence: left Video 2 recap first → right Video 3/3 agenda second")
@@ -1072,9 +1078,9 @@ jobs:
               runtime_source_text,
               _cell0,
               'SLIDE_05_CLEAN_SHEETS = True  # @param {type:"boolean"}',
-              'SLIDE_05_CLEAN_SHEETS = False  # Day 3_3: merged into 02_fdr',
+              'SLIDE_07_CHIP_STRATEGY = True  # @param {type:"boolean"}',
               1,
-              "Day 3 disable duplicate standalone clean-sheet slide",
+              "Day 3 map the old clean-sheet control directly to Slide 7 Chip Strategy",
           )
 
           runtime_source_text = _day3_replace_in_cell(
@@ -1096,35 +1102,10 @@ jobs:
           runtime_source_text = _day3_replace_in_cell(
               runtime_source_text,
               _cell0,
-              'SLIDE_05_CLEAN_SHEETS = False  # Day 3_3: merged into 02_fdr',
-              '_DAY3_OLD_CLEAN_SHEETS = False  # Day 3_3: disabled legacy Day 1 clean-sheet slide',
-              1,
-              "Day 3 remove stale Slide 5 numbering from old clean-sheet control",
-          )
-          runtime_source_text = _day3_replace_in_cell(
-              runtime_source_text,
-              _cell0,
               '"04_clean_sheets": SLIDE_05_CLEAN_SHEETS,',
-              '"04_clean_sheets": _DAY3_OLD_CLEAN_SHEETS,',
-              1,
-              "Day 3 keep legacy clean-sheet scene disabled",
-          )
-
-          runtime_source_text = _day3_replace_in_cell(
-              runtime_source_text,
-              _cell0,
-              '_DAY3_OLD_CLEAN_SHEETS = False  # Day 3_3: disabled legacy Day 1 clean-sheet slide',
-              'SLIDE_07_CHIP_STRATEGY = True  # Day 3_3: repurposed 04_clean_sheets path',
-              1,
-              "Day 3 activate Slide 7 Chip Strategy",
-          )
-          runtime_source_text = _day3_replace_in_cell(
-              runtime_source_text,
-              _cell0,
-              '"04_clean_sheets": _DAY3_OLD_CLEAN_SHEETS,',
               '"04_clean_sheets": SLIDE_07_CHIP_STRATEGY,',
               1,
-              "Day 3 map legacy clean-sheet key to Slide 7 Chip Strategy",
+              "Day 3 map Slide 7 Chip Strategy directly",
           )
 
 
@@ -1772,7 +1753,7 @@ jobs:
               ]
 
               _d3_plan_audio_dir = Path(
-                  globals().get("AUDIO_WORK_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/audio")
+                  globals().get("AUDIO_WORK_DIR", "/content/FPL_VORTEX_DAY3_WORK/audio")
               ) / "my_plan_5a_roll_segments"
               _d3_plan_audio_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1919,7 +1900,7 @@ jobs:
 
               _d3_plan_narr_end = float(_d3_plan_timeline["narration_end"])
               _d3_plan_mp3 = Path(
-                  globals().get("MP3_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/mp3")
+                  globals().get("MP3_DIR", "/content/FPL_VORTEX_DAY3_WORK/mp3")
               ) / "05a_my_plan_roll.mp3"
               _d3_audio_inputs = []
               _d3_audio_filters = []
@@ -7793,7 +7774,7 @@ jobs:
               raise SystemExit("Day 3 must use exactly one shared Ryan narration voice definition")
           print("Day 3 natural Ryan narration cleanup: PASS")
 
-          runtime_source = runtime_dir / "day1_video_clone_for_video_3_of_3.py"
+          runtime_source = runtime_dir / "day3_runtime.py"
           runtime_source.write_text(runtime_source_text, encoding="utf-8")
 
           marker = re.compile(
@@ -7802,7 +7783,7 @@ jobs:
           cells = [part for part in marker.split(runtime_source_text) if part.strip()]
           if len(cells) != 33:
               raise SystemExit(
-                  f"Expected 33 cloned Day 1 cell blocks, found {len(cells)}"
+                  f"Expected 33 Day 3 runtime cell blocks, found {len(cells)}"
               )
           for index, cell in enumerate(cells, 1):
               compile(
@@ -7964,8 +7945,8 @@ jobs:
               env_file.write(f"DAY3_UPLOAD_SCRIPT={upload_script}\n")
 
           print(f"Day 3 render mode: {os.environ.get('DAY3_RENDER_MODE','DRAFT').upper()}")
-          print("Day 1 repository source and both existing workflows: untouched")
-          print("Isolated Day 3 runtime clone and Video 3/3 tools: PASS")
+          print("Locked base source plus Day 1 and Day 2 workflows: unchanged")
+          print("Clean isolated Day 3 runtime and Video 3/3 tools: PASS")
           PY
 
       - name: Verify private YouTube upload configuration
@@ -8281,7 +8262,7 @@ jobs:
           PY
 
 
-      - name: Execute the exact Day 1 video clone as Day 3
+      - name: Execute clean Day 3 runtime
         shell: bash
         run: |
           set -o pipefail
@@ -8309,7 +8290,7 @@ jobs:
           cells = [part for part in marker.split(source) if part.strip()]
           if len(cells) != 33:
               raise SystemExit(
-                  f"Expected 33 cloned Day 1 cell blocks, found {len(cells)}"
+                  f"Expected 33 Day 3 runtime cell blocks, found {len(cells)}"
               )
 
           shell = InteractiveShell.instance()
@@ -8336,11 +8317,11 @@ jobs:
               finally:
                   print("::endgroup::", flush=True)
 
-          print("Exact Day 1 video clone executed as Day 3: PASS")
+          print("Day 3 runtime executed: PASS")
           PY
 
 
-      - name: Add the same Day 1 opening and confirmed music mix
+      - name: Add shared opening and confirmed music mix
         shell: bash
         run: |
           python -m vortex.day1_media \
@@ -8443,7 +8424,7 @@ jobs:
               "clear transfer priorities for gameweek",
           )
           if any(phrase in intro_script_lower for phrase in legacy_intro_phrases):
-              raise SystemExit("Stale Day 1 intro narration survived in Day 3_3")
+              raise SystemExit("Obsolete intro narration survived in Day 3_3")
           print("Day 3_3 Slide 0 PNG/MP4/Ryan narration contract: PASS")
 
 
