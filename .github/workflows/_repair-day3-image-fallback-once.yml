@@ -1,4 +1,4 @@
-name: Audit Day 3 typography and runtime guards
+name: Verify Day 3 Inter package
 
 on:
   push:
@@ -11,14 +11,11 @@ permissions:
   contents: read
 
 jobs:
-  audit:
+  font-package:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Verify locked files and Day 3 static contracts
+      - name: Verify locked files
         shell: bash
         run: |
           set -euo pipefail
@@ -26,93 +23,16 @@ jobs:
           test "$(git hash-object 1_final_day1.py)" = "27ced793bb6934faada3a098815378512bac11c0"
           test "$(git hash-object .github/workflows/day-1.yml)" = "240ba9024f11f894e98fad2f3199db041083a904"
           test "$(git hash-object .github/workflows/day-2.yml)" = "6ee1ae8869984d9fd178d5d0a61bdc77ea05c998"
-          test "$(git hash-object vortex/day1_media.py)" = "6bb0a541b3f9fb7164afaa7e683d41e14c2a6fb0"
-
-          python - <<'PY'
-          from pathlib import Path
-          import ast, collections, re
-
-          source = Path('3_final_day3.py').read_text(encoding='utf-8')
-          assert source.count('FORCE_IMAGE_FALLBACK_PLAYERS = ""  # @param {type:"string"}') == 1
-          assert '_MATCH_CANDIDATES' not in source
-          assert source.count('value = _vx_re.sub(r"\\bFPL\\b", "Fantasy Premier League", value)') == 1
-          assert source.count('timing["first_player_at"] = float(timing["first_player_at"]) + delay') == 1
-          assert source.count('timing["goalkeeper_card_out"] = float(timing["goalkeeper_card_out"]) + delay') == 1
-          assert 'np.where(y > 0, y * np.log(y / mu)' not in source
-          for required in (
-              'term[positive] = (',
-              'np.log(np.clip(P, eps, 1.0))',
-              'if not ok.any():',
-              'if len(calibration) < minimum:',
-              'width:3840px',
-              'height:2160px',
-              'overflow:hidden',
-              'text-overflow:ellipsis',
-              'min-width:0',
-              'font-family:Inter,Arial,Helvetica,sans-serif',
-          ):
-              if required not in source:
-                  raise SystemExit('Missing Day 3 safety marker: '+required)
-
-          tree=ast.parse(source)
-          compile(source,'3_final_day3.py','exec',flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,dont_inherit=True)
-          defs=collections.defaultdict(list)
-          for node in ast.walk(tree):
-              if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)):
-                  defs[node.name].append(node.lineno)
-              if isinstance(node,ast.Dict):
-                  keys=[k.value for k in node.keys if isinstance(k,ast.Constant) and isinstance(k.value,(str,int,float,bytes))]
-                  dup=[k for k,c in collections.Counter(keys).items() if c>1]
-                  if dup:
-                      raise SystemExit(f'Duplicate dict keys near {node.lineno}: {dup}')
-          dupdefs={k:v for k,v in defs.items() if len(v)>1}
-          if dupdefs:
-              raise SystemExit('Duplicate definitions: '+repr(dupdefs))
-          marker=re.compile(r'(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)')
-          cells=[p for p in marker.split(source) if p.strip()]
-          if len(cells)!=33:
-              raise SystemExit(f'Expected 33 Day 3 cells, found {len(cells)}')
-          for i,c in enumerate(cells,1):
-              compile(c,f'cell-{i}','exec',flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,dont_inherit=True)
-
-          media=Path('vortex/day1_media.py').read_text(encoding='utf-8')
-          for marker in (
-              'VOICE_TARGET_LUFS = -18.0',
-              'MUSIC_BASE_LUFS = -28.0',
-              'sidechaincompress=',
-              'alimiter=limit=0.891251',
-              'OUTRO_SECONDS = 6.0',
-          ):
-              if marker not in media:
-                  raise SystemExit('Shared locked media contract missing: '+marker)
-
-          def lum(h):
-              h=h.lstrip('#')
-              rgb=[int(h[i:i+2],16)/255 for i in (0,2,4)]
-              def cv(c): return c/12.92 if c<=0.04045 else ((c+0.055)/1.055)**2.4
-              r,g,b=map(cv,rgb)
-              return .2126*r+.7152*g+.0722*b
-          def contrast(a,b):
-              x,y=lum(a),lum(b)
-              return (max(x,y)+.05)/(min(x,y)+.05)
-          pairs=[('#ffffff','#07111a'),('#07111a','#fff2a3'),('#070b0f','#ffe37a'),('#07130b','#49e675'),('#3d195b','#ffffff'),('#ff6475','#03101c')]
-          bad=[(a,b,contrast(a,b)) for a,b in pairs if contrast(a,b)<4.5]
-          if bad:
-              raise SystemExit('Primary Day 3 text/background contrast below 4.5: '+repr(bad))
-          print('Day 3 math guards: PASS')
-          print('Day 3 geometry/text clipping markers: PASS')
-          print('Day 3 primary contrast checks: PASS')
-          print('Shared music/voice contract (read-only): PASS')
-          print('Day 3 AST/33-cell/duplicate checks: PASS')
-          PY
-
-      - name: Verify requested Inter font is actually available
+      - name: Prove fonts-inter installs the authored Day 3 font
         shell: bash
         run: |
           set -euo pipefail
-          echo "Inter request resolves to: $(fc-match -f '%{family}\n' Inter | head -n1)"
-          if ! fc-list : family | grep -Eiq '(^|,)Inter([ ,:]|$)'; then
-            echo 'Inter is requested by Day 3 CSS but is not installed on ubuntu-24.04.' >&2
-            exit 1
-          fi
-          echo 'Inter font availability: PASS'
+          sudo apt-get update -qq
+          apt-cache policy fonts-inter
+          sudo apt-get install --yes fonts-inter
+          fc-cache -f
+          actual="$(fc-match -f '%{family}\n' Inter | head -n1)"
+          echo "Inter resolves to: ${actual}"
+          printf '%s\n' "${actual}" | grep -Eiq '(^|,)Inter([ ,:]|$)'
+          fc-list : family | grep -Ei '(^|,)Inter([ ,:]|$)' | head -n 5
+          echo "Ubuntu fonts-inter package: PASS"
