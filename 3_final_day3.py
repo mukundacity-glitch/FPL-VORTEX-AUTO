@@ -5804,18 +5804,17 @@ def _vx_review_validate_snapshot(_snapshot):
                 f"picks {_rank_field} {_pick_rank} != history {_rank_field} {_hist_rank}"
             )
 
-    _latest_history_event = max(_history_events_local) if _history_events_local else None
+    # `summary_overall_rank` is the entry's current rank, not an immutable
+    # rank for REVIEW_GW. It can legitimately move after the event history row
+    # is finalized (for example after later corrections or the next deadline),
+    # so it must not gate a historical Gameweek review. The picks endpoint and
+    # the matching history row above remain the canonical consistency check.
     _summary_rank = _entry_payload.get("summary_overall_rank")
-    if (
-        _latest_history_event == REVIEW_GW
-        and _summary_rank is not None
+    _summary_rank_differs = (
+        _summary_rank is not None
         and _history_row.get("overall_rank") is not None
         and int(_summary_rank) != int(_history_row.get("overall_rank"))
-    ):
-        _errors.append(
-            f"entry summary overall rank {_summary_rank} != "
-            f"GW history overall rank {_history_row.get('overall_rank')}"
-        )
+    )
 
     _signature = None
     if not _errors:
@@ -5836,6 +5835,7 @@ def _vx_review_validate_snapshot(_snapshot):
         "history_rows": _history_rows,
         "history_events": _history_events_local,
         "history_row": _history_row,
+        "summary_rank_differs": _summary_rank_differs,
         "applied_points": _applied_points,
         "transfer_cost": _transfer_cost,
     }
