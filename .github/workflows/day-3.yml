@@ -1,9 +1,6 @@
 name: Day 3_3
 
 on:
-  push:
-    branches:
-      - codex/day3-standalone-runtime
   workflow_dispatch:
     inputs:
       render_mode:
@@ -20,11 +17,11 @@ permissions:
 
 concurrency:
   group: fpl-vortex-day-3
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   PYTHONUNBUFFERED: "1"
-  DAY3_RENDER_MODE: ${{ inputs.render_mode || 'DRAFT' }}
+  DAY3_RENDER_MODE: ${{ inputs.render_mode }}
   DAY3_RUNTIME_SOURCE: 3_final_day3.py
   DAY3_STUDIO_SCRIPT: vortex/day3_youtube_studio.py
   DAY3_UPLOAD_SCRIPT: vortex/day3_youtube_private_upload.py
