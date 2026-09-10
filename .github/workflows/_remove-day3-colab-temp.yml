@@ -1,0 +1,45 @@
+name: One-time Day 3 temp branch cleanup
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/_remove-day3-colab-temp.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Remove redundant Day 3 temp export branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="tmp-day3-colab-export"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1; then
+            gh api "repos/${GITHUB_REPOSITORY}/compare/main...${branch}" \
+              --jq 'select((.files | length) == 0) | (.files | length)' \
+              | grep -qx '0'
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+          fi
+          ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1
+          echo "Redundant Day 3 Colab temp branch: REMOVED"
+
+      - name: Remove this one-time cleanup workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -- .github/workflows/_remove-day3-colab-temp.yml
+          git commit -m "Remove one-time Day 3 temp branch cleanup"
+          git push origin HEAD:main
