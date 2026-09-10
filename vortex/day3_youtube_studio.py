@@ -233,7 +233,7 @@ def build_youtube_studio_package(output_root):
     data_dir = output_root / "DATA"
     for folder in (video_dir, data_dir):
         if not folder.is_dir():
-            raise FileNotFoundError(f"Required Day 1 output directory is missing: {folder}")
+            raise FileNotFoundError(f"Required Day 3 output directory is missing: {folder}")
 
     qa = _vx23_read_json(data_dir / "final_video_qa.json", "final video QA")
     review = _vx23_read_json(
