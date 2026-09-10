@@ -15769,6 +15769,10 @@ def vx_full_word_narration(text, context="narration"):
     """Canonical final text transform used immediately before every Ryan TTS call."""
     value = _vx_html.unescape(str(text or ""))
 
+    # FPL VORTEX is a brand name, not an acronym. Normalize its spoken form
+    # before the fail-closed abbreviation audit so Ryan says "Vortex" naturally.
+    value = _vx_re.sub(r"\bVORTEX\b", "Vortex", value)
+
     # Resolve player shorthand from official FPL identities to web_name.
     for source, target in VX_NARRATION_PLAYER_TEXT_ALIASES:
         value = _vx_replace_narration_phrase(value, source, target)
