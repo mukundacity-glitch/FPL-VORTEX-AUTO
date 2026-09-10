@@ -15781,6 +15781,7 @@ def vx_full_word_narration(text, context="narration"):
     # FPL VORTEX is a brand name, not an acronym. Normalize its spoken form
     # before the fail-closed abbreviation audit so Ryan says "Vortex" naturally.
     value = _vx_re.sub(r"\bVORTEX\b", "Vortex", value)
+    value = _vx_re.sub(r"\bFPL\b", "Fantasy Premier League", value)
     value = _vx_re.sub(r"\bGK\b", "goalkeeper", value)
     value = _vx_re.sub(r"\bDEF\b", "defender", value)
     value = _vx_re.sub(r"\bMID\b", "midfielder", value)
