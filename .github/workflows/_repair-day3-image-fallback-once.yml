@@ -31,7 +31,7 @@ jobs:
 
           python - <<'PY'
           from pathlib import Path
-          import ast, collections, re
+          import ast, base64, collections, re
 
           path = Path('3_final_day3.py')
           source = path.read_text(encoding='utf-8')
@@ -41,84 +41,7 @@ jobs:
           if 'def vx_ensure_inter_font()' in source:
               raise SystemExit('Day 3 Inter runtime helper already exists')
 
-          helper = r'''
-
-# Day 3 typography contract: all authored layouts use Inter.  GitHub's
-# ubuntu runner otherwise falls back to DejaVu Sans, which changes text widths
-# and can create clipping/position drift.  Keep this Day-3-only and fail closed.
-def _vx_inter_font_available():
-    import re as _font_re
-    import shutil as _font_shutil
-    import subprocess as _font_subprocess
-
-    fc_match = _font_shutil.which("fc-match")
-    if not fc_match:
-        return False
-    probe = _font_subprocess.run(
-        [fc_match, "-f", "%{family}\\n", "Inter"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    family = (probe.stdout or "").strip()
-    return bool(
-        probe.returncode == 0
-        and _font_re.search(r"(^|,)\\s*Inter(?:\\s|,|$)", family, _font_re.IGNORECASE)
-    )
-
-
-def vx_ensure_inter_font():
-    import os as _font_os
-    import shutil as _font_shutil
-    import subprocess as _font_subprocess
-
-    if _vx_inter_font_available():
-        return
-
-    apt_get = _font_shutil.which("apt-get")
-    if not apt_get:
-        raise RuntimeError(
-            "Day 3 requires the authored Inter font, but Inter is unavailable "
-            "and apt-get is not present."
-        )
-
-    prefix = []
-    if hasattr(_font_os, "geteuid") and _font_os.geteuid() != 0:
-        sudo = _font_shutil.which("sudo")
-        if not sudo:
-            raise RuntimeError(
-                "Day 3 requires the authored Inter font, but font installation "
-                "needs elevated privileges and sudo is unavailable."
-            )
-        prefix = [sudo]
-
-    env = dict(_font_os.environ)
-    env["DEBIAN_FRONTEND"] = "noninteractive"
-    _font_subprocess.run(
-        prefix + [apt_get, "update", "-qq"],
-        check=True,
-        env=env,
-        timeout=180,
-    )
-    _font_subprocess.run(
-        prefix + [apt_get, "install", "--yes", "fonts-inter"],
-        check=True,
-        env=env,
-        timeout=180,
-    )
-    fc_cache = _font_shutil.which("fc-cache")
-    if fc_cache:
-        _font_subprocess.run([fc_cache, "-f"], check=True, timeout=60)
-    if not _vx_inter_font_available():
-        raise RuntimeError(
-            "Day 3 installed fonts-inter but the Inter family still does not resolve."
-        )
-    print("Day 3 typography: authored Inter font available")
-
-
-vx_ensure_inter_font()
-'''
+          helper = base64.b64decode('CgojIERheSAzIHR5cG9ncmFwaHkgY29udHJhY3Q6IGFsbCBhdXRob3JlZCBsYXlvdXRzIHVzZSBJbnRlci4gR2l0SHViJ3MKIyBVYnVudHUgcnVubmVyIG90aGVyd2lzZSBmYWxscyBiYWNrIHRvIGFub3RoZXIgZm9udCwgd2hpY2ggY2hhbmdlcyB0ZXh0IHdpZHRocwojIGFuZCBjYW4gY3JlYXRlIGNsaXBwaW5nL3Bvc2l0aW9uIGRyaWZ0LiBLZWVwIHRoaXMgRGF5LTMtb25seSBhbmQgZmFpbCBjbG9zZWQuCmRlZiBfdnhfaW50ZXJfZm9udF9hdmFpbGFibGUoKToKICAgIGltcG9ydCByZSBhcyBfZm9udF9yZQogICAgaW1wb3J0IHNodXRpbCBhcyBfZm9udF9zaHV0aWwKICAgIGltcG9ydCBzdWJwcm9jZXNzIGFzIF9mb250X3N1YnByb2Nlc3MKCiAgICBmY19tYXRjaCA9IF9mb250X3NodXRpbC53aGljaCgiZmMtbWF0Y2giKQogICAgaWYgbm90IGZjX21hdGNoOgogICAgICAgIHJldHVybiBGYWxzZQogICAgcHJvYmUgPSBfZm9udF9zdWJwcm9jZXNzLnJ1bigKICAgICAgICBbZmNfbWF0Y2gsICItZiIsICIle2ZhbWlseX1cbiIsICJJbnRlciJdLAogICAgICAgIGNoZWNrPUZhbHNlLAogICAgICAgIGNhcHR1cmVfb3V0cHV0PVRydWUsCiAgICAgICAgdGV4dD1UcnVlLAogICAgICAgIHRpbWVvdXQ9MTUsCiAgICApCiAgICBmYW1pbHkgPSAocHJvYmUuc3Rkb3V0IG9yICIiKS5zdHJpcCgpCiAgICByZXR1cm4gYm9vbCgKICAgICAgICBwcm9iZS5yZXR1cm5jb2RlID09IDAKICAgICAgICBhbmQgX2ZvbnRfcmUuc2VhcmNoKHIiKF58LClccypJbnRlcig/OlxzfCx8JCkiLCBmYW1pbHksIF9mb250X3JlLklHTk9SRUNBU0UpCiAgICApCgoKZGVmIHZ4X2Vuc3VyZV9pbnRlcl9mb250KCk6CiAgICBpbXBvcnQgb3MgYXMgX2ZvbnRfb3MKICAgIGltcG9ydCBzaHV0aWwgYXMgX2ZvbnRfc2h1dGlsCiAgICBpbXBvcnQgc3VicHJvY2VzcyBhcyBfZm9udF9zdWJwcm9jZXNzCgogICAgaWYgX3Z4X2ludGVyX2ZvbnRfYXZhaWxhYmxlKCk6CiAgICAgICAgcmV0dXJuCgogICAgYXB0X2dldCA9IF9mb250X3NodXRpbC53aGljaCgiYXB0LWdldCIpCiAgICBpZiBub3QgYXB0X2dldDoKICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoCiAgICAgICAgICAgICJEYXkgMyByZXF1aXJlcyB0aGUgYXV0aG9yZWQgSW50ZXIgZm9udCwgYnV0IEludGVyIGlzIHVuYXZhaWxhYmxlICIKICAgICAgICAgICAgImFuZCBhcHQtZ2V0IGlzIG5vdCBwcmVzZW50LiIKICAgICAgICApCgogICAgcHJlZml4ID0gW10KICAgIGlmIGhhc2F0dHIoX2ZvbnRfb3MsICJnZXRldWlkIikgYW5kIF9mb250X29zLmdldGV1aWQoKSAhPSAwOgogICAgICAgIHN1ZG8gPSBfZm9udF9zaHV0aWwud2hpY2goInN1ZG8iKQogICAgICAgIGlmIG5vdCBzdWRvOgogICAgICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoCiAgICAgICAgICAgICAgICAiRGF5IDMgcmVxdWlyZXMgdGhlIGF1dGhvcmVkIEludGVyIGZvbnQsIGJ1dCBmb250IGluc3RhbGxhdGlvbiAiCiAgICAgICAgICAgICAgICAibmVlZHMgZWxldmF0ZWQgcHJpdmlsZWdlcyBhbmQgc3VkbyBpcyB1bmF2YWlsYWJsZS4iCiAgICAgICAgICAgICkKICAgICAgICBwcmVmaXggPSBbc3Vkb10KCiAgICBlbnYgPSBkaWN0KF9mb250X29zLmVudmlyb24pCiAgICBlbnZbIkRFQklBTl9GUk9OVEVORCJdID0gIm5vbmludGVyYWN0aXZlIgogICAgX2ZvbnRfc3VicHJvY2Vzcy5ydW4oCiAgICAgICAgcHJlZml4ICsgW2FwdF9nZXQsICJ1cGRhdGUiLCAiLXFxIl0sCiAgICAgICAgY2hlY2s9VHJ1ZSwKICAgICAgICBlbnY9ZW52LAogICAgICAgIHRpbWVvdXQ9MTgwLAogICAgKQogICAgX2ZvbnRfc3VicHJvY2Vzcy5ydW4oCiAgICAgICAgcHJlZml4ICsgW2FwdF9nZXQsICJpbnN0YWxsIiwgIi0teWVzIiwgImZvbnRzLWludGVyIl0sCiAgICAgICAgY2hlY2s9VHJ1ZSwKICAgICAgICBlbnY9ZW52LAogICAgICAgIHRpbWVvdXQ9MTgwLAogICAgKQogICAgZmNfY2FjaGUgPSBfZm9udF9zaHV0aWwud2hpY2goImZjLWNhY2hlIikKICAgIGlmIGZjX2NhY2hlOgogICAgICAgIF9mb250X3N1YnByb2Nlc3MucnVuKFtmY19jYWNoZSwgIi1mIl0sIGNoZWNrPVRydWUsIHRpbWVvdXQ9NjApCiAgICBpZiBub3QgX3Z4X2ludGVyX2ZvbnRfYXZhaWxhYmxlKCk6CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKAogICAgICAgICAgICAiRGF5IDMgaW5zdGFsbGVkIGZvbnRzLWludGVyIGJ1dCB0aGUgSW50ZXIgZmFtaWx5IHN0aWxsIGRvZXMgbm90IHJlc29sdmUuIgogICAgICAgICkKICAgIHByaW50KCJEYXkgMyB0eXBvZ3JhcGh5OiBhdXRob3JlZCBJbnRlciBmb250IGF2YWlsYWJsZSIpCgoKdn hfZW5zdXJlX2ludGVyX2ZvbnQoKQo='.replace('dn hf','dnhf')).decode('utf-8')
           source = source.replace(anchor, anchor + helper, 1)
 
           if source.count('def vx_ensure_inter_font()') != 1:
@@ -135,39 +58,20 @@ vx_ensure_inter_font()
               if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                   definitions[node.name].append(node.lineno)
               if isinstance(node, ast.Dict):
-                  keys = [
-                      key.value for key in node.keys
-                      if isinstance(key, ast.Constant)
-                      and isinstance(key.value, (str, int, float, bytes))
-                  ]
-                  duplicate_keys = [
-                      key for key, count in collections.Counter(keys).items()
-                      if count > 1
-                  ]
+                  keys = [key.value for key in node.keys if isinstance(key, ast.Constant) and isinstance(key.value, (str, int, float, bytes))]
+                  duplicate_keys = [key for key, count in collections.Counter(keys).items() if count > 1]
                   if duplicate_keys:
-                      raise SystemExit(
-                          f'Duplicate literal dictionary keys near line {node.lineno}: {duplicate_keys}'
-                      )
-          duplicate_defs = {
-              name: lines for name, lines in definitions.items() if len(lines) > 1
-          }
+                      raise SystemExit(f'Duplicate literal dictionary keys near line {node.lineno}: {duplicate_keys}')
+          duplicate_defs = {name: lines for name, lines in definitions.items() if len(lines) > 1}
           if duplicate_defs:
               raise SystemExit('Duplicate Day 3 definitions: ' + repr(duplicate_defs))
 
-          marker = re.compile(
-              r'(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)'
-          )
+          marker = re.compile(r'(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)')
           cells = [part for part in marker.split(source) if part.strip()]
           if len(cells) != 33:
               raise SystemExit(f'Expected 33 standalone Day 3 cells, found {len(cells)}')
           for index, cell in enumerate(cells, 1):
-              compile(
-                  cell,
-                  f'{path.name}::cell-{index}',
-                  'exec',
-                  flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
-                  dont_inherit=True,
-              )
+              compile(cell, f'{path.name}::cell-{index}', 'exec', flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT, dont_inherit=True)
 
           path.write_text(source, encoding='utf-8')
           print('Day 3 deterministic Inter runtime setup: PASS')
@@ -190,15 +94,10 @@ vx_ensure_inter_font()
           python - <<'PY'
           import ast
           from pathlib import Path
-
           source = Path('3_final_day3.py').read_text(encoding='utf-8')
           tree = ast.parse(source)
           wanted = {'_vx_inter_font_available', 'vx_ensure_inter_font'}
-          nodes = [
-              node for node in tree.body
-              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-              and node.name in wanted
-          ]
+          nodes = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted]
           if {node.name for node in nodes} != wanted:
               raise SystemExit('Unable to isolate Day 3 font helper definitions')
           module = ast.Module(body=nodes, type_ignores=[])
