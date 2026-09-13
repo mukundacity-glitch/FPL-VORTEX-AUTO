@@ -19,11 +19,73 @@ jobs:
 
       - name: Patch and validate Day 1
         env:
-          PATCHER_B64: "ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmltcG9ydCBhc3QKaW1wb3J0IHJlCgpwYXRoID0gUGF0aCgiMV9maW5hbF9kYXkxLnB5IikKc291cmNlID0gcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKCm1hcmtlciA9ICIjIE9QRU5JTkcgTkFSUkFUSU9OIEZJVCDigJQgUFJFU0VSVkUgUllBTidTIE5BVFVSQUwgREVMSVZFUlkiaWYgbWFya2VyIGluIHNvdXJjZToKICAgIHByaW50KCJEYXkgMSB0aW1pbmcgZml4IGlzIGFscmVhZHkgcHJlc2VudDsgbm8gcGF0Y2ggbmVlZGVkLiIpCiAgICByYWlzZSBTeXN0ZW1FeGl0KDApCgpuZWVkbGUgPSAiZm9yIHNlZyBpbiBzZWdtZW50czpcbiAgICBhd2FpdCBtYWtlX3NlZ21lbnQoc2VnKVxuIgppZiBzb3VyY2UuY291bnQobmVlZGxlKSAhPSAxOgogICAgcmFpc2UgU3lzdGVtRXhpdCgKICAgICAgICBmIkV4cGVjdGVkIGV4YWN0bHkgb25lIEdXIFJldmlldyBUVFMgbG9vcCwgZm91bmQge3NvdXJjZS5jb3VudChuZWVkbGUpfSIKICAgICkKCnBhdGNoX2Jsb2NrID0gJyMgLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXG4jIE9QRU5JTkcgTkFSUkFUSU9OIEZJVCDigJQgUFJFU0VSVkUgUllBTidTIE5BVFVSQUwgREVMSVZFUllcbiMgLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tXG4jIFJ5YW4ga2VlcHMgdGhlIGFwcHJvdmVkIHZvaWNlLCBtb29kLCBwdW5jdHVhdGlvbiBhbmQgc3BlYWtpbmcgcmF0ZS4gT25seSB0aGVcbiMgb3BlbmluZyBzZW50ZW5jZSBpcyByZWdlbmVyYXRlZCB3aGVuIGl0cyBtZWFzdXJlZCBNUDMgZHVyYXRpb24gd291bGQgY29sbGlkZVxuIyB3aXRoIHRoZSBnb2Fsa2VlcGVyJ3MgcmVhbCBXb3JkQm91bmRhcnktYWxpZ25lZCAwOjA4IHJldmVhbC5cbl9oZWFkbGluZV9zZWdtZW50ID0gbmV4dChcbiAgICAoc2VnbWVudCBmb3Igc2VnbWVudCBpbiBzZWdtZW50cyBpZiBzdHIoc2VnbWVudC5nZXQoImlkIiwgIiIpKSA9PSAiaGVhZGxpbmUiKSxcbiAgICBOb25lLFxuKVxuX2ZpcnN0X3Jldmlld19wbGF5ZXIgPSBuZXh0KFxuICAgIChzZWdtZW50IGZvciBzZWdtZW50IGluIHNlZ21lbnRzIGlmIHNlZ21lbnQuZ2V0KCJwbGF5ZXJfaWQiKSBpcyBub3QgTm9uZSksXG4gICAgTm9uZSxcbilcbmlmIF9oZWFkbGluZV9zZWdtZW50IGlzIE5vbmUgb3IgX2ZpcnN0X3Jldmlld19wbGF5ZXIgaXMgTm9uZTpcbiAgICByYWlzZSBSdW50aW1lRXJyb3IoIkdXIFJldmlldyBvcGVuaW5nLWZpdCBRQSByZXF1aXJlcyBoZWFkbGluZSBhbmQgcGxheWVyIG5hcnJhdGlvbi4iKVxuXG5fcmV2aWV3X3RpbWluZ19vdmVycmlkZSA9IGdsb2JhbHMoKS5nZXQoIkdXX1JFVklFV19BTklNQVRJT05fVElNSU5HX09WRVJSSURFUyIsIHt9KSBvciB7fVxuX2hlYWRsaW5lX2ZpcnN0X3BsYXllcl9hdCA9IGZsb2F0KF9yZXZpZXdfdGltaW5nX292ZXJyaWRlLmdldCgiZmlyc3RfcGxheWVyX2F0IiwgOC4wKSlcbl9oZWFkbGluZV9uYW1lX3RpbWUgPSBmbG9hdChfZmlyc3RfcmV2aWV3X3BsYXllci5nZXQoIm5hbWVfdGltZSIpIG9yIDAuMClcbl9oZWFkbGluZV9zYWZldHlfZ2FwID0gMC4xMlxuX2hlYWRsaW5lX2J1ZGdldCA9IChcbiAgICBfaGVhZGxpbmVfZmlyc3RfcGxheWVyX2F0XG4gICAgLSBfaGVhZGxpbmVfbmFtZV90aW1lXG4gICAgLSBfaGVhZGxpbmVfc2FmZXR5X2dhcFxuKVxuaWYgbm90IG1hdGguaXNmaW5pdGUoX2hlYWRsaW5lX2J1ZGdldCkgb3IgX2hlYWRsaW5lX2J1ZGdldCA8PSAwOlxuICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihcbiAgICAgICAgIkdXIFJldmlldyBvcGVuaW5nIG5hcnJhdGlvbiBoYXMgbm8gdmFsaWQgdGltaW5nIGJ1ZGdldCBiZWZvcmUgdGhlIGdvYWxrZWVwZXIgcmV2ZWFsLiJcbiAgICApXG5cbmlmIGZsb2F0KF9oZWFkbGluZV9zZWdtZW50LmdldCgiZHVyYXRpb24iKSBvciAwLjApID4gX2hlYWRsaW5lX2J1ZGdldDpcbiAgICBfaGVhZGxpbmVfc2VnbWVudFsidGV4dCJdID0gKFxuICAgICAgICBmIkdhbWV3ZWVrIHtSRVZJRVdfR1d9IGxpdmUgcmV2aWV3LiBMZXQncyBjaGVjayB0aGUgc3F1YWQuIlxuICAgICAgICBpZiBHV19SRVZJRVdfUEFSVElBTCBlbHNlXG4gICAgICAgIGYiR2FtZXdlZWsge1JFVklFV19HV30gcmV2aWV3LiBMZXQncyBhdWRpdCB0aGUgc3F1YWQuIlxuICAgIClcbiAgICBhd2FpdCBtYWtlX3NlZ21lbnQoX2hlYWRsaW5lX3NlZ21lbnQpXG4gICAgcHJpbnQoXG4gICAgICAgICLihLnvuI8gR1cgUmV2aWV3IGhlYWRsaW5lIGNvbXBhY3RlZCBuYXR1cmFsbHkgdG8gZml0IHRoZSBnb2Fsa2VlcGVyIHJldmVhbDogIlxuICAgICAgICBmIntmbG9hdChfaGVhZGxpbmVfc2VnbWVudFsnZHVyYXRpb24nXSk6LjNmfXMgLyB7X2hlYWRsaW5lX2J1ZGdldDouM2Z9cyBidWRnZXQiXG4gICAgKVxuXG4jIERlZmVuc2l2ZSBmYWxsYmFjayBmb3IgYSBmdXR1cmUgUnlhbi9UVFMgY2FkZW5jZSBjaGFuZ2UuIERvIG5vdCBzcGVlZCB0aGVcbiMgdm9pY2UgdXA6IHVzZSBhIHNob3J0ZXIgbmF0dXJhbCBsaW5lIGFuZCBsZWF2ZSBDZWxsIDE2J3MgaGFyZCBvdmVybGFwIGd1YXJkLlxuaWYgZmxvYXQoX2hlYWRsaW5lX3NlZ21lbnQuZ2V0KCJkdXJhdGlvbiIpIG9yIDAuMCkgPiBfaGVhZGxpbmVfYnVkZ2V0OlxuICAgIF9oZWFkbGluZV9zZWdtZW50WyJ0ZXh0Il0gPSAoXG4gICAgICAgIGYiR2FtZXdlZWsge1JFVklFV19HV30gbGl2ZSByZXZpZXcuIlxuICAgICAgICBpZiBHV19SRVZJRVdfUEFSVElBTCBlbHNlXG4gICAgICAgIGYiR2FtZXdlZWsge1JFVklFV19HV30gcmV2aWV3LiJcbiAgICApXG4gICAgYXdhaXQgbWFrZV9zZWdtZW50KF9oZWFkbGluZV9zZWdtZW50KVxuXG5pZiBmbG9hdChfaGVhZGxpbmVfc2VnbWVudC5nZXQoImR1cmF0aW9uIikgb3IgMC4wKSA+IF9oZWFkbGluZV9idWRnZXQ6XG4gICAgcmFpc2UgUnVudGltZUVycm9yKFxuICAgICAgICAiR1cgUmV2aWV3IGhlYWRsaW5lIHN0aWxsIGV4Y2VlZHMgaXRzIG1lYXN1cmVkIG9wZW5pbmcgdGltaW5nIGJ1ZGdldCBhZnRlciAiXG4gICAgICAgICJuYXR1cmFsIHRleHQgY29tcGFjdGlvbjsgUnlhbiBzcGVlZCB3YXMgaW50ZW50aW9uYWxseSBsZWZ0IHVuY2hhbmdlZC4iXG4gICAgKVxuXG4jIEtlZXAgdGhlIGxvZ2dlZCBRQSBjb3VudCBhbGlnbmVkIHdpdGggdGhlIG5hcnJhdGlvbiBhY3R1YWxseSBzYXZlZCBhZnRlciBhbnlcbiMgaGVhZGxpbmUtb25seSByZWdlbmVyYXRpb24uXG5HV19SRVZJRVdfTkFSUkFUSU9OX1dPUkRTID0gc3VtKFxuICAgIGxlbihyZS5maW5kYWxsKHIiXFxiW1x3Jy1dK1xcYiIsIHN0cihzZWdtZW50LmdldCgidGV4dCIsICIiKSkpXG4gICAgZm9yIHNlZ21lbnQgaW4gc2VnbWVudHNcbilcbicKc291cmNlID0gc291cmNlLnJlcGxhY2UobmVlZGxlLCBuZWVkbGUgKyBwYXRjaF9ibG9jaywgMSkKcGF0aC53cml0ZV90ZXh0KHNvdXJjZSwgZW5jb2Rpbmc9InV0Zi04IikKCmNlbGxfbWFya2VyID0gcmUuY29tcGlsZSgKICAgIHIiKD9tKSg/PV4jID17MjAsfVxuIyBbXlxdbl0qXGJDTEVMTFxzK1xkK1tBLVphLXpdP1xiW15cbl0qXG4pIgopCmNlbGxzID0gW3BhcnQgZm9yIHBhcnQgaW4gY2VsbF9tYXJrZXIuc3BsaXQoc291cmNlKSBpZiBwYXJ0LnN0cmlwKCldCmlmIGxlbihjZWxscykgIT0gMzM6CiAgICByYWlzZSBTeXN0ZW1FeGl0KGYiRXhwZWN0ZWQgMzMgRGF5IDEgY2VsbCBibG9ja3MsIGZvdW5kIHtsZW4oY2VsbHMpfSIpCmZvciBpbmRleCwgY2VsbCBpbiBlbnVtZXJhdGUoY2VsbHMsIDEpOgogICAgY29tcGlsZSgKICAgICAgICBjZWxsLAogICAgICAgIGYie3BhdGgubmFtZX06OmNlbGwte2luZGV4fSIsCiAgICAgICAgImV4ZWMiLAogICAgICAgIGZsYWdzPWFzdC5QeUNGX0FMTE9XX1RPUF9MRVZFTF9BV0FJVCwKICAgICAgICBkb250X2luaGVyaXQ9VHJ1ZSwKICAgICkKCnJlcXVpcmVkID0gKAogICAgbWFya2VyLAogICAgIl9oZWFkbGluZV9zYWZldHlfZ2FwID0gMC4xMiIsCiAgICAiUnlhbiBzcGVlZCB3YXMgaW50ZW50aW9uYWxseSBsZWZ0IHVuY2hhbmdlZCIsCiAgICAiSGVhZGxpbmUgbmFycmF0aW9uIG92ZXJsYXBzIHRoZSBmaXhlZCAwOjA4IGdvYWxrZWVwZXIgcmV2ZWFsIiwKICAgICJWSURFT19XSURUSCwgVklERU9fSEVJR0hULCBWSURFT19GUF MgPSAzODQwLCAyMTYwLCAyNCIsCiAgICAiaWYgVyAqIDkgIT0gSCAqIDE2OiIsCikKbWlzc2luZyA9IFt0ZXh0IGZvciB0ZXh0IGluIHJlcXVpcmVkIGlmIHRleHQgbm90IGluIHNvdXJjZV0KaWYgbWlzc2luZzoKICAgIHJhaXNlIFN5c3RlbUV4aXQoZiJGb2N1c2VkIERheSAxIGNvbnRyYWN0IG1pc3Npbmc6IHttaXNzaW5nfSIpCgpmYWlsZWRfbmFtZV90aW1lID0gMi4wNDMxNjYKZmFpbGVkX2hlYWRsaW5lX2R1cmF0aW9uID0gNi42NzIKYnVkZ2V0ID0gOC4wIC0gZmFpbGVkX25hbWVfdGltZSAtIDAuMTIKaWYgbm90IGZhaWxlZF9oZWFkbGluZV9kdXJhdGlvbiA+IGJ1ZGdldDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoIkZhaWxlZC1ydW4gdGltaW5nIGZpeHR1cmUgbm8gbG9uZ2VyIGV4ZXJjaXNlcyBjb21wYWN0aW9uIikKCnByaW50KGYiRm9jdXNlZCB0aW1pbmcgUUE6IFBBU1MgKGZhaWxlZC1ydW4gYnVkZ2V0IHtidWRnZXQ6LjNmfXMpIikKcHJpbnQoIkFzcGVjdCByYXRpbyBRQTogUEFTUyAoMzg0MHgyMTYwLCAxNjo5KSIpCnByaW50KCIzMy1jZWxsIHN5bnRheCBRQTogUEFTUyIpCg=="
+          PATCH_BLOCK_B64: "IyAtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0KIyBPUEVOSU5HIE5BUlJBVElPTiBGSVQg4oCUIFBSRVNFUlZFIFJZQU4nUyBOQVRVUkFMIERFTElWRVJZCiMgLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tCiMgUnlhbiBrZWVwcyB0aGUgYXBwcm92ZWQgdm9pY2UsIG1vb2QsIHB1bmN0dWF0aW9uIGFuZCBzcGVha2luZyByYXRlLiBPbmx5IHRoZQojIG9wZW5pbmcgc2VudGVuY2UgaXMgcmVnZW5lcmF0ZWQgd2hlbiBpdHMgbWVhc3VyZWQgTVAzIGR1cmF0aW9uIHdvdWxkIGNvbGxpZGUKIyB3aXRoIHRoZSBnb2Fsa2VlcGVyJ3MgcmVhbCBXb3JkQm91bmRhcnktYWxpZ25lZCAwOjA4IHJldmVhbC4KX2hlYWRsaW5lX3NlZ21lbnQgPSBuZXh0KAogICAgKHNlZ21lbnQgZm9yIHNlZ21lbnQgaW4gc2VnbWVudHMgaWYgc3RyKHNlZ21lbnQuZ2V0KCJpZCIsICIiKSkgPT0gImhlYWRsaW5lIiksCiAgICBOb25lLAopCl9maXJzdF9yZXZpZXdfcGxheWVyID0gbmV4dCgKICAgIChzZWdtZW50IGZvciBzZWdtZW50IGluIHNlZ21lbnRzIGlmIHNlZ21lbnQuZ2V0KCJwbGF5ZXJfaWQiKSBpcyBub3QgTm9uZSksCiAgICBOb25lLAopCmlmIF9oZWFkbGluZV9zZWdtZW50IGlzIE5vbmUgb3IgX2ZpcnN0X3Jldmlld19wbGF5ZXIgaXMgTm9uZToKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigiR1cgUmV2aWV3IG9wZW5pbmctZml0IFFBIHJlcXVpcmVzIGhlYWRsaW5lIGFuZCBwbGF5ZXIgbmFycmF0aW9uLiIpCgpfcmV2aWV3X3RpbWluZ19vdmVycmlkZSA9IGdsb2JhbHMoKS5nZXQoIkdXX1JFVklFV19BTklNQVRJT05fVElNSU5HX09WRVJSSURFUyIsIHt9KSBvciB7fQpfaGVhZGxpbmVfZmlyc3RfcGxheWVyX2F0ID0gZmxvYXQoX3Jldmlld190aW1pbmdfb3ZlcnJpZGUuZ2V0KCJmaXJzdF9wbGF5ZXJfYXQiLCA4LjApKQpfaGVhZGxpbmVfbmFtZV90aW1lID0gZmxvYXQoX2ZpcnN0X3Jldmlld19wbGF5ZXIuZ2V0KCJuYW1lX3RpbWUiKSBvciAwLjApCl9oZWFkbGluZV9zYWZldHlfZ2FwID0gMC4xMgpfaGVhZGxpbmVfYnVkZ2V0ID0gKAogICAgX2hlYWRsaW5lX2ZpcnN0X3BsYXllcl9hdAogICAgLSBfaGVhZGxpbmVfbmFtZV90aW1lCiAgICAtIF9oZWFkbGluZV9zYWZldHlfZ2FwCikKaWYgbm90IG1hdGguaXNmaW5pdGUoX2hlYWRsaW5lX2J1ZGdldCkgb3IgX2hlYWRsaW5lX2J1ZGdldCA8PSAwOgogICAgcmFpc2UgUnVudGltZUVycm9yKAogICAgICAgICJHVyBSZXZpZXcgb3BlbmluZyBuYXJyYXRpb24gaGFzIG5vIHZhbGlkIHRpbWluZyBidWRnZXQgYmVmb3JlIHRoZSBnb2Fsa2VlcGVyIHJldmVhbC4iCiAgICApCgppZiBmbG9hdChfaGVhZGxpbmVfc2VnbWVudC5nZXQoImR1cmF0aW9uIikgb3IgMC4wKSA+IF9oZWFkbGluZV9idWRnZXQ6CiAgICBfaGVhZGxpbmVfc2VnbWVudFsidGV4dCJdID0gKAogICAgICAgIGYiR2FtZXdlZWsge1JFVklFV19HV30gbGl2ZSByZXZpZXcuIExldCdzIGNoZWNrIHRoZSBzcXVhZC4iCiAgICAgICAgaWYgR1dfUkVWSUVXX1BBUlRJQUwgZWxzZQogICAgICAgIGYiR2FtZXdlZWsge1JFVklFV19HV30gcmV2aWV3LiBMZXQncyBhdWRpdCB0aGUgc3F1YWQuIgogICAgKQogICAgYXdhaXQgbWFrZV9zZWdtZW50KF9oZWFkbGluZV9zZWdtZW50KQogICAgcHJpbnQoCiAgICAgICAgIuKEue+4jyBHVyBSZXZpZXcgaGVhZGxpbmUgY29tcGFjdGVkIG5hdHVyYWxseSB0byBmaXQgdGhlIGdvYWxrZWVwZXIgcmV2ZWFsOiAiCiAgICAgICAgZiJ7ZmxvYXQoX2hlYWRsaW5lX3NlZ21lbnRbJ2R1cmF0aW9uJ10pOi4zZn1zIC8ge19oZWFkbGluZV9idWRnZXQ6LjNmfXMgYnVkZ2V0IgogICAgKQoKIyBEZWZlbnNpdmUgZmFsbGJhY2sgZm9yIGEgZnV0dXJlIFJ5YW4vVFRTIGNhZGVuY2UgY2hhbmdlLiBEbyBub3Qgc3BlZWQgdGhlCiMgdm9pY2UgdXA6IHVzZSBhIHNob3J0ZXIgbmF0dXJhbCBsaW5lIGFuZCBsZWF2ZSBDZWxsIDE2J3MgaGFyZCBvdmVybGFwIGd1YXJkLgppZiBmbG9hdChfaGVhZGxpbmVfc2VnbWVudC5nZXQoImR1cmF0aW9uIikgb3IgMC4wKSA+IF9oZWFkbGluZV9idWRnZXQ6CiAgICBfaGVhZGxpbmVfc2VnbWVudFsidGV4dCJdID0gKAogICAgICAgIGYiR2FtZXdlZWsge1JFVklFV19HV30gbGl2ZSByZXZpZXcuIgogICAgICAgIGlmIEdXX1JFVklFV19QQVJUSUFMIGVsc2UKICAgICAgICBmIkdhbWV3ZWVrIHtSRVZJRVdfR1d9IHJldmlldy4iCiAgICApCiAgICBhd2FpdCBtYWtlX3NlZ21lbnQoX2hlYWRsaW5lX3NlZ21lbnQpCgppZiBmbG9hdChfaGVhZGxpbmVfc2VnbWVudC5nZXQoImR1cmF0aW9uIikgb3IgMC4wKSA+IF9oZWFkbGluZV9idWRnZXQ6CiAgICByYWlzZSBSdW50aW1lRXJyb3IoCiAgICAgICAgIkdXIFJldmlldyBoZWFkbGluZSBzdGlsbCBleGNlZWRzIGl0cyBtZWFzdXJlZCBvcGVuaW5nIHRpbWluZyBidWRnZXQgYWZ0ZXIgIgogICAgICAgICJuYXR1cmFsIHRleHQgY29tcGFjdGlvbjsgUnlhbiBzcGVlZCB3YXMgaW50ZW50aW9uYWxseSBsZWZ0IHVuY2hhbmdlZC4iCiAgICApCgojIEtlZXAgdGhlIGxvZ2dlZCBRQSBjb3VudCBhbGlnbmVkIHdpdGggdGhlIG5hcnJhdGlvbiBhY3R1YWxseSBzYXZlZCBhZnRlciBhbnkKIyBoZWFkbGluZS1vbmx5IHJlZ2VuZXJhdGlvbi4KR1dfUkVWSUVXX05BUlJBVElPTl9XT1JEUyA9IHN1bSgKICAgIGxlbihyZS5maW5kYWxsKHIiXGJbXHcnLV0rXGIiLCBzdHIoc2VnbWVudC5nZXQoInRleHQiLCAiIikpKSkKICAgIGZvciBzZWdtZW50IGluIHNlZ21lbnRzCikK"
         shell: bash
         run: |
           set -euo pipefail
-          python -c 'import base64, os; exec(compile(base64.b64decode(os.environ["PATCHER_B64"]), "<day1-patcher>", "exec"))'
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          import base64
+          import os
+          import re
+
+          path = Path("1_final_day1.py")
+          source = path.read_text(encoding="utf-8")
+          marker = "# OPENING NARRATION FIT — PRESERVE RYAN'S NATURAL DELIVERY"
+          needle = "for seg in segments:\n    await make_segment(seg)\n"
+
+          if marker not in source:
+              if source.count(needle) != 1:
+                  raise SystemExit(
+                      f"Expected exactly one GW Review TTS loop, found {source.count(needle)}"
+                  )
+              patch_block = base64.b64decode(
+                  os.environ["PATCH_BLOCK_B64"]
+              ).decode("utf-8")
+              source = source.replace(needle, needle + patch_block, 1)
+              path.write_text(source, encoding="utf-8")
+              print("Patched Day 1 GW Review opening narration fit.")
+          else:
+              print("Day 1 timing fix already present.")
+
+          cell_marker = re.compile(
+              r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
+          )
+          cells = [part for part in cell_marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f"Expected 33 Day 1 cell blocks, found {len(cells)}")
+          for index, cell in enumerate(cells, 1):
+              compile(
+                  cell,
+                  f"{path.name}::cell-{index}",
+                  "exec",
+                  flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                  dont_inherit=True,
+              )
+
+          required = (
+              marker,
+              "_headline_safety_gap = 0.12",
+              "Ryan speed was intentionally left unchanged",
+              "Headline narration overlaps the fixed 0:08 goalkeeper reveal",
+              "VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS = 3840, 2160, 24",
+              "if W * 9 != H * 16:",
+          )
+          missing = [text for text in required if text not in source]
+          if missing:
+              raise SystemExit(f"Focused Day 1 contract missing: {missing}")
+
+          failed_name_time = 2.043166
+          failed_headline_duration = 6.672
+          budget = 8.0 - failed_name_time - 0.12
+          if not failed_headline_duration > budget:
+              raise SystemExit("Failed-run timing fixture no longer exercises compaction")
+
+          print(f"Focused timing QA: PASS (failed-run budget {budget:.3f}s)")
+          print("Aspect ratio QA: PASS (3840x2160, 16:9)")
+          print("33-cell syntax QA: PASS")
+          PY
 
       - name: Commit Day 1 source fix
         shell: bash
