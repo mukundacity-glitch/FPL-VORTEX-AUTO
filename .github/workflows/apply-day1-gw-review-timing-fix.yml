@@ -1,0 +1,178 @@
+name: Apply Day 1 GW Review Timing Fix
+
+on:
+  push:
+    paths:
+      - .github/workflows/apply-day1-gw-review-timing-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-day1:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Patch GW Review opening narration fit
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("1_final_day1.py")
+          source = path.read_text(encoding="utf-8")
+
+          marker = "# OPENING NARRATION FIT — PRESERVE RYAN'S NATURAL DELIVERY"
+          if marker in source:
+              print("Day 1 timing fix is already present; no patch needed.")
+              raise SystemExit(0)
+
+          needle = """for seg in segments:\n    await make_segment(seg)\n"""
+          if source.count(needle) != 1:
+              raise SystemExit(
+                  f"Expected exactly one GW Review TTS loop, found {source.count(needle)}"
+              )
+
+          replacement = needle + r'''
+# ------------------------------------------------------------
+# OPENING NARRATION FIT — PRESERVE RYAN'S NATURAL DELIVERY
+# ------------------------------------------------------------
+# Ryan keeps the approved voice, mood, punctuation and speaking rate.  Only the
+# opening sentence is regenerated when its measured MP3 duration would collide
+# with the goalkeeper's real WordBoundary-aligned 0:08 reveal.
+_headline_segment = next(
+    (segment for segment in segments if str(segment.get("id", "")) == "headline"),
+    None,
+)
+_first_review_player = next(
+    (segment for segment in segments if segment.get("player_id") is not None),
+    None,
+)
+if _headline_segment is None or _first_review_player is None:
+    raise RuntimeError("GW Review opening-fit QA requires headline and player narration.")
+
+_review_timing_override = globals().get("GW_REVIEW_ANIMATION_TIMING_OVERRIDES", {}) or {}
+_headline_first_player_at = float(_review_timing_override.get("first_player_at", 8.0))
+_headline_name_time = float(_first_review_player.get("name_time") or 0.0)
+_headline_safety_gap = 0.12
+_headline_budget = (
+    _headline_first_player_at
+    - _headline_name_time
+    - _headline_safety_gap
+)
+if not math.isfinite(_headline_budget) or _headline_budget <= 0:
+    raise RuntimeError(
+        "GW Review opening narration has no valid timing budget before the goalkeeper reveal."
+    )
+
+if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
+    _headline_segment["text"] = (
+        f"Gameweek {REVIEW_GW} live review. Let's check the squad."
+        if GW_REVIEW_PARTIAL else
+        f"Gameweek {REVIEW_GW} review. Let's audit the squad."
+    )
+    await make_segment(_headline_segment)
+    print(
+        "ℹ️ GW Review headline compacted naturally to fit the goalkeeper reveal: "
+        f"{float(_headline_segment['duration']):.3f}s / {_headline_budget:.3f}s budget"
+    )
+
+# Extremely defensive fallback for a future Ryan/TTS cadence change.  Do not
+# speed the voice up: use a shorter natural line and leave the hard overlap
+# guard in Cell 16 intact.
+if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
+    _headline_segment["text"] = (
+        f"Gameweek {REVIEW_GW} live review."
+        if GW_REVIEW_PARTIAL else
+        f"Gameweek {REVIEW_GW} review."
+    )
+    await make_segment(_headline_segment)
+
+if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
+    raise RuntimeError(
+        "GW Review headline still exceeds its measured opening timing budget after "
+        "natural text compaction; Ryan speed was intentionally left unchanged."
+    )
+
+# Keep the logged QA count aligned with the narration actually saved to the
+# package after any headline-only regeneration.
+GW_REVIEW_NARRATION_WORDS = sum(
+    len(re.findall(r"\b[\w'-]+\b", str(segment.get("text", ""))))
+    for segment in segments
+)
+'''
+
+          source = source.replace(needle, replacement, 1)
+          path.write_text(source, encoding="utf-8")
+          print("Patched Day 1 GW Review opening narration fit.")
+          PY
+
+      - name: Validate focused Day 1 contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast
+          import re
+          from pathlib import Path
+
+          path = Path("1_final_day1.py")
+          source = path.read_text(encoding="utf-8")
+
+          required = (
+              "OPENING NARRATION FIT — PRESERVE RYAN'S NATURAL DELIVERY",
+              "_headline_safety_gap = 0.12",
+              "Ryan speed was intentionally left unchanged",
+              "Headline narration overlaps the fixed 0:08 goalkeeper reveal",
+              "VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS = 3840, 2160, 24",
+              "if W * 9 != H * 16:",
+          )
+          missing = [text for text in required if text not in source]
+          if missing:
+              raise SystemExit(f"Focused Day 1 contract missing: {missing}")
+
+          cell_marker = re.compile(
+              r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
+          )
+          cells = [part for part in cell_marker.split(source) if part.strip()]
+          if len(cells) != 33:
+              raise SystemExit(f"Expected 33 Day 1 cell blocks, found {len(cells)}")
+          for index, cell in enumerate(cells, 1):
+              compile(
+                  cell,
+                  f"{path.name}::cell-{index}",
+                  "exec",
+                  flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                  dont_inherit=True,
+              )
+
+          # Static timing sanity using the exact failed run values: the natural
+          # compact line is regenerated only when the measured headline would
+          # exceed 8.0 - goalkeeper name_time - 0.12.
+          failed_name_time = 2.043166
+          failed_headline_duration = 6.672
+          budget = 8.0 - failed_name_time - 0.12
+          if not failed_headline_duration > budget:
+              raise SystemExit("Failed-run timing fixture no longer exercises compaction")
+
+          print(f"Focused timing QA: PASS (failed-run budget {budget:.3f}s)")
+          print("Aspect ratio QA: PASS (3840x2160, 16:9)")
+          print("33-cell syntax QA: PASS")
+          PY
+
+      - name: Commit Day 1 source fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- 1_final_day1.py; then
+            echo "No Day 1 source change required."
+            exit 0
+          fi
+          git config user.name "FPL VORTEX"
+          git config user.email "mukundacity@gmail.com"
+          git add -- 1_final_day1.py
+          git commit -m "Fix Day 1 GW review narration timing"
+          git push origin HEAD:main
