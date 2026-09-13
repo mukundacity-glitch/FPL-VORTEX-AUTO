@@ -16101,6 +16101,21 @@ def vx_review_decision_sentence(p, position_index):
     return templates[position_index % len(templates)]
 
 
+# ------------------------------------------------------------
+# NATURAL GW REVIEW PAUSE CONTROL
+# ------------------------------------------------------------
+# Keep Ryan's approved voice/rate. Join related player-review thoughts with
+# conversational clause breaks instead of repeated hard sentence stops.
+def vx_review_clause_flow(*parts):
+    clauses = []
+    for part in parts:
+        clause = re.sub(r"\s+", " ", str(part or "")).strip()
+        clause = re.sub(r"[.!?]+$", "", clause).strip()
+        if clause:
+            clauses.append(clause)
+    return ("; ".join(clauses) + ".") if clauses else ""
+
+
 def vx_review_player_text(p, position_index=0, bench=False):
     name=str(p["name"])
     team=vx_narration_team(p.get("team_name") or p.get("team"))
@@ -16131,8 +16146,11 @@ def vx_review_player_text(p, position_index=0, bench=False):
             f"Occupying the third depth slot, {name} out of {team} banked {points} against {matchup}.",
             f"Rounding out the reserves, {name} for {team} encountered {matchup}, logging {points}.",
         ]
-        text=f"{openers[position_index % len(openers)]} {signal}. {decision}"
-        return re.sub(r"\s+"," ",text).strip()
+        return vx_review_clause_flow(
+            openers[position_index % len(openers)],
+            signal,
+            decision,
+        )
 
     if p["pos"]=="GK":
         opener=(
@@ -16165,12 +16183,12 @@ def vx_review_player_text(p, position_index=0, bench=False):
         ]
         opener=openers[position_index % len(openers)]
 
-    text=f"{opener} {signal}. {decision}"
+    review_tail = ""
     if p.get("captain"):
-        text+=" I also handed him the captain's armband."
+        review_tail = "I also handed him the captain's armband."
     elif p.get("vice"):
-        text+=" He held the vice-captaincy just in case."
-    return re.sub(r"\s+"," ",text).strip()
+        review_tail = "He held the vice-captaincy just in case."
+    return vx_review_clause_flow(opener, signal, decision, review_tail)
 
 
 # ------------------------------------------------------------
@@ -17977,15 +17995,33 @@ def _vx_build_review_timeline(review_pkg, timing):
         else:
             start = cursor
             if first_player_seen and not goalkeeper_gate_applied:
+                # Start the next narration naturally after the previous spoken
+                # words. Only delay if its spoken name would arrive before the
+                # goalkeeper hero has fully faded.
+                goalkeeper_hero_off = (
+                    float(timing["goalkeeper_card_out"])
+                    + float(timing["hero_fade_out"])
+                )
+                next_name_time = float(segment.get("name_time") or 0.0)
                 start = max(
                     start,
-                    float(timing["goalkeeper_card_out"])
-                    + float(timing["hero_fade_out"]),
+                    goalkeeper_hero_off - next_name_time + 0.08,
                 )
                 goalkeeper_gate_applied = True
 
         segment["t0"] = float(start)
         segment["t1"] = float(start + duration)
+
+        word_bounds = list(segment.get("words") or [])
+        spoken_end_offset = duration
+        if word_bounds:
+            spoken_end_offset = max(
+                float(word.get("start") or 0.0)
+                + float(word.get("duration") or 0.0)
+                for word in word_bounds
+            )
+            spoken_end_offset = min(duration, max(0.0, spoken_end_offset))
+        segment["speech_end_at"] = float(start + spoken_end_offset)
 
         if player_id is not None:
             reveal_at = float(start) + float(segment.get("name_time") or 0.0)
@@ -17996,12 +18032,19 @@ def _vx_build_review_timeline(review_pkg, timing):
                 if is_first_player:
                     if abs(reveal_at - float(timing["first_player_at"])) > 1e-6:
                         raise RuntimeError("Goalkeeper reveal drifted from the fixed 0:08 beat.")
-                    if segment["t1"] > float(timing["goalkeeper_card_out"]) + 1e-6:
+                    goalkeeper_card_cap = float(timing["goalkeeper_card_out"])
+                    goalkeeper_card_exit = max(
+                        float(reveal_at) + 0.50,
+                        float(segment["speech_end_at"]) + 0.25,
+                    )
+                    if goalkeeper_card_exit > goalkeeper_card_cap + 1e-6:
                         raise RuntimeError(
-                            "Goalkeeper narration runs past the fixed 0:23 card exit: "
-                            f"ends at {segment['t1']:.3f}s."
+                            "Goalkeeper spoken narration exceeds the configured card safety cap: "
+                            f"speech ends at {segment['speech_end_at']:.3f}s."
                         )
-                    segment["hero_exit_at"] = float(timing["goalkeeper_card_out"])
+                    # Keep 0:23 as a safety ceiling, not a forced silent hold.
+                    timing["goalkeeper_card_out"] = float(goalkeeper_card_exit)
+                    segment["hero_exit_at"] = float(goalkeeper_card_exit)
                 else:
                     # The explanation completes first; the card then eases away.
                     segment["hero_exit_at"] = float(segment["t1"])
@@ -18015,7 +18058,13 @@ def _vx_build_review_timeline(review_pkg, timing):
                 segment.pop("hero_exit_at", None)
                 segment.pop("hero_off", None)
 
-        cursor = float(segment["t1"])
+        # Edge TTS commonly leaves ~0.8s of silence after its last word.
+        # Schedule from the spoken end plus a small natural gap; the MP3 tail may
+        # overlap because it contains silence, not narration.
+        cursor = min(
+            float(segment["t1"]),
+            float(segment.get("speech_end_at", segment["t1"])) + 0.35,
+        )
 
     if not first_player_seen:
         raise RuntimeError("Goalkeeper narration segment is missing from GW Review.")
@@ -18079,7 +18128,7 @@ if _metrics_seg is None or float(_metrics_seg["t0"]) < _last_player_t1-1e-6:
 print("✅ GW Review sync QA: Ryan name = hero reveal = player reveal")
 print("✅ Player images persist; only hero windows end")
 print("✅ Full data board begins after the final reserve")
-print("✅ Fixed beats: PL 0:01 • title 0:02 • pitch 0:03 • goalkeeper 0:08 • card out 0:23")
+print("✅ Opening beats: PL 0:01 • title 0:02 • pitch 0:03 • goalkeeper 0:08 • card exits after narration (0:23 cap)")
 
 # ------------------------------------------------------------
 # 3. PLACE RYAN SEGMENTS ON THE CONFIGURABLE MASTER TIMELINE
@@ -23831,7 +23880,7 @@ else:
         float(_vx17_first_segment["hero_exit_at"])
         - float(_vx17_timeline["goalkeeper_card_out"])
     ) > 1e-6:
-        raise RuntimeError("GW Review goalkeeper hero is not aligned to the configured 0:23 exit.")
+        raise RuntimeError("GW Review goalkeeper hero is not aligned to the configured narration-led exit.")
 
     if "REVIEW_GW" in globals() and _vx17_manifest.get("gw") is not None:
         if int(_vx17_manifest["gw"]) != int(REVIEW_GW):
@@ -24203,7 +24252,7 @@ else:
                     or exiting_state["pitchPlayers"] < 1
                 ):
                     raise RuntimeError(
-                        "GW Review 0:23 goalkeeper exit removed the wrong content: "
+                        "GW Review goalkeeper exit removed the wrong content: "
                         f"{exiting_state}"
                     )
                 gone_state = checkpoint_states["goalkeeper_hero_gone"]
