@@ -18117,12 +18117,23 @@ for s in _player_sync_segments:
     elif any(key in s for key in ("hero_on", "hero_exit_at", "hero_off")):
         raise RuntimeError(f"Bench segment incorrectly owns a temporary hero: {s['id']}")
 
-_last_player_t1=max(float(s["t1"]) for s in _player_sync_segments)
+# Segment ``t1`` includes Edge TTS's trailing MP3 silence.  The timeline
+# intentionally overlaps that silent tail with the next segment, so the data
+# board must be gated by the last spoken word rather than the audio container's
+# duration.  ``speech_end_at`` is measured from WordBoundary events above and
+# falls back to ``t1`` for providers that do not return word timing.
+_last_player_speech_end=max(
+    float(s.get("speech_end_at", s["t1"]))
+    for s in _player_sync_segments
+)
 _metrics_seg=next(
     (s for s in pkg["segments"] if s["id"]=="metrics_intro"),
     None
 )
-if _metrics_seg is None or float(_metrics_seg["t0"]) < _last_player_t1-1e-6:
+if (
+    _metrics_seg is None
+    or float(_metrics_seg["t0"]) < _last_player_speech_end-1e-6
+):
     raise RuntimeError("Full data board is scheduled before the final bench review ends.")
 
 print("✅ GW Review sync QA: Ryan name = hero reveal = player reveal")
