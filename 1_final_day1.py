@@ -16568,6 +16568,71 @@ async def make_segment(seg):
 
 for seg in segments:
     await make_segment(seg)
+# ------------------------------------------------------------
+# OPENING NARRATION FIT — PRESERVE RYAN'S NATURAL DELIVERY
+# ------------------------------------------------------------
+# Ryan keeps the approved voice, mood, punctuation and speaking rate. Only the
+# opening sentence is regenerated when its measured MP3 duration would collide
+# with the goalkeeper's real WordBoundary-aligned 0:08 reveal.
+_headline_segment = next(
+    (segment for segment in segments if str(segment.get("id", "")) == "headline"),
+    None,
+)
+_first_review_player = next(
+    (segment for segment in segments if segment.get("player_id") is not None),
+    None,
+)
+if _headline_segment is None or _first_review_player is None:
+    raise RuntimeError("GW Review opening-fit QA requires headline and player narration.")
+
+_review_timing_override = globals().get("GW_REVIEW_ANIMATION_TIMING_OVERRIDES", {}) or {}
+_headline_first_player_at = float(_review_timing_override.get("first_player_at", 8.0))
+_headline_name_time = float(_first_review_player.get("name_time") or 0.0)
+_headline_safety_gap = 0.12
+_headline_budget = (
+    _headline_first_player_at
+    - _headline_name_time
+    - _headline_safety_gap
+)
+if not math.isfinite(_headline_budget) or _headline_budget <= 0:
+    raise RuntimeError(
+        "GW Review opening narration has no valid timing budget before the goalkeeper reveal."
+    )
+
+if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
+    _headline_segment["text"] = (
+        f"Gameweek {REVIEW_GW} live review. Let's check the squad."
+        if GW_REVIEW_PARTIAL else
+        f"Gameweek {REVIEW_GW} review. Let's audit the squad."
+    )
+    await make_segment(_headline_segment)
+    print(
+        "ℹ️ GW Review headline compacted naturally to fit the goalkeeper reveal: "
+        f"{float(_headline_segment['duration']):.3f}s / {_headline_budget:.3f}s budget"
+    )
+
+# Defensive fallback for a future Ryan/TTS cadence change. Do not speed the
+# voice up: use a shorter natural line and leave Cell 16's hard overlap guard.
+if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
+    _headline_segment["text"] = (
+        f"Gameweek {REVIEW_GW} live review."
+        if GW_REVIEW_PARTIAL else
+        f"Gameweek {REVIEW_GW} review."
+    )
+    await make_segment(_headline_segment)
+
+if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
+    raise RuntimeError(
+        "GW Review headline still exceeds its measured opening timing budget after "
+        "natural text compaction; Ryan speed was intentionally left unchanged."
+    )
+
+# Keep the logged QA count aligned with the narration actually saved after any
+# headline-only regeneration.
+GW_REVIEW_NARRATION_WORDS = sum(
+    len(re.findall(r"\b[\w'-]+\b", str(segment.get("text", ""))))
+    for segment in segments
+)
 
 # ------------------------------------------------------------
 # SAVE REVIEW PACKAGE
