@@ -264,9 +264,20 @@ def _vx_prepare_players():
     candidate_lists = []
     preferred_names = ("player", "players", "fpl", "data", "model", "eo", "ownership")
     for var_name, value in list(globals().items()):
-        if not isinstance(value, (list, tuple)) or len(value) < 3:
-            continue
-        dicts = [x for x in value if isinstance(x, dict)]
+        dicts = []
+        if isinstance(value, (list, tuple)) and len(value) >= 3:
+            dicts = [x for x in value if isinstance(x, dict)]
+        elif isinstance(value, dict) and len(value) >= 3:
+            dict_values = list(value.values())
+            if dict_values and all(isinstance(x, dict) for x in dict_values[: min(20, len(dict_values))]):
+                dicts = dict_values
+        elif hasattr(value, "to_dict") and callable(getattr(value, "to_dict", None)):
+            try:
+                candidate = value.to_dict("records")
+                if isinstance(candidate, list):
+                    dicts = [x for x in candidate if isinstance(x, dict)]
+            except Exception:
+                dicts = []
         if len(dicts) < 3:
             continue
         score = 0
@@ -326,10 +337,13 @@ def _vx_select(players):
     mins_values = [x["minutes"] for x in players if x["minutes"] is not None]
     fdr_values = [x["fdr"] for x in players if x["fdr"] is not None]
 
+    transfers_values = [x["transfers"] for x in players if x["transfers"] is not None]
+
     def pressure(item):
         eo = _vx_percentile(eo_values, item["eo"], True) if eo_values and item["eo"] is not None else 0.5
         own = _vx_percentile(own_values, item["own"], True) if own_values and item["own"] is not None else 0.5
-        return max(eo, own)
+        transfers = _vx_percentile(transfers_values, item["transfers"], True) if transfers_values and item["transfers"] is not None else 0.5
+        return max(eo, own, transfers)
 
     def minutes(item):
         return _vx_percentile(mins_values, item["minutes"], True) if mins_values and item["minutes"] is not None else 0.5
