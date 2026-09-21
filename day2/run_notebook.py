@@ -759,9 +759,11 @@ def _replace_last_data_slide(payload: dict) -> bool:
         candidates.append((index, semantic_score, contract, sb_node))
 
     if not candidates:
-        raise RuntimeError(
-            "Could not safely locate the existing final MODEL/EO/EXPOSURE/TRAP slide block"
+        print(
+            "[DAY 2] EO & Exposure Trap replacement: target block not located; "
+            "leaving the existing final slide unchanged"
         )
+        return False
 
     index, _, contract, sb_node = max(candidates, key=lambda x: x[0])
     source = _cell_source(cells[index])
