@@ -699,18 +699,26 @@ def _replace_last_data_slide(payload: dict) -> bool:
             continue
         source = _cell_source(cell)
         upper = source.upper()
+
+        # Never touch renderer/media/output plumbing or the known outro/CTA.
         if any(marker in upper for marker in _EO_TRAP_PROTECTED):
             continue
-        hits = sum(upper.count(term) for term in _EO_TRAP_TERMS)
-        if hits < 3 or ("SCENE" not in upper and "SLIDE" not in upper):
+        negative_hits = sum(
+            upper.count(term)
+            for term in ("SUBSCRIBE", "OUTRO", "CTA", "YOUTUBE", "END SCREEN")
+        )
+        if negative_hits:
             continue
+
         contract = _eo_trap_add_contract(source)
         if not contract:
             continue
+
         try:
             tree = ast.parse(source, filename=f"DAY2_FINAL.ipynb::cell-{index}")
         except SyntaxError:
             continue
+
         sb_nodes = []
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -728,18 +736,36 @@ def _replace_last_data_slide(payload: dict) -> bool:
                 sb_nodes.append(node)
         if not sb_nodes:
             continue
-        sb_node = max(sb_nodes, key=lambda n: (getattr(n, "end_lineno", n.lineno), getattr(n, "end_col_offset", 0)))
+
+        sb_node = max(
+            sb_nodes,
+            key=lambda n: (
+                getattr(n, "end_lineno", n.lineno),
+                getattr(n, "end_col_offset", 0),
+            ),
+        )
         if getattr(sb_node, "lineno", 0) >= contract["start_line"]:
             continue
-        score = hits + 2 * (upper.count("SCENE") + upper.count("SLIDE"))
-        candidates.append((index, score, contract, sb_node))
+
+        semantic_terms = _EO_TRAP_TERMS + (
+            "RANK PRESSURE", "DIFFERENTIAL", "OWNERSHIP PRESSURE",
+            "EXPECTED MINUTES", "DECISION",
+        )
+        semantic_score = sum(upper.count(term) for term in semantic_terms)
+
+        # This is intentionally ordered by notebook position first. The target
+        # is the final data presentation block, not whichever earlier slide has
+        # the most words such as MODEL or OWNERSHIP.
+        candidates.append((index, semantic_score, contract, sb_node))
 
     if not candidates:
-        raise RuntimeError(
-            "Could not safely locate the existing final MODEL/EO/EXPOSURE/TRAP slide block"
+        print(
+            "[DAY 2] EO & Exposure Trap replacement: target block not located; "
+            "leaving the existing final slide unchanged"
         )
+        return False
 
-    index, _, contract, sb_node = max(candidates, key=lambda x: (x[0], x[1]))
+    index, _, contract, sb_node = max(candidates, key=lambda x: x[0])
     source = _cell_source(cells[index])
     lines = source.splitlines()
 
