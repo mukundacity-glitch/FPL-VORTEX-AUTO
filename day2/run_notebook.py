@@ -701,9 +701,20 @@ def _replace_last_data_slide(payload: dict) -> bool:
         upper = source.upper()
         if any(marker in upper for marker in _EO_TRAP_PROTECTED):
             continue
-        hits = sum(upper.count(term) for term in _EO_TRAP_TERMS)
-        if hits < 3 or ("SCENE" not in upper and "SLIDE" not in upper):
-            continue
+
+        semantic_terms = _EO_TRAP_TERMS + (
+            "RANK PRESSURE", "DIFFERENTIAL", "OWNERSHIP PRESSURE",
+            "EXPECTED MINUTES", "EXPOSURE", "DECISION",
+        )
+        hits = sum(upper.count(term) for term in semantic_terms)
+        negative_hits = sum(
+            upper.count(term)
+            for term in ("SUBSCRIBE", "OUTRO", "CTA", "YOUTUBE", "END SCREEN")
+        )
+
+        # Identify presentation blocks by the stable SB() -> add() contract.
+        # Rank candidates by actual EO/exposure semantics rather than requiring
+        # literal "SCENE"/"SLIDE" labels that may not exist in the notebook.
         contract = _eo_trap_add_contract(source)
         if not contract:
             continue
@@ -731,7 +742,7 @@ def _replace_last_data_slide(payload: dict) -> bool:
         sb_node = max(sb_nodes, key=lambda n: (getattr(n, "end_lineno", n.lineno), getattr(n, "end_col_offset", 0)))
         if getattr(sb_node, "lineno", 0) >= contract["start_line"]:
             continue
-        score = hits + 2 * (upper.count("SCENE") + upper.count("SLIDE"))
+        score = hits - (3 * negative_hits)
         candidates.append((index, score, contract, sb_node))
 
     if not candidates:
@@ -739,7 +750,7 @@ def _replace_last_data_slide(payload: dict) -> bool:
             "Could not safely locate the existing final MODEL/EO/EXPOSURE/TRAP slide block"
         )
 
-    index, _, contract, sb_node = max(candidates, key=lambda x: (x[0], x[1]))
+    index, _, contract, sb_node = max(candidates, key=lambda x: (x[1], x[0]))
     source = _cell_source(cells[index])
     lines = source.splitlines()
 
