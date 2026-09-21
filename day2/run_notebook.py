@@ -702,7 +702,10 @@ def _replace_last_data_slide(payload: dict) -> bool:
         if any(marker in upper for marker in _EO_TRAP_PROTECTED):
             continue
         hits = sum(upper.count(term) for term in _EO_TRAP_TERMS)
-        if hits < 3 or ("SCENE" not in upper and "SLIDE" not in upper):
+        # Do not depend on literal "SCENE"/"SLIDE" labels. The notebook's
+        # existing final block is identified by its data semantics plus the
+        # stable SB() -> add() presentation contract.
+        if hits < 2:
             continue
         contract = _eo_trap_add_contract(source)
         if not contract:
@@ -731,7 +734,7 @@ def _replace_last_data_slide(payload: dict) -> bool:
         sb_node = max(sb_nodes, key=lambda n: (getattr(n, "end_lineno", n.lineno), getattr(n, "end_col_offset", 0)))
         if getattr(sb_node, "lineno", 0) >= contract["start_line"]:
             continue
-        score = hits + 2 * (upper.count("SCENE") + upper.count("SLIDE"))
+        score = hits
         candidates.append((index, score, contract, sb_node))
 
     if not candidates:
