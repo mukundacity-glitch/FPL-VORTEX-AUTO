@@ -5709,9 +5709,14 @@ def _vx_review_validate_snapshot(_snapshot):
         and _history_row.get("overall_rank") is not None
         and int(_summary_rank) != int(_history_row.get("overall_rank"))
     ):
-        _errors.append(
-            f"entry summary overall rank {_summary_rank} != "
-            f"GW history overall rank {_history_row.get('overall_rank')}"
+        # FPL propagates the live entry summary rank independently from the
+        # event-specific history row. A small propagation lag here must not
+        # invalidate an otherwise internally consistent GW snapshot.
+        # The published GW rank is taken from the event history row below.
+        print(
+            f"⚠️ FPL summary overall rank {_summary_rank} differs from "
+            f"GW{REVIEW_GW} history overall rank {_history_row.get('overall_rank')}; "
+            "using the event history rank for this GW."
         )
 
     _signature = None
