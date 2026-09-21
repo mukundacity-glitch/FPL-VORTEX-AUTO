@@ -89,9 +89,9 @@ def _eo_trap_add_contract(source: str):
     }
 
 
-def _make_eo_exposure_notebook_block(indent: str, section_id: str):
+def _make_eo_exposure_notebook_block(indent: str, section_id: str, fallback_template: str):
     block = r'''
-__VX_EO_TRAP_V2_BEGIN__
+# __VX_EO_TRAP_V2_BEGIN__
 import html as _vx_html_lib
 import inspect as _vx_inspect
 import math as _vx_math
@@ -581,11 +581,11 @@ def _vx_ownership_template(registry):
     _, key, value = max(ranked, key=lambda x: x[0])
     return key, value
 
-def _vx_register_template(html_body):
+def _vx_register_template(html_body, fallback_template):
     registry = _vx_template_registry()
     key = "__EO_EXPOSURE_TRAP_V2__"
     if registry is None:
-        return key
+        return fallback_template
     _, base = _vx_ownership_template(registry)
     if isinstance(base, str):
         placeholder = None
@@ -623,7 +623,7 @@ for _vx_gw_name in ("GW0", "GW", "NEXT_GW", "TARGET_GW", "CURRENT_GW", "GW_NUM")
         pass
 
 _vx_html = _vx_build_html(_vx_gw, _vx_protect, _vx_attack, _vx_avoid)
-_vx_template_key = _vx_register_template(_vx_html)
+_vx_template_key = _vx_register_template(_vx_html, __FALLBACK_TEMPLATE__)
 
 b = SB()
 if hasattr(b, "pause") and callable(getattr(b, "pause")):
@@ -663,10 +663,10 @@ _final_payload = {
     "gw": _vx_gw,
     "players": [_vx_protect["name"], _vx_attack["name"], _vx_avoid["name"]],
 }
-add('__SECTION_ID__', _vx_template_key, "EO & Exposure Trap", _final_payload, b)
-__VX_EO_TRAP_V2_END__
+add(__SECTION_ID__, _vx_template_key, "EO & Exposure Trap", _final_payload, b)
+# __VX_EO_TRAP_V2_END__
 '''.strip("\n")
-    block = block.replace("__SECTION_ID__", repr(section_id)).replace("\n", "\n" + indent)
+    block = block.replace("__SECTION_ID__", repr(section_id)).replace("__FALLBACK_TEMPLATE__", repr(fallback_template)).replace("\n", "\n" + indent)
     return indent + block
 
 def _replace_last_data_slide(payload: dict) -> bool:
@@ -734,7 +734,7 @@ def _replace_last_data_slide(payload: dict) -> bool:
     indent_line = lines[start_line - 1]
     indent = indent_line[: len(indent_line) - len(indent_line.lstrip())]
 
-    new_block = _make_eo_exposure_notebook_block(indent, contract["section_id"])
+    new_block = _make_eo_exposure_notebook_block(indent, contract["section_id"], contract["template"])
     new_source = "\n".join(
         lines[:start_line - 1] + [new_block] + lines[end_line:]
     ) + "\n"
