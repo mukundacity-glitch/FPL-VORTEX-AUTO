@@ -505,7 +505,7 @@ def _vx_card_html(verdict, label, item, index):
         eo_width = max(0, min(100, float(eo_value or 0)))
     except (TypeError, ValueError):
         eo_width = 0
-    return f'''
+    return f"""
 <div style="flex:1 1 0;min-width:0;height:100%;display:flex;flex-direction:column;box-sizing:border-box;border:1px solid {accent};border-radius:20px;background:linear-gradient(180deg,{accent_soft} 0%,rgba(10,16,22,.92) 28%,rgba(8,12,18,.97) 100%);overflow:hidden;opacity:0;transform:{transform};animation:vxCardIn .55s cubic-bezier(.22,.61,.36,1) {delay} both;">
   <div style="height:148px;flex:0 0 148px;position:relative;overflow:hidden;background:rgba(255,255,255,.03);">
     {visual}
@@ -523,7 +523,7 @@ def _vx_card_html(verdict, label, item, index):
     <div style="font-size:14px;line-height:1.25;opacity:.72;min-height:35px;">{_vx_html_lib.escape(support)}</div>
     <div style="margin-top:auto;padding:9px 11px;border-radius:12px;background:rgba(255,255,255,.055);font-size:15px;font-weight:800;line-height:1.15;text-align:center;letter-spacing:.1px;opacity:0;transform:translateY(6px);animation:vxVerdict .4s ease 11.1s both;">{_vx_html_lib.escape(_vx_card_copy(verdict,item))}</div>
   </div>
-</div>'''
+</div>"""
 
 def _vx_build_html(gw, protect, attack, avoid, inherited_style=""):
     cards = (
@@ -534,14 +534,14 @@ def _vx_build_html(gw, protect, attack, avoid, inherited_style=""):
     subtitle = "Where rank is protected, where upside is created, and where the crowd is wrong."
     takeaway = "Ownership tells you the risk. Minutes, role, fixture, and projection tell you the decision."
     lock = "Protect the floor. Attack the ceiling. Avoid the noise."
-    css = f'''
+    css = f"""
 @keyframes vxFadeUp {{ from {{ opacity:0; transform:translateY(12px); }} to {{ opacity:1; transform:translateY(0); }} }}
 @keyframes vxCardIn {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
 @keyframes vxGrow {{ from {{ width:0; }} to {{ width:var(--vx-w); }} }}
 @keyframes vxVerdict {{ from {{ opacity:0; transform:translateY(6px) scale(.98); }} to {{ opacity:1; transform:translateY(0) scale(1); }} }}
 @keyframes vxMetrics {{ from {{ opacity:.15; transform:translateY(7px); }} to {{ opacity:1; transform:translateY(0); }} }}
-'''
-    return f'''
+"""
+    return f"""
 <div style="width:100%;height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:11px;padding:4px 4px 6px;overflow:hidden;font-family:inherit;color:inherit;">
   <div style="animation:vxFadeUp .45s ease 0s both;font-size:45px;line-height:.98;font-weight:950;letter-spacing:-1.8px;white-space:nowrap;">EO &amp; Exposure Trap</div>
   <div style="animation:vxFadeUp .45s ease .75s both;font-size:21px;line-height:1.18;font-weight:650;opacity:.83;max-width:95%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{_vx_html_lib.escape(subtitle)}</div>
@@ -559,7 +559,7 @@ def _vx_build_html(gw, protect, attack, avoid, inherited_style=""):
   </div>
 </div>
 <style>{css}{inherited_style}</style>
-'''
+"""
 
 def _vx_template_registry():
     candidates = []
