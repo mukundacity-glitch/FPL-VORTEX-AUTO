@@ -35,7 +35,7 @@ def _set_cell_source(cell: dict, source: str) -> None:
 
 
 LAST_DATA_SLIDE_PATCH_MARKER = "DAY2_LAST_DATA_SLIDE_PATCH_V1"
-_LAST_DATA_SLIDE_TERMS = ("MODEL", "EXPOSURE", "TRAP")
+_LAST_DATA_SLIDE_TERMS = ("MODEL", "EO", "EXPOSURE", "TRAP")
 _LAST_DATA_SLIDE_PROTECTED = (
     "FPL_VORTEX_DAY2_FINAL.MP4",
     "FFMPEG",
@@ -237,7 +237,7 @@ def _replace_last_data_slide(payload: dict) -> bool:
     indent = indent_source[: len(indent_source) - len(indent_source.lstrip())]
 
     if contract["payload_keys"]:
-        payload_lines = ["{}" for _ in []]
+        payload_lines = []
         for key in contract["payload_keys"]:
             value = _neutral_payload_value(key)
             payload_lines.append(
