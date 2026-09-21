@@ -169,7 +169,12 @@ def _replace_last_data_slide(payload: dict) -> bool:
 
         model_hits = sum(upper.count(term) for term in _LAST_DATA_SLIDE_TERMS)
         slide_hits = upper.count("SCENE") + upper.count("SLIDE")
-        if model_hits < 3 or slide_hits < 1:
+        if (
+            "MODEL" not in upper
+            or "EXPOSURE" not in upper
+            or "TRAP" not in upper
+            or slide_hits < 1
+        ):
             continue
 
         contract = _extract_last_add_contract(source)
@@ -556,8 +561,8 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
         _sync_repaired_notebook(payload, notebook_path)
     _patch_quality(payload, quality, notebook_path)
 
-    # The execution copy is ephemeral. Only the Python 3.11 source repair above
-    # is synced back to Drive; workflow-only quality/path overrides stay local.
+    # The execution copy is ephemeral. Source repairs and the final data-slide
+    # replacement are synced back to Drive; workflow-only quality/path overrides stay local.
     notebook_path.write_text(
         json.dumps(payload, ensure_ascii=False),
         encoding="utf-8",
