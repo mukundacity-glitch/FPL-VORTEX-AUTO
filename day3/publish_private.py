@@ -87,7 +87,7 @@ def _probe_video(video_path: Path) -> dict[str, Any]:
 
 def _infer_gameweeks(output_root: Path, final_video: Path) -> tuple[int, int | None]:
     for text in (final_video.name, str(final_video)):
-        match = re.search(r"\bGW[_ -]?(\d{1,2})\b", text, flags=re.IGNORECASE)
+        match = re.search(r"GW[_ -]?(\d{1,2})(?=[^0-9]|$)", text, flags=re.IGNORECASE)
         if match:
             preview_gw = int(match.group(1))
             if 1 <= preview_gw <= 38:
