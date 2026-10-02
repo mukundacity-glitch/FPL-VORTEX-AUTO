@@ -3,6 +3,11 @@ name: Day 3
 run-name: Day 3 • ${{ inputs.plan }}
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/day3-run-trigger"
   workflow_dispatch:
     inputs:
       plan:
@@ -2906,17 +2911,17 @@ concurrency:
 env:
   PYTHONUNBUFFERED: "1"
   FPL_ENTRY_ID: "145784"
-  DAY3_PLAN_SELECTION: ${{ inputs.plan }}
-  DAY3_OUT_1: ${{ inputs.player_out_1 }}
-  DAY3_IN_1: ${{ inputs.player_in_1 }}
-  DAY3_OUT_2: ${{ inputs.player_out_2 }}
-  DAY3_IN_2: ${{ inputs.player_in_2 }}
-  DAY3_OUT_3: ${{ inputs.player_out_3 }}
-  DAY3_IN_3: ${{ inputs.player_in_3 }}
-  DAY3_OUT_4: ${{ inputs.player_out_4 }}
-  DAY3_IN_4: ${{ inputs.player_in_4 }}
-  DAY3_OUT_5: ${{ inputs.player_out_5 }}
-  DAY3_IN_5: ${{ inputs.player_in_5 }}
+  DAY3_PLAN_SELECTION: ${{ inputs.plan || 'ROLL' }}
+  DAY3_OUT_1: ${{ inputs.player_out_1 || 'NONE' }}
+  DAY3_IN_1: ${{ inputs.player_in_1 || 'NONE' }}
+  DAY3_OUT_2: ${{ inputs.player_out_2 || 'NONE' }}
+  DAY3_IN_2: ${{ inputs.player_in_2 || 'NONE' }}
+  DAY3_OUT_3: ${{ inputs.player_out_3 || 'NONE' }}
+  DAY3_IN_3: ${{ inputs.player_in_3 || 'NONE' }}
+  DAY3_OUT_4: ${{ inputs.player_out_4 || 'NONE' }}
+  DAY3_IN_4: ${{ inputs.player_in_4 || 'NONE' }}
+  DAY3_OUT_5: ${{ inputs.player_out_5 || 'NONE' }}
+  DAY3_IN_5: ${{ inputs.player_in_5 || 'NONE' }}
   DAY3_NOTEBOOK_ID: "1zKWruOYPPstyyr42y6q-MKwE3-6qTh0s"
   DAY3_NOTEBOOK_PATH: "/tmp/fpl-vortex-day3-final.ipynb"
   DAY3_OUTPUT_ROOT: "/content/drive/MyDrive/FPL_VORTEX/Day_3_3"
