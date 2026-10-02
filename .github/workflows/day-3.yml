@@ -2945,7 +2945,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          # The production notebook uses Python 3.12+ f-string grammar (PEP 701).
+          python-version: "3.12"
 
       - name: Validate requested plan
         shell: bash
