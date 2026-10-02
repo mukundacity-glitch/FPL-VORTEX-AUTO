@@ -40,7 +40,7 @@ env:
   DAY3_MANUAL_OUT: ${{ inputs.manual_out }}
   DAY3_MANUAL_IN: ${{ inputs.manual_in }}
   DAY3_NOTEBOOK_ID: "1zKWruOYPPstyyr42y6q-MKwE3-6qTh0s"
-  DAY3_NOTEBOOK_PATH: ${{ runner.temp }}/day3-final.ipynb
+  DAY3_NOTEBOOK_PATH: "/tmp/fpl-vortex-day3-final.ipynb"
   DAY3_OUTPUT_ROOT: "/content/drive/MyDrive/FPL_VORTEX/Day_3_3"
   DAY3_DRIVE_PATH: "FPL_VORTEX/Day_3_3"
   DAY1_ASSET_FOLDER_ID: "1h3Loznr5RnsMyh-kUd-zMxEgOf98uFSt"
