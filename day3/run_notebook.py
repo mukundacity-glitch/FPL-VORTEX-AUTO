@@ -273,6 +273,7 @@ def run_notebook(notebook_path: Path) -> None:
 
     _install_colab_compatibility()
     shell = InteractiveShell.instance()
+    shell.autoawait = True
     shell.user_ns["__name__"] = "__main__"
     shell.user_ns["__file__"] = str(notebook_path)
 
