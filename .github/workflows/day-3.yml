@@ -3198,10 +3198,20 @@ jobs:
             --filter "+ /popup.mp4" \
             --filter "+ /trans.mp4" \
             --filter "+ /Background_music.mp3" \
+            --filter "+ /1.png" \
+            --filter "+ /2.png" \
+            --filter "+ /3.png" \
+            --filter "+ /4.png" \
+            --filter "+ /5.png" \
+            --filter "+ /6.png" \
+            --filter "+ /7.png" \
+            --filter "+ /8.png" \
+            --filter "+ /9.png" \
+            --filter "+ /10.png" \
             --filter "- **" \
             --transfers 4 --checkers 8
 
-          for asset_name in opening.mp4 outro.mp4 popup.mp4 trans.mp4 Background_music.mp3; do
+          for asset_name in opening.mp4 outro.mp4 popup.mp4 trans.mp4 Background_music.mp3 1.png 2.png 3.png 4.png 5.png 6.png 7.png 8.png 9.png 10.png; do
             if [[ ! -s "$DAY1_ASSET_DIR/$asset_name" ]]; then
               echo "Required production asset is missing: $asset_name" >&2
               exit 1
