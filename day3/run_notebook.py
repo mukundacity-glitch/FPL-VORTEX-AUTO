@@ -6,6 +6,9 @@ import os
 import re
 import sys
 import types
+import unicodedata
+
+import requests
 from pathlib import Path
 from typing import Iterable
 
@@ -38,39 +41,94 @@ def _parse_player_choice(value: str) -> int | None:
     return player_id
 
 
+def _normalize_player_name(value: object) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(character for character in text if not unicodedata.combining(character))
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def _split_manual_players(env_name: str) -> list[str]:
+    raw = str(os.environ.get(env_name, "") or "").strip()
+    if not raw:
+        return []
+    return [
+        token.strip()
+        for token in re.split(r"[,;]\s*", raw)
+        if token.strip()
+    ]
+
+
+def _resolve_player_token(token: str, elements: list[dict[str, object]]) -> int:
+    numeric = re.match(r"^\s*(\d+)\b", token)
+    if numeric:
+        player_id = int(numeric.group(1))
+        if any(int(player.get("id") or 0) == player_id for player in elements):
+            return player_id
+        raise ValueError(f"Unknown FPL player id: {player_id}")
+
+    target = _normalize_player_name(token)
+    matches: list[dict[str, object]] = []
+    for player in elements:
+        aliases = {
+            str(player.get("web_name") or ""),
+            str(player.get("first_name") or ""),
+            str(player.get("second_name") or ""),
+            f"{player.get('first_name') or ''} {player.get('second_name') or ''}".strip(),
+        }
+        if target and target in {_normalize_player_name(alias) for alias in aliases if alias}:
+            matches.append(player)
+
+    if not matches:
+        raise ValueError(
+            f"Unknown player name {token!r}. Use the exact FPL web name or numeric player ID."
+        )
+    unique_ids = {int(player.get("id") or 0) for player in matches}
+    if len(unique_ids) != 1:
+        choices = ", ".join(
+            f"{player.get('web_name')} (ID {player.get('id')})"
+            for player in matches[:8]
+        )
+        raise ValueError(
+            f"Player name {token!r} is ambiguous: {choices}. Use the numeric player ID."
+        )
+    return next(iter(unique_ids))
+
+
 def _manual_pairs_from_env() -> tuple[list[int], list[int]]:
-    outs: list[int] = []
-    ins: list[int] = []
-    found_gap = False
+    out_tokens = _split_manual_players("DAY3_MANUAL_OUT")
+    in_tokens = _split_manual_players("DAY3_MANUAL_IN")
 
-    for index in range(1, 6):
-        out_id = _parse_player_choice(os.getenv(f"DAY3_OUT_{index}", "NONE"))
-        in_id = _parse_player_choice(os.getenv(f"DAY3_IN_{index}", "NONE"))
+    if not out_tokens and not in_tokens:
+        raise ValueError(
+            "Transfer → Manual requires player names/IDs in both Manual OUT and Manual IN."
+        )
+    if len(out_tokens) != len(in_tokens):
+        raise ValueError(
+            "Manual OUT and Manual IN must contain the same number of players."
+        )
+    if not 1 <= len(out_tokens) <= 5:
+        raise ValueError("Transfer → Manual requires between 1 and 5 transfers.")
 
-        if out_id is None and in_id is None:
-            found_gap = True
-            continue
-        if out_id is None or in_id is None:
-            raise ValueError(
-                f"Manual transfer pair {index} is incomplete. Select both Player OUT {index} "
-                f"and Player IN {index}, or leave both as NONE."
-            )
-        if found_gap:
-            raise ValueError(
-                "Manual transfer pairs must be filled in order without gaps. "
-                "Use pair 1 first, then pair 2, and so on."
-            )
-        outs.append(out_id)
-        ins.append(in_id)
+    response = requests.get(
+        "https://fantasy.premierleague.com/api/bootstrap-static/",
+        timeout=30,
+        headers={"User-Agent": "FPL-VORTEX-Day3-GitHub/1.0"},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    elements = list(payload.get("elements") or [])
+    if not elements:
+        raise RuntimeError("FPL bootstrap-static returned no players.")
 
-    if not 1 <= len(outs) <= 5:
-        raise ValueError("Transfer → Manual requires between 1 and 5 complete OUT/IN pairs.")
+    outs = [_resolve_player_token(token, elements) for token in out_tokens]
+    ins = [_resolve_player_token(token, elements) for token in in_tokens]
+
     if len(set(outs)) != len(outs):
         raise ValueError("The same Player OUT cannot be selected more than once.")
     if len(set(ins)) != len(ins):
         raise ValueError("The same Player IN cannot be selected more than once.")
     if set(outs) & set(ins):
-        raise ValueError("A player cannot appear in both the OUT and IN selections.")
+        raise ValueError("A player cannot appear in both Manual OUT and Manual IN.")
     return outs, ins
 
 
