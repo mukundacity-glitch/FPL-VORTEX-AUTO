@@ -3278,17 +3278,8 @@ jobs:
             cp "$final_video" "$RUNNER_TEMP/day3-artifact/"
           fi
 
-          for file in \
-            "$DAY3_OUTPUT_ROOT/DATA/youtube_thumbnail.jpg" \
-            "$DAY3_OUTPUT_ROOT/DATA/youtube_private_upload.json"; do
-            if [[ -s "$file" ]]; then
-              cp "$file" "$RUNNER_TEMP/day3-artifact/"
-            fi
-          done
-
-          if [[ -s "$RUNNER_TEMP/day-3.log" ]]; then
-            cp "$RUNNER_TEMP/day-3.log" "$RUNNER_TEMP/day3-artifact/"
-          fi
+          # The downloadable artifact contains one finished video only.
+          # Thumbnail/report remain in Drive and the thumbnail is applied to YouTube.
 
       - name: Upload Day 3 artifact
         if: always()
