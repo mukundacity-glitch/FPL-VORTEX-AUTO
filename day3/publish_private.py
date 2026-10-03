@@ -36,7 +36,7 @@ def _one_final_video(output_root: Path) -> Path:
     mp4_dir = output_root / "MP4"
     candidates = sorted(
         path
-        for pattern in ("*COMBINED*.mp4", "*combined*.mp4", "*FINAL*.mp4", "*final*.mp4")
+        for pattern in ("*COMBINED*.mp4", "*combined*.mp4")
         for path in mp4_dir.glob(pattern)
         if path.is_file() and path.stat().st_size > 0
     )
