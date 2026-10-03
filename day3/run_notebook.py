@@ -17,6 +17,9 @@ TRANSFER_MODE_VALUES = {"AUTO", "MANUAL"}
 NOTEBOOK_CONTROL_CELL_INDEX = 1
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
 GW_REVIEW_SOURCE_CELL_INDEX = 21
+TTS_PROFILE_CELL_INDEX = 10
+PLAYER_CARD_DESIGN_CELL_INDEX = 23
+FULL_WORD_NARRATION_CELL_INDEX = 28
 
 
 def _replace_once(source: str, pattern: str, replacement: str, label: str) -> str:
@@ -246,6 +249,267 @@ def _patch_gw_review_qa_fonts(source: str) -> str:
     return source
 
 
+
+def _patch_tts_profile(source: str) -> str:
+    """Use a slightly quicker, brighter Ryan delivery without changing the voice."""
+    old = 'RYAN_BASE_PROFILE = {"rate": "+12%", "pitch": "-5Hz", "volume": "+0%"}'
+    new = 'RYAN_BASE_PROFILE = {"rate": "+16%", "pitch": "+4Hz", "volume": "+0%"}'
+    count = source.count(old)
+    if count != 1:
+        raise RuntimeError(f"TTS profile: expected exactly one match, found {count}")
+    source = source.replace(old, new, 1)
+    print("✅ GitHub runner TTS polish: Ryan +16% rate / +4Hz pitch")
+    return source
+
+
+def _patch_narration_tone(source: str) -> str:
+    """Keep full-word speech guarantees while making stock transitions less robotic."""
+    replacements = (
+        (
+            '(r"\\bThe practical point is simple\\s*:\\s*", "Here is the practical takeaway: "),',
+            '(r"\\bThe practical point is simple\\s*:\\s*", "The takeaway here is: "),',
+        ),
+        (
+            '(r"\\bThe key point is\\s*:\\s*", "The key point is this: "),',
+            '(r"\\bThe key point is\\s*:\\s*", "What matters here is: "),',
+        ),
+        (
+            '(r"\\bThat tells us\\b", "That shows us"),',
+            '(r"\\bThat tells us\\b", "That means"),',
+        ),
+        (
+            '(r"\\bThe model says\\b", "The model leans toward"),',
+            '(r"\\bThe model says\\b", "The numbers point toward"),',
+        ),
+        (
+            '(r"\\bIn conclusion\\b", "To wrap up"),',
+            '(r"\\bIn conclusion\\b", "To close this out"),',
+        ),
+    )
+    for old, new in replacements:
+        count = source.count(old)
+        if count != 1:
+            raise RuntimeError(f"Narration tone patch expected one match for {old!r}, found {count}")
+        source = source.replace(old, new, 1)
+    print("✅ GitHub runner narration polish: creator-style transitions + full-word speech retained")
+    return source
+
+
+def _patch_player_card_sample(source: str) -> str:
+    """Restyle the shared card to the supplied blue sample and use Assets/4.png."""
+    if "VX_GITHUB_SAMPLE_CARD_V6" in source:
+        return source
+
+    # The sample shows five fixtures, not six.
+    source = source.replace(
+        "const fixtures = Array.isArray(p?.fixtures) ? p.fixtures.slice(0,6) : [];",
+        "const fixtures = Array.isArray(p?.fixtures) ? p.fixtures.slice(0,5) : [];",
+        1,
+    )
+    source = source.replace(
+        "while (fixtures.length < 6) fixtures.push(null);",
+        "while (fixtures.length < 5) fixtures.push(null);",
+        1,
+    )
+
+    # Match the sample's top badges when the renderer uses its fallback rows.
+    source = source.replace('["P", "POSITION",', '["🎯", "POSITION",', 1)
+    source = source.replace('["£", "PRICE",', '["🪙", "PRICE",', 1)
+    source = source.replace('["O", "OWNERSHIP",', '["👤", "SELECTED BY",', 1)
+
+    marker = 'print("✅ CELL 15A PLAYER CARD DESIGN READY")'
+    if source.count(marker) != 1:
+        raise RuntimeError("Player-card patch marker was not found exactly once.")
+
+    override = r'''
+# VX_GITHUB_SAMPLE_CARD_V6
+# Production-only visual override. The Drive notebook remains the data source.
+import base64 as _vx_pc_b64
+import mimetypes as _vx_pc_mime
+import os as _vx_pc_os
+from pathlib import Path as _VxPcPath
+
+_vx_pc_bg_path = _VxPcPath(
+    _vx_pc_os.environ.get("DAY1_ASSET_DIR", "/content/drive/MyDrive/FPL_VORTEX/Assets")
+) / "4.png"
+if not _vx_pc_bg_path.is_file():
+    raise FileNotFoundError(f"Player-card background 4.png is missing: {_vx_pc_bg_path}")
+_vx_pc_bg_mime = _vx_pc_mime.guess_type(_vx_pc_bg_path.name)[0] or "image/png"
+_vx_pc_bg_uri = (
+    f"data:{_vx_pc_bg_mime};base64,"
+    + _vx_pc_b64.b64encode(_vx_pc_bg_path.read_bytes()).decode("ascii")
+)
+
+PLAYER_CARD_DESIGN_VERSION = "V6.0_SAMPLE_BLUE_4PNG"
+
+PLAYER_CARD_CSS += r"""
+<style id="vx-github-sample-card-v6">
+.vx-player-card{
+  --pc-sample-line:rgba(53,145,255,.88);
+  --pc-sample-dark:#03133f;
+  --pc-sample-deep:#061d57;
+  position:relative!important;
+  overflow:hidden!important;
+  padding:24px!important;
+  border:3px solid #2e8dff!important;
+  border-radius:34px!important;
+  background:
+    linear-gradient(180deg,rgba(2,61,175,.16),rgba(2,19,67,.58)),
+    url("__VX_PC_BG__") center/cover no-repeat!important;
+  box-shadow:
+    0 0 0 4px rgba(46,141,255,.16),
+    0 28px 70px rgba(0,0,0,.50),
+    inset 0 0 46px rgba(30,133,255,.18)!important;
+}
+.vx-player-card::after{
+  content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(circle at 50% 22%,rgba(45,190,255,.22),transparent 34%),
+    linear-gradient(180deg,transparent 42%,rgba(0,9,38,.70));
+}
+.vx-player-card .pc-card-grid,.vx-player-card .pc-card-sheen{display:none!important}
+.vx-player-card .pc-card-body{
+  position:relative!important;z-index:2!important;
+  display:flex!important;flex-direction:column!important;
+  width:100%!important;height:100%!important;min-height:0!important;
+  gap:14px!important;
+}
+.vx-player-card .pc-photo-info{
+  order:1!important;position:relative!important;display:block!important;
+  flex:1 1 43%!important;min-height:0!important;overflow:hidden!important;
+  border-radius:24px!important;
+}
+.vx-player-card .pc-portrait-box{
+  position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+  max-height:none!important;overflow:visible!important;border:0!important;border-radius:0!important;
+  background:transparent!important;box-shadow:none!important;
+}
+.vx-player-card .pc-portrait-box::after{display:none!important}
+.vx-player-card .pc-portrait{
+  position:absolute!important;left:50%!important;bottom:-2%!important;
+  transform:translateX(-50%)!important;
+  width:auto!important;height:92%!important;max-width:74%!important;max-height:96%!important;
+  object-fit:contain!important;object-position:center bottom!important;
+  filter:drop-shadow(0 20px 28px rgba(0,0,0,.52))!important;
+}
+.vx-player-card .pc-portrait-fallback{
+  position:absolute!important;left:50%!important;bottom:15%!important;transform:translateX(-50%)!important;
+  width:54%!important;height:52%!important;place-items:center!important;
+  border:2px solid rgba(74,170,255,.62)!important;border-radius:24px!important;
+  background:rgba(4,30,92,.72)!important;color:#fff!important;
+}
+.vx-player-card .pc-info-stack{
+  position:absolute!important;left:18px!important;top:18px!important;z-index:5!important;
+  width:min(39%,430px)!important;display:grid!important;gap:12px!important;
+}
+.vx-player-card .pc-info-item{
+  display:grid!important;grid-template-columns:62px minmax(0,1fr)!important;gap:10px!important;
+  align-items:center!important;min-width:0!important;
+  padding:12px 15px!important;border-radius:17px!important;
+  border:2px solid rgba(46,141,255,.82)!important;
+  background:linear-gradient(145deg,rgba(5,31,94,.95),rgba(3,17,61,.96))!important;
+  box-shadow:0 8px 22px rgba(0,0,0,.30),inset 0 0 20px rgba(43,139,255,.10)!important;
+}
+.vx-player-card .pc-info-item:nth-child(2){order:1!important}
+.vx-player-card .pc-info-item:nth-child(3){order:2!important;border-color:#21df78!important;background:linear-gradient(145deg,rgba(7,105,62,.96),rgba(4,70,47,.96))!important}
+.vx-player-card .pc-info-item:nth-child(1){order:3!important;border-color:#b22cff!important;background:linear-gradient(145deg,rgba(90,12,164,.96),rgba(62,7,117,.96))!important}
+.vx-player-card .pc-info-item:nth-child(n+4){display:none!important}
+.vx-player-card .pc-info-icon{font-size:40px!important;line-height:1!important;text-align:center!important;color:#fff!important}
+.vx-player-card .pc-info-label{font-size:24px!important;line-height:1!important;font-weight:900!important;color:#eaf6ff!important;white-space:nowrap!important}
+.vx-player-card .pc-info-value{font-size:48px!important;line-height:.94!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important}
+.vx-player-card .pc-identity{
+  order:2!important;position:relative!important;min-height:0!important;height:auto!important;
+  padding:12px 165px 12px 18px!important;overflow:visible!important;text-align:center!important;
+  border:2px solid var(--pc-sample-line)!important;border-radius:22px!important;
+  background:linear-gradient(180deg,var(--pc-sample-deep),var(--pc-sample-dark))!important;
+  box-shadow:0 9px 24px rgba(0,0,0,.38)!important;
+}
+.vx-player-card .pc-name-first{
+  display:block!important;margin:0!important;font-size:34px!important;line-height:.9!important;
+  font-weight:900!important;letter-spacing:1px!important;color:#d9ecff!important;
+}
+.vx-player-card .pc-name-last{
+  display:block!important;margin:3px 0 0!important;
+  font-size:82px!important;line-height:.90!important;font-weight:1000!important;
+  letter-spacing:.2px!important;color:#fff!important;background:none!important;
+  -webkit-text-fill-color:#fff!important;text-shadow:0 4px 12px rgba(0,0,0,.58)!important;
+  white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
+}
+.vx-player-card .pc-club{display:none!important}
+.vx-player-card .pc-club-crest{
+  display:block!important;position:absolute!important;right:20px!important;top:50%!important;transform:translateY(-50%)!important;
+  width:128px!important;height:128px!important;object-fit:contain!important;
+  filter:drop-shadow(0 8px 14px rgba(0,0,0,.42))!important;
+}
+.vx-player-card .pc-stat-rows{
+  order:3!important;display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  grid-auto-rows:minmax(92px,1fr)!important;gap:12px!important;min-height:0!important;
+}
+.vx-player-card .pc-stat-row{
+  min-width:0!important;display:grid!important;
+  grid-template-columns:52px minmax(0,1fr)!important;grid-template-rows:auto auto!important;
+  column-gap:9px!important;align-content:center!important;
+  padding:10px 12px!important;border:2px solid rgba(47,135,255,.80)!important;border-radius:17px!important;
+  background:linear-gradient(145deg,rgba(4,29,91,.95),rgba(3,16,59,.96))!important;
+  box-shadow:0 7px 18px rgba(0,0,0,.24),inset 0 0 18px rgba(35,135,255,.08)!important;
+}
+.vx-player-card .pc-stat-icon{grid-row:1/3!important;align-self:center!important;font-size:38px!important;line-height:1!important}
+.vx-player-card .pc-stat-label{align-self:end!important;font-size:20px!important;line-height:1!important;font-weight:900!important;color:#dbeaff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.vx-player-card .pc-stat-value{align-self:start!important;font-size:38px!important;line-height:.96!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.vx-player-card .pc-fixture-row{
+  order:5!important;position:relative!important;display:grid!important;
+  grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:10px!important;
+  padding-top:48px!important;min-height:0!important;
+}
+.vx-player-card .pc-fixture-row::before{
+  content:"NEXT 5 FIXTURES";position:absolute;left:0;right:0;top:7px;
+  color:#fff;font-size:25px;font-weight:1000;letter-spacing:1px;text-align:center;
+}
+.vx-player-card .pc-fixture-card{
+  min-width:0!important;display:flex!important;flex-direction:column!important;justify-content:center!important;
+  padding:9px 7px!important;border:2px solid rgba(255,255,255,.34)!important;border-radius:16px!important;
+  box-shadow:0 7px 18px rgba(0,0,0,.24)!important;text-align:center!important;
+}
+.vx-player-card .pc-fixture-card.fdr-1{background:linear-gradient(180deg,#27d66a,#0da74f)!important;color:#052614!important}
+.vx-player-card .pc-fixture-card.fdr-2{background:linear-gradient(180deg,#3094ff,#1172de)!important;color:#fff!important}
+.vx-player-card .pc-fixture-card.fdr-3{background:linear-gradient(180deg,#e8edf5,#cbd3de)!important;color:#081226!important}
+.vx-player-card .pc-fixture-card.fdr-5{background:linear-gradient(180deg,#ffd91f,#f2bb00)!important;color:#171100!important}
+.vx-player-card .pc-fixture-card.fdr-none{background:linear-gradient(180deg,#354a70,#243655)!important;color:#fff!important}
+.vx-player-card .pc-fixture-main{display:grid!important;grid-template-columns:1fr!important;justify-items:center!important;gap:2px!important}
+.vx-player-card .pc-fixture-crest{width:40px!important;height:40px!important;object-fit:contain!important}
+.vx-player-card .pc-fixture-team{font-size:23px!important;line-height:.95!important;font-weight:1000!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
+.vx-player-card .pc-fixture-venue{font-size:18px!important;line-height:1!important;font-weight:900!important}
+.vx-player-card .pc-fixture-meta{display:grid!important;gap:2px!important}
+.vx-player-card .pc-fixture-gw{font-size:18px!important;line-height:1!important;font-weight:900!important}
+.vx-player-card .pc-fixture-fdr{font-size:28px!important;line-height:1!important;font-weight:1000!important}
+.vx-player-card .pc-legend,.vx-player-card .pc-card-footer{display:none!important}
+@container (max-height:1100px){
+  .vx-player-card .pc-info-stack{gap:8px!important}
+  .vx-player-card .pc-info-item{padding:8px 10px!important}
+  .vx-player-card .pc-info-label{font-size:19px!important}
+  .vx-player-card .pc-info-value{font-size:38px!important}
+  .vx-player-card .pc-name-first{font-size:27px!important}
+  .vx-player-card .pc-name-last{font-size:64px!important}
+  .vx-player-card .pc-club-crest{width:104px!important;height:104px!important}
+  .vx-player-card .pc-stat-rows{grid-auto-rows:minmax(72px,1fr)!important}
+  .vx-player-card .pc-stat-label{font-size:16px!important}
+  .vx-player-card .pc-stat-value{font-size:30px!important}
+  .vx-player-card .pc-fixture-row{padding-top:38px!important}
+  .vx-player-card .pc-fixture-row::before{font-size:20px!important}
+  .vx-player-card .pc-fixture-team{font-size:18px!important}
+  .vx-player-card .pc-fixture-fdr{font-size:22px!important}
+}
+</style>
+""".replace("__VX_PC_BG__", _vx_pc_bg_uri)
+
+print("✅ Player card switched to supplied blue sample format")
+print("✅ Player card background: Assets/4.png")
+print("✅ Bottom card footer removed; five-fixture strip retained")
+'''
+    return source.replace(marker, override + "\n" + marker, 1)
+
+
+
 def _install_colab_compatibility() -> None:
     google_pkg = sys.modules.get("google")
     if google_pkg is None:
@@ -322,6 +586,12 @@ def run_notebook(notebook_path: Path) -> None:
     for cell_index, source in cells:
         if cell_index == NOTEBOOK_CONTROL_CELL_INDEX:
             source = _patch_control_cell(source)
+        if cell_index == TTS_PROFILE_CELL_INDEX:
+            source = _patch_tts_profile(source)
+        if cell_index == PLAYER_CARD_DESIGN_CELL_INDEX:
+            source = _patch_player_card_sample(source)
+        if cell_index == FULL_WORD_NARRATION_CELL_INDEX:
+            source = _patch_narration_tone(source)
         if cell_index == GW_REVIEW_SOURCE_CELL_INDEX:
             source = _patch_gw_review_qa_fonts(source)
         if PREVIEW_CELL_MARKER in source:
