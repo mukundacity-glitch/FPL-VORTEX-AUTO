@@ -367,42 +367,42 @@ PLAYER_CARD_CSS += r"""
     radial-gradient(circle at 50% 22%,rgba(45,190,255,.22),transparent 34%),
     linear-gradient(180deg,transparent 42%,rgba(0,9,38,.70));
 }
-.vx-player-card .pc-card-grid,.vx-player-card .pc-card-sheen{display:none!important}
-.vx-player-card .pc-card-body{
+.vx-player-card.vx-player-card .pc-card-grid,.vx-player-card.vx-player-card .pc-card-sheen{display:none!important}
+.vx-player-card.vx-player-card .pc-card-body{
   position:relative!important;z-index:2!important;
   display:flex!important;flex-direction:column!important;
   width:100%!important;height:100%!important;min-height:0!important;
   gap:14px!important;
 }
-.vx-player-card .pc-photo-info{
+.vx-player-card.vx-player-card .pc-photo-info{
   order:1!important;position:relative!important;display:block!important;
   flex:1 1 43%!important;min-height:0!important;overflow:hidden!important;
   border-radius:24px!important;
 }
-.vx-player-card .pc-portrait-box{
+.vx-player-card.vx-player-card .pc-portrait-box{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
   max-height:none!important;overflow:visible!important;border:0!important;border-radius:0!important;
   background:transparent!important;box-shadow:none!important;
 }
-.vx-player-card .pc-portrait-box::after{display:none!important}
-.vx-player-card .pc-portrait{
+.vx-player-card.vx-player-card .pc-portrait-box::after{display:none!important}
+.vx-player-card.vx-player-card .pc-portrait{
   position:absolute!important;left:50%!important;bottom:-2%!important;
   transform:translateX(-50%)!important;
   width:auto!important;height:92%!important;max-width:74%!important;max-height:96%!important;
   object-fit:contain!important;object-position:center bottom!important;
   filter:drop-shadow(0 20px 28px rgba(0,0,0,.52))!important;
 }
-.vx-player-card .pc-portrait-fallback{
+.vx-player-card.vx-player-card .pc-portrait-fallback{
   position:absolute!important;left:50%!important;bottom:15%!important;transform:translateX(-50%)!important;
   width:54%!important;height:52%!important;place-items:center!important;
   border:2px solid rgba(74,170,255,.62)!important;border-radius:24px!important;
   background:rgba(4,30,92,.72)!important;color:#fff!important;
 }
-.vx-player-card .pc-info-stack{
+.vx-player-card.vx-player-card .pc-info-stack{
   position:absolute!important;left:18px!important;top:18px!important;z-index:5!important;
   width:min(39%,430px)!important;display:grid!important;gap:12px!important;
 }
-.vx-player-card .pc-info-item{
+.vx-player-card.vx-player-card .pc-info-item{
   display:grid!important;grid-template-columns:62px minmax(0,1fr)!important;gap:10px!important;
   align-items:center!important;min-width:0!important;
   padding:12px 15px!important;border-radius:17px!important;
@@ -410,42 +410,42 @@ PLAYER_CARD_CSS += r"""
   background:linear-gradient(145deg,rgba(5,31,94,.95),rgba(3,17,61,.96))!important;
   box-shadow:0 8px 22px rgba(0,0,0,.30),inset 0 0 20px rgba(43,139,255,.10)!important;
 }
-.vx-player-card .pc-info-item:nth-child(2){order:1!important}
-.vx-player-card .pc-info-item:nth-child(3){order:2!important;border-color:#21df78!important;background:linear-gradient(145deg,rgba(7,105,62,.96),rgba(4,70,47,.96))!important}
-.vx-player-card .pc-info-item:nth-child(1){order:3!important;border-color:#b22cff!important;background:linear-gradient(145deg,rgba(90,12,164,.96),rgba(62,7,117,.96))!important}
-.vx-player-card .pc-info-item:nth-child(n+4){display:none!important}
-.vx-player-card .pc-info-icon{font-size:40px!important;line-height:1!important;text-align:center!important;color:#fff!important}
-.vx-player-card .pc-info-label{font-size:24px!important;line-height:1!important;font-weight:900!important;color:#eaf6ff!important;white-space:nowrap!important}
-.vx-player-card .pc-info-value{font-size:48px!important;line-height:.94!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important}
-.vx-player-card .pc-identity{
+.vx-player-card.vx-player-card .pc-info-item:nth-child(2){order:1!important}
+.vx-player-card.vx-player-card .pc-info-item:nth-child(3){order:2!important;border-color:#21df78!important;background:linear-gradient(145deg,rgba(7,105,62,.96),rgba(4,70,47,.96))!important}
+.vx-player-card.vx-player-card .pc-info-item:nth-child(1){order:3!important;border-color:#b22cff!important;background:linear-gradient(145deg,rgba(90,12,164,.96),rgba(62,7,117,.96))!important}
+.vx-player-card.vx-player-card .pc-info-item:nth-child(n+4){display:none!important}
+.vx-player-card.vx-player-card .pc-info-icon{font-size:40px!important;line-height:1!important;text-align:center!important;color:#fff!important}
+.vx-player-card.vx-player-card .pc-info-label{font-size:24px!important;line-height:1!important;font-weight:900!important;color:#eaf6ff!important;white-space:nowrap!important}
+.vx-player-card.vx-player-card .pc-info-value{font-size:48px!important;line-height:.94!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important}
+.vx-player-card.vx-player-card .pc-identity{
   order:2!important;position:relative!important;min-height:0!important;height:auto!important;
   padding:12px 165px 12px 18px!important;overflow:visible!important;text-align:center!important;
   border:2px solid var(--pc-sample-line)!important;border-radius:22px!important;
   background:linear-gradient(180deg,var(--pc-sample-deep),var(--pc-sample-dark))!important;
   box-shadow:0 9px 24px rgba(0,0,0,.38)!important;
 }
-.vx-player-card .pc-name-first{
+.vx-player-card.vx-player-card .pc-name-first{
   display:block!important;margin:0!important;font-size:34px!important;line-height:.9!important;
   font-weight:900!important;letter-spacing:1px!important;color:#d9ecff!important;
 }
-.vx-player-card .pc-name-last{
+.vx-player-card.vx-player-card .pc-name-last{
   display:block!important;margin:3px 0 0!important;
   font-size:82px!important;line-height:.90!important;font-weight:1000!important;
   letter-spacing:.2px!important;color:#fff!important;background:none!important;
   -webkit-text-fill-color:#fff!important;text-shadow:0 4px 12px rgba(0,0,0,.58)!important;
   white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
 }
-.vx-player-card .pc-club{display:none!important}
-.vx-player-card .pc-club-crest{
+.vx-player-card.vx-player-card .pc-club{display:none!important}
+.vx-player-card.vx-player-card .pc-club-crest{
   display:block!important;position:absolute!important;right:20px!important;top:50%!important;transform:translateY(-50%)!important;
   width:128px!important;height:128px!important;object-fit:contain!important;
   filter:drop-shadow(0 8px 14px rgba(0,0,0,.42))!important;
 }
-.vx-player-card .pc-stat-rows{
+.vx-player-card.vx-player-card .pc-stat-rows{
   order:3!important;display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
   grid-auto-rows:minmax(92px,1fr)!important;gap:12px!important;min-height:0!important;
 }
-.vx-player-card .pc-stat-row{
+.vx-player-card.vx-player-card .pc-stat-row{
   min-width:0!important;display:grid!important;
   grid-template-columns:52px minmax(0,1fr)!important;grid-template-rows:auto auto!important;
   column-gap:9px!important;align-content:center!important;
@@ -453,51 +453,51 @@ PLAYER_CARD_CSS += r"""
   background:linear-gradient(145deg,rgba(4,29,91,.95),rgba(3,16,59,.96))!important;
   box-shadow:0 7px 18px rgba(0,0,0,.24),inset 0 0 18px rgba(35,135,255,.08)!important;
 }
-.vx-player-card .pc-stat-icon{grid-row:1/3!important;align-self:center!important;font-size:38px!important;line-height:1!important}
-.vx-player-card .pc-stat-label{align-self:end!important;font-size:20px!important;line-height:1!important;font-weight:900!important;color:#dbeaff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.vx-player-card .pc-stat-value{align-self:start!important;font-size:38px!important;line-height:.96!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.vx-player-card .pc-fixture-row{
+.vx-player-card.vx-player-card .pc-stat-icon{grid-row:1/3!important;align-self:center!important;font-size:38px!important;line-height:1!important}
+.vx-player-card.vx-player-card .pc-stat-label{align-self:end!important;font-size:20px!important;line-height:1!important;font-weight:900!important;color:#dbeaff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.vx-player-card.vx-player-card .pc-stat-value{align-self:start!important;font-size:38px!important;line-height:.96!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.vx-player-card.vx-player-card .pc-fixture-row{
   order:5!important;position:relative!important;display:grid!important;
   grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:10px!important;
   padding-top:48px!important;min-height:0!important;
 }
-.vx-player-card .pc-fixture-row::before{
+.vx-player-card.vx-player-card .pc-fixture-row::before{
   content:"NEXT 5 FIXTURES";position:absolute;left:0;right:0;top:7px;
   color:#fff;font-size:25px;font-weight:1000;letter-spacing:1px;text-align:center;
 }
-.vx-player-card .pc-fixture-card{
+.vx-player-card.vx-player-card .pc-fixture-card{
   min-width:0!important;display:flex!important;flex-direction:column!important;justify-content:center!important;
   padding:9px 7px!important;border:2px solid rgba(255,255,255,.34)!important;border-radius:16px!important;
   box-shadow:0 7px 18px rgba(0,0,0,.24)!important;text-align:center!important;
 }
-.vx-player-card .pc-fixture-card.fdr-1{background:linear-gradient(180deg,#27d66a,#0da74f)!important;color:#052614!important}
-.vx-player-card .pc-fixture-card.fdr-2{background:linear-gradient(180deg,#3094ff,#1172de)!important;color:#fff!important}
-.vx-player-card .pc-fixture-card.fdr-3{background:linear-gradient(180deg,#e8edf5,#cbd3de)!important;color:#081226!important}
-.vx-player-card .pc-fixture-card.fdr-5{background:linear-gradient(180deg,#ffd91f,#f2bb00)!important;color:#171100!important}
-.vx-player-card .pc-fixture-card.fdr-none{background:linear-gradient(180deg,#354a70,#243655)!important;color:#fff!important}
-.vx-player-card .pc-fixture-main{display:grid!important;grid-template-columns:1fr!important;justify-items:center!important;gap:2px!important}
-.vx-player-card .pc-fixture-crest{width:40px!important;height:40px!important;object-fit:contain!important}
-.vx-player-card .pc-fixture-team{font-size:23px!important;line-height:.95!important;font-weight:1000!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
-.vx-player-card .pc-fixture-venue{font-size:18px!important;line-height:1!important;font-weight:900!important}
-.vx-player-card .pc-fixture-meta{display:grid!important;gap:2px!important}
-.vx-player-card .pc-fixture-gw{font-size:18px!important;line-height:1!important;font-weight:900!important}
-.vx-player-card .pc-fixture-fdr{font-size:28px!important;line-height:1!important;font-weight:1000!important}
-.vx-player-card .pc-legend,.vx-player-card .pc-card-footer{display:none!important}
+.vx-player-card.vx-player-card .pc-fixture-card.fdr-1{background:linear-gradient(180deg,#27d66a,#0da74f)!important;color:#052614!important}
+.vx-player-card.vx-player-card .pc-fixture-card.fdr-2{background:linear-gradient(180deg,#3094ff,#1172de)!important;color:#fff!important}
+.vx-player-card.vx-player-card .pc-fixture-card.fdr-3{background:linear-gradient(180deg,#e8edf5,#cbd3de)!important;color:#081226!important}
+.vx-player-card.vx-player-card .pc-fixture-card.fdr-5{background:linear-gradient(180deg,#ffd91f,#f2bb00)!important;color:#171100!important}
+.vx-player-card.vx-player-card .pc-fixture-card.fdr-none{background:linear-gradient(180deg,#354a70,#243655)!important;color:#fff!important}
+.vx-player-card.vx-player-card .pc-fixture-main{display:grid!important;grid-template-columns:1fr!important;justify-items:center!important;gap:2px!important}
+.vx-player-card.vx-player-card .pc-fixture-crest{width:40px!important;height:40px!important;object-fit:contain!important}
+.vx-player-card.vx-player-card .pc-fixture-team{font-size:23px!important;line-height:.95!important;font-weight:1000!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
+.vx-player-card.vx-player-card .pc-fixture-venue{font-size:18px!important;line-height:1!important;font-weight:900!important}
+.vx-player-card.vx-player-card .pc-fixture-meta{display:grid!important;gap:2px!important}
+.vx-player-card.vx-player-card .pc-fixture-gw{font-size:18px!important;line-height:1!important;font-weight:900!important}
+.vx-player-card.vx-player-card .pc-fixture-fdr{font-size:28px!important;line-height:1!important;font-weight:1000!important}
+.vx-player-card.vx-player-card .pc-legend,.vx-player-card.vx-player-card .pc-card-footer{display:none!important}
 @container (max-height:1100px){
-  .vx-player-card .pc-info-stack{gap:8px!important}
-  .vx-player-card .pc-info-item{padding:8px 10px!important}
-  .vx-player-card .pc-info-label{font-size:19px!important}
-  .vx-player-card .pc-info-value{font-size:38px!important}
-  .vx-player-card .pc-name-first{font-size:27px!important}
-  .vx-player-card .pc-name-last{font-size:64px!important}
-  .vx-player-card .pc-club-crest{width:104px!important;height:104px!important}
-  .vx-player-card .pc-stat-rows{grid-auto-rows:minmax(72px,1fr)!important}
-  .vx-player-card .pc-stat-label{font-size:16px!important}
-  .vx-player-card .pc-stat-value{font-size:30px!important}
-  .vx-player-card .pc-fixture-row{padding-top:38px!important}
-  .vx-player-card .pc-fixture-row::before{font-size:20px!important}
-  .vx-player-card .pc-fixture-team{font-size:18px!important}
-  .vx-player-card .pc-fixture-fdr{font-size:22px!important}
+  .vx-player-card.vx-player-card .pc-info-stack{gap:8px!important}
+  .vx-player-card.vx-player-card .pc-info-item{padding:8px 10px!important}
+  .vx-player-card.vx-player-card .pc-info-label{font-size:19px!important}
+  .vx-player-card.vx-player-card .pc-info-value{font-size:38px!important}
+  .vx-player-card.vx-player-card .pc-name-first{font-size:27px!important}
+  .vx-player-card.vx-player-card .pc-name-last{font-size:64px!important}
+  .vx-player-card.vx-player-card .pc-club-crest{width:104px!important;height:104px!important}
+  .vx-player-card.vx-player-card .pc-stat-rows{grid-auto-rows:minmax(72px,1fr)!important}
+  .vx-player-card.vx-player-card .pc-stat-label{font-size:16px!important}
+  .vx-player-card.vx-player-card .pc-stat-value{font-size:30px!important}
+  .vx-player-card.vx-player-card .pc-fixture-row{padding-top:38px!important}
+  .vx-player-card.vx-player-card .pc-fixture-row::before{font-size:20px!important}
+  .vx-player-card.vx-player-card .pc-fixture-team{font-size:18px!important}
+  .vx-player-card.vx-player-card .pc-fixture-fdr{font-size:22px!important}
 }
 </style>
 """.replace("__VX_PC_BG__", _vx_pc_bg_uri)
