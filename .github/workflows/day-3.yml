@@ -2904,7 +2904,7 @@ permissions:
 
 concurrency:
   group: fpl-vortex-day-3
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   PYTHONUNBUFFERED: "1"
