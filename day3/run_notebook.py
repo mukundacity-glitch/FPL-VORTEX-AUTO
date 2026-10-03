@@ -17,9 +17,11 @@ from IPython.core.inputtransformer2 import TransformerManager
 PLAN_VALUES = {"NEITHER", "ROLL", "TRANSFER"}
 TRANSFER_MODE_VALUES = {"AUTO", "MANUAL"}
 NOTEBOOK_CONTROL_CELL_INDEX = 1
+VISUAL_ENRICHMENT_CELL_INDEX = 5
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
 PITCH_ANIMATION_CELL_INDEX = 30
 PITCH_SOURCE_CELL_INDEX = 21
+INTRO_OUTRO_SOURCE_CELL_INDEX = 22
 SCENE_DESIGN_CELL_INDEX = 24
 SCENE_ANIMATION_CELL_INDEX = 33
 TTS_PROFILE_CELL_INDEX = 10
@@ -234,6 +236,64 @@ def _patch_pitch_card_entrance(source: str) -> str:
     # The pitch's 0.90 scale compounds with this entrance; allow margin for fitted long names above the text QA floor.
     source = source.replace(old, new, 1)
     print("✅ Pitch card entrance preserves readable text throughout the animation")
+    return source
+
+
+def _patch_outro_social_icon(source: str) -> str:
+    replacements = {
+        ".xIcon{font-size:64px;line-height:.82;color:#fff;font-weight:900}": ".xIcon{font-size:64px;line-height:1.2;color:#fff;font-weight:900}",
+        ".ctaAction.follow .ctaX{font:900 78px/.8 Arial,sans-serif;": ".ctaAction.follow .ctaX{font:900 78px/1.2 Arial,sans-serif;",
+    }
+    for old, new in replacements.items():
+        count = source.count(old)
+        if count != 1:
+            raise RuntimeError(f"Outro social icon line height: expected one match, found {count}")
+        source = source.replace(old, new, 1)
+    # The X glyph extends beyond the earlier .8em line boxes at the CTA's larger sizes.
+    print("✅ Outro social icons reserve enough height for their full glyphs")
+    return source
+
+
+def _patch_official_player_portraits(source: str) -> str:
+    """Embed verified official portraits so capture does not depend on browser CDN access."""
+    helper = r'''
+_VX_OFFICIAL_PORTRAIT_URIS = {}
+
+def _vx_official_portrait_uri(url):
+    import base64
+    from io import BytesIO
+    from PIL import Image
+
+    if url in _VX_OFFICIAL_PORTRAIT_URIS:
+        return _VX_OFFICIAL_PORTRAIT_URIS[url]
+    uri = ""
+    try:
+        response = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0 FPL-VORTEX/2.0"})
+        response.raise_for_status()
+        payload = response.content
+        with Image.open(BytesIO(payload)) as image:
+            mime = Image.MIME.get(image.format)
+            image.verify()
+        if mime in {"image/png", "image/jpeg", "image/webp"}:
+            uri = f"data:{mime};base64," + base64.b64encode(payload).decode("ascii")
+    except Exception:
+        # The resolver continues its existing real-photo/official-shirt fallback chain.
+        pass
+    _VX_OFFICIAL_PORTRAIT_URIS[url] = uri
+    return uri
+
+'''
+    replacements = {
+        "def resolve_player_photo(fpl_player, prefer_cutout=True):": helper + "def resolve_player_photo(fpl_player, prefer_cutout=True):",
+        "        return official\n": "        embedded = _vx_official_portrait_uri(official)\n        if embedded:\n            return embedded\n",
+        "        return core_photo\n": "        embedded = _vx_official_portrait_uri(core_photo)\n        if embedded:\n            return embedded\n",
+    }
+    for old, new in replacements.items():
+        count = source.count(old)
+        if count != 1:
+            raise RuntimeError(f"Official portrait embedding: expected one match, found {count}")
+        source = source.replace(old, new, 1)
+    print("✅ Official player portraits are verified and embedded before browser capture")
     return source
 
 
@@ -570,6 +630,21 @@ _vx_pc_sample_fit = r"""  function fitOne(el){
     }
     el.style.setProperty("font-size", `${best}px`, "important");
   }"""
+_vx_pc_sample_element_fit = r"""  function elementFits(el){
+    if (!el || el.clientWidth <= 0 || el.clientHeight <= 0) return true;
+    // DEFCON and Transfer Desk require text to stay within one pixel of its box.
+    return el.scrollWidth <= el.clientWidth + 1
+      && el.scrollHeight <= el.clientHeight + 1;
+  }"""
+PLAYER_CARD_JS, _vx_pc_element_fit_count = _vx_pc_re.subn(
+    r"  function elementFits\(el\)\{.*?\n  \}",
+    lambda match: _vx_pc_sample_element_fit,
+    PLAYER_CARD_JS,
+    count=1,
+    flags=_vx_pc_re.DOTALL,
+)
+if _vx_pc_element_fit_count != 1:
+    raise RuntimeError("The shared player-card fit predicate was not found exactly once.")
 PLAYER_CARD_JS, _vx_pc_fit_count = _vx_pc_re.subn(
     r"  function fitOne\(el\)\{.*?\n  \}",
     lambda match: _vx_pc_sample_fit,
@@ -660,6 +735,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
     for cell_index, source in cells:
         if cell_index == NOTEBOOK_CONTROL_CELL_INDEX:
             source = _patch_control_cell(source)
+        if cell_index == VISUAL_ENRICHMENT_CELL_INDEX:
+            source = _patch_official_player_portraits(source)
         if cell_index == TTS_PROFILE_CELL_INDEX:
             source = _patch_tts_profile(source)
         if cell_index == PLAYER_CARD_DESIGN_CELL_INDEX:
@@ -668,6 +745,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_narration_tone(source)
         if cell_index == PITCH_SOURCE_CELL_INDEX:
             source = _patch_pitch_player_names(source)
+        if cell_index == INTRO_OUTRO_SOURCE_CELL_INDEX:
+            source = _patch_outro_social_icon(source)
         if cell_index == PITCH_ANIMATION_CELL_INDEX:
             source = _patch_pitch_card_entrance(source)
         if cell_index == SCENE_DESIGN_CELL_INDEX:

@@ -57,6 +57,8 @@ class NotebookPreflightTests(unittest.TestCase):
         self.addCleanup(self.patch_stack.close)
         for function_name in (
             "_patch_control_cell",
+            "_patch_official_player_portraits",
+            "_patch_outro_social_icon",
             "_patch_tts_profile",
             "_patch_player_card_sample",
             "_patch_narration_tone",
