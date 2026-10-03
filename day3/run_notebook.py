@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Iterable
 
 from IPython.core.interactiveshell import InteractiveShell
+from IPython.core.inputtransformer2 import TransformerManager
 
 
 PLAN_VALUES = {"NEITHER", "ROLL", "TRANSFER"}
@@ -17,6 +19,7 @@ TRANSFER_MODE_VALUES = {"AUTO", "MANUAL"}
 NOTEBOOK_CONTROL_CELL_INDEX = 1
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
 GW_REVIEW_SOURCE_CELL_INDEX = 21
+PITCH_ANIMATION_CELL_INDEX = 30
 TTS_PROFILE_CELL_INDEX = 10
 PLAYER_CARD_DESIGN_CELL_INDEX = 23
 FULL_WORD_NARRATION_CELL_INDEX = 28
@@ -27,19 +30,6 @@ def _replace_once(source: str, pattern: str, replacement: str, label: str) -> st
     if count != 1:
         raise RuntimeError(f"{label}: expected exactly one match, found {count}")
     return updated
-
-
-def _parse_player_choice(value: str) -> int | None:
-    value = str(value or "").strip()
-    if not value or value.upper() == "NONE":
-        return None
-    match = re.match(r"^\s*(\d+)\b", value)
-    if not match:
-        raise ValueError(f"Invalid player choice: {value!r}")
-    player_id = int(match.group(1))
-    if player_id <= 0:
-        raise ValueError(f"Invalid player id: {player_id}")
-    return player_id
 
 
 def _parse_player_choice(value: str) -> int | None:
@@ -246,6 +236,18 @@ def _patch_gw_review_qa_fonts(source: str) -> str:
             raise RuntimeError(f"{label}: expected exactly one match, found {count}")
         source = source.replace(old, new, 1)
     print("✅ GitHub runner adjusted GW Review QA fonts: playerName 46px, playerMeta 38px, tinyScore 29px")
+    return source
+
+
+def _patch_pitch_card_entrance(source: str) -> str:
+    old = "el.style.transform=`translate(-50%,-50%) scale(${.70+.30*p})`;"
+    new = "el.style.transform=`translate(-50%,-50%) scale(${.84+.16*p})`;"
+    count = source.count(old)
+    if count != 1:
+        raise RuntimeError(f"Pitch card entrance: expected exactly one match, found {count}")
+    # The pitch's 0.90 scale compounds with this entrance; 0.84 keeps visible text above its 0.72 QA floor.
+    source = source.replace(old, new, 1)
+    print("✅ Pitch card entrance preserves readable text throughout the animation")
     return source
 
 
@@ -571,18 +573,14 @@ def _iter_code_cells(notebook: dict[str, object]) -> Iterable[tuple[int, str]]:
             yield index, source_text
 
 
-def run_notebook(notebook_path: Path) -> None:
+def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
     notebook = json.loads(notebook_path.read_text(encoding="utf-8"))
     cells = list(_iter_code_cells(notebook))
     if len(cells) < 30:
         raise RuntimeError(f"Unexpected Day 3 notebook shape: only {len(cells)} code cells.")
 
-    _install_colab_compatibility()
-    shell = InteractiveShell.instance()
-    shell.autoawait = True
-    shell.user_ns["__name__"] = "__main__"
-    shell.user_ns["__file__"] = str(notebook_path)
-
+    prepared_cells: list[tuple[int, str]] = []
+    transformer = TransformerManager()
     for cell_index, source in cells:
         if cell_index == NOTEBOOK_CONTROL_CELL_INDEX:
             source = _patch_control_cell(source)
@@ -594,10 +592,31 @@ def run_notebook(notebook_path: Path) -> None:
             source = _patch_narration_tone(source)
         if cell_index == GW_REVIEW_SOURCE_CELL_INDEX:
             source = _patch_gw_review_qa_fonts(source)
+        if cell_index == PITCH_ANIMATION_CELL_INDEX:
+            source = _patch_pitch_card_entrance(source)
         if PREVIEW_CELL_MARKER in source:
             print(f"⏭️ Skipping Colab-only live preview cell {cell_index}.")
             continue
 
+        compile(
+            transformer.transform_cell(source),
+            f"{notebook_path}:cell-{cell_index}",
+            "exec",
+            flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+        )
+        prepared_cells.append((cell_index, source))
+    return prepared_cells
+
+
+def run_notebook(notebook_path: Path) -> None:
+    cells = _prepare_code_cells(notebook_path)
+    _install_colab_compatibility()
+    shell = InteractiveShell.instance()
+    shell.autoawait = True
+    shell.user_ns["__name__"] = "__main__"
+    shell.user_ns["__file__"] = str(notebook_path)
+
+    for cell_index, source in cells:
         print(f"\n{'=' * 76}\n▶ DAY 3 NOTEBOOK CELL {cell_index}\n{'=' * 76}", flush=True)
         result = shell.run_cell(source, store_history=False, silent=False)
         error = result.error_before_exec or result.error_in_exec
@@ -610,12 +629,17 @@ def run_notebook(notebook_path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the final Day 3 Colab notebook in GitHub Actions.")
     parser.add_argument("notebook", type=Path)
+    parser.add_argument("--validate-only", action="store_true", help="Validate every patched cell without executing the notebook.")
     args = parser.parse_args()
 
     notebook_path = args.notebook.resolve()
     if not notebook_path.is_file():
         raise FileNotFoundError(notebook_path)
-    run_notebook(notebook_path)
+    if args.validate_only:
+        cells = _prepare_code_cells(notebook_path)
+        print(f"✅ Day 3 preflight passed: {len(cells)} patched code cells compile")
+    else:
+        run_notebook(notebook_path)
 
 
 if __name__ == "__main__":

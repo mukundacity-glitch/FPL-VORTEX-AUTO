@@ -1,8 +1,11 @@
 name: Day 3
 
-run-name: Day 3 • ${{ inputs.plan }}
+run-name: Day 3 • ${{ inputs.plan || 'ROLL' }}
 
 on:
+  push:
+    branches: [main]
+    paths: [.github/day3-repair-trigger]
   workflow_dispatch:
     inputs:
       plan:
@@ -2906,7 +2909,7 @@ concurrency:
 env:
   PYTHONUNBUFFERED: "1"
   FPL_ENTRY_ID: "145784"
-  DAY3_PLAN_SELECTION: ${{ inputs.plan }}
+  DAY3_PLAN_SELECTION: ${{ inputs.plan || 'ROLL' }}
   DAY3_OUT_1: ${{ inputs.player_out_1 }}
   DAY3_IN_1: ${{ inputs.player_in_1 }}
   DAY3_OUT_2: ${{ inputs.player_out_2 }}
@@ -3154,6 +3157,10 @@ jobs:
               env_file.write(f"RCLONE_CONFIG={config_path}\n")
           print(f"Final Day 3 notebook downloaded: {len(parsed['cells'])} cells")
           PY
+
+      - name: Validate all patched notebook cells
+        shell: bash
+        run: python day3/run_notebook.py "$DAY3_NOTEBOOK_PATH" --validate-only
 
       - name: Restore Day 3 model state and production assets
         shell: bash
