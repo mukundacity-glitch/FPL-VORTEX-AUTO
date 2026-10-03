@@ -16,6 +16,7 @@ PLAN_VALUES = {"NEITHER", "ROLL", "TRANSFER"}
 TRANSFER_MODE_VALUES = {"AUTO", "MANUAL"}
 NOTEBOOK_CONTROL_CELL_INDEX = 1
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
+GW_REVIEW_ANIMATION_CELL_INDEX = 30
 
 
 def _replace_once(source: str, pattern: str, replacement: str, label: str) -> str:
@@ -217,6 +218,22 @@ print("✅ GitHub Manual Transfer selection loaded: "
     return source
 
 
+def _patch_gw_review_qa_fonts(source: str) -> str:
+    """Keep the Drive notebook untouched while meeting its own final-render QA after scaling."""
+    replacements = (
+        ("font-size:40px!important", "font-size:46px!important", "GW Review playerName font"),
+        ("font-size:35px!important", "font-size:38px!important", "GW Review playerMeta font"),
+        ("font-size:25px!important", "font-size:29px!important", "GW Review tinyScore font"),
+    )
+    for old, new, label in replacements:
+        count = source.count(old)
+        if count != 1:
+            raise RuntimeError(f"{label}: expected exactly one match, found {count}")
+        source = source.replace(old, new, 1)
+    print("✅ GitHub runner adjusted GW Review QA fonts: playerName 46px, playerMeta 38px, tinyScore 29px")
+    return source
+
+
 def _install_colab_compatibility() -> None:
     google_pkg = sys.modules.get("google")
     if google_pkg is None:
@@ -293,6 +310,8 @@ def run_notebook(notebook_path: Path) -> None:
     for cell_index, source in cells:
         if cell_index == NOTEBOOK_CONTROL_CELL_INDEX:
             source = _patch_control_cell(source)
+        if cell_index == GW_REVIEW_ANIMATION_CELL_INDEX:
+            source = _patch_gw_review_qa_fonts(source)
         if PREVIEW_CELL_MARKER in source:
             print(f"⏭️ Skipping Colab-only live preview cell {cell_index}.")
             continue
