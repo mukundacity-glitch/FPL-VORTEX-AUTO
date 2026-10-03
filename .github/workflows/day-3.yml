@@ -3043,6 +3043,10 @@ jobs:
             "google-auth>=2.35,<3" \
             "google-auth-httplib2>=0.2,<1"
 
+      - name: Test Day 3 runtime guards
+        shell: bash
+        run: python -m unittest discover -s day3 -p 'test_*.py' -v
+
       - name: Install Chromium runtime
         shell: bash
         run: python -m playwright install --with-deps chromium
@@ -3163,6 +3167,7 @@ jobs:
         run: python day3/run_notebook.py "$DAY3_NOTEBOOK_PATH" --validate-only
 
       - name: Restore Day 3 model state and production assets
+        id: restore_state
         shell: bash
         run: |
           set -euo pipefail
@@ -3239,6 +3244,7 @@ jobs:
           PY
 
       - name: Run final Day 3 notebook
+        id: run_notebook
         shell: bash
         run: |
           set -o pipefail
@@ -3254,7 +3260,7 @@ jobs:
             --transfer-mode "$DAY3_TRANSFER_MODE"
 
       - name: Sync Day 3 output and persistent model state back to Drive
-        if: always()
+        if: ${{ always() && steps.restore_state.outcome == 'success' && steps.run_notebook.outcome != 'skipped' }}
         shell: bash
         run: |
           set -euo pipefail

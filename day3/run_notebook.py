@@ -18,7 +18,6 @@ PLAN_VALUES = {"NEITHER", "ROLL", "TRANSFER"}
 TRANSFER_MODE_VALUES = {"AUTO", "MANUAL"}
 NOTEBOOK_CONTROL_CELL_INDEX = 1
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
-GW_REVIEW_SOURCE_CELL_INDEX = 21
 PITCH_ANIMATION_CELL_INDEX = 30
 TTS_PROFILE_CELL_INDEX = 10
 PLAYER_CARD_DESIGN_CELL_INDEX = 23
@@ -211,41 +210,13 @@ print("✅ GitHub Manual Transfer selection loaded: "
     return source
 
 
-def _patch_gw_review_qa_fonts(source: str) -> str:
-    """Patch the generated GW Review source HTML before downstream animation scaling; Drive notebook stays untouched."""
-    replacements = (
-        (
-            ".playerName{top:194px!important;height:70px!important;font-size:40px!important",
-            ".playerName{top:194px!important;height:70px!important;font-size:46px!important",
-            "GW Review playerName font",
-        ),
-        (
-            ".playerMeta{height:92px!important;font-size:35px!important",
-            ".playerMeta{height:92px!important;font-size:38px!important",
-            "GW Review playerMeta font",
-        ),
-        (
-            ".tinyScore{left:18px!important;bottom:6px!important;font-size:25px!important",
-            ".tinyScore{left:18px!important;bottom:6px!important;font-size:29px!important",
-            "GW Review tinyScore font",
-        ),
-    )
-    for old, new, label in replacements:
-        count = source.count(old)
-        if count != 1:
-            raise RuntimeError(f"{label}: expected exactly one match, found {count}")
-        source = source.replace(old, new, 1)
-    print("✅ GitHub runner adjusted GW Review QA fonts: playerName 46px, playerMeta 38px, tinyScore 29px")
-    return source
-
-
 def _patch_pitch_card_entrance(source: str) -> str:
     old = "el.style.transform=`translate(-50%,-50%) scale(${.70+.30*p})`;"
-    new = "el.style.transform=`translate(-50%,-50%) scale(${.84+.16*p})`;"
+    new = "el.style.transform=`translate(-50%,-50%) scale(${.94+.06*p})`;"
     count = source.count(old)
     if count != 1:
         raise RuntimeError(f"Pitch card entrance: expected exactly one match, found {count}")
-    # The pitch's 0.90 scale compounds with this entrance; 0.84 keeps visible text above its 0.72 QA floor.
+    # The pitch's 0.90 scale compounds with this entrance; allow margin for fitted long names above the text QA floor.
     source = source.replace(old, new, 1)
     print("✅ Pitch card entrance preserves readable text throughout the animation")
     return source
@@ -329,6 +300,7 @@ def _patch_player_card_sample(source: str) -> str:
 import base64 as _vx_pc_b64
 import mimetypes as _vx_pc_mime
 import os as _vx_pc_os
+import re as _vx_pc_re
 from pathlib import Path as _VxPcPath
 
 _vx_pc_bg_path = _VxPcPath(
@@ -504,6 +476,43 @@ PLAYER_CARD_CSS += r"""
 </style>
 """.replace("__VX_PC_BG__", _vx_pc_bg_uri)
 
+_vx_pc_sample_fit = r"""  function fitOne(el){
+    if (!el) return;
+    const requestedMax = Number(el.dataset.pcMax || 40);
+    const requestedMin = Number(el.dataset.pcMin || 16);
+    if (!Number.isFinite(requestedMax) || !Number.isFinite(requestedMin)) return;
+    el.style.removeProperty("font-size");
+    const cssMax = parseFloat(getComputedStyle(el).fontSize) || requestedMax;
+    const max = Math.max(8, Math.min(requestedMax, cssMax));
+    const min = Math.min(max, Math.max(12, Math.min(requestedMin, max * .68)));
+    let lo = min;
+    let hi = max;
+    let best = lo;
+    // Match the sample's CSS cap while letting fitted text override its !important rules.
+    el.style.setProperty("font-size", `${hi}px`, "important");
+    if (elementFits(el)) return;
+    for (let i=0; i<12; i++){
+      const mid = (lo + hi) / 2;
+      el.style.setProperty("font-size", `${mid}px`, "important");
+      if (elementFits(el)){
+        best = mid;
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    el.style.setProperty("font-size", `${best}px`, "important");
+  }"""
+PLAYER_CARD_JS, _vx_pc_fit_count = _vx_pc_re.subn(
+    r"  function fitOne\(el\)\{.*?\n  \}",
+    lambda match: _vx_pc_sample_fit,
+    PLAYER_CARD_JS,
+    count=1,
+    flags=_vx_pc_re.DOTALL,
+)
+if _vx_pc_fit_count != 1:
+    raise RuntimeError("The shared player-card text fitter was not found exactly once.")
+
 print("✅ Player card switched to supplied blue sample format")
 print("✅ Player card background: Assets/4.png")
 print("✅ Bottom card footer removed; five-fixture strip retained")
@@ -590,8 +599,6 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_player_card_sample(source)
         if cell_index == FULL_WORD_NARRATION_CELL_INDEX:
             source = _patch_narration_tone(source)
-        if cell_index == GW_REVIEW_SOURCE_CELL_INDEX:
-            source = _patch_gw_review_qa_fonts(source)
         if cell_index == PITCH_ANIMATION_CELL_INDEX:
             source = _patch_pitch_card_entrance(source)
         if PREVIEW_CELL_MARKER in source:
