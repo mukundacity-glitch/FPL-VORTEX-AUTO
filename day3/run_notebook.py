@@ -221,9 +221,21 @@ print("✅ GitHub Manual Transfer selection loaded: "
 def _patch_gw_review_qa_fonts(source: str) -> str:
     """Keep the Drive notebook untouched while meeting its own final-render QA after scaling."""
     replacements = (
-        ("font-size:40px!important", "font-size:46px!important", "GW Review playerName font"),
-        ("font-size:35px!important", "font-size:38px!important", "GW Review playerMeta font"),
-        ("font-size:25px!important", "font-size:29px!important", "GW Review tinyScore font"),
+        (
+            ".playerName{top:194px!important;height:70px!important;font-size:40px!important",
+            ".playerName{top:194px!important;height:70px!important;font-size:46px!important",
+            "GW Review playerName font",
+        ),
+        (
+            ".playerMeta{height:92px!important;font-size:35px!important",
+            ".playerMeta{height:92px!important;font-size:38px!important",
+            "GW Review playerMeta font",
+        ),
+        (
+            ".tinyScore{left:18px!important;bottom:6px!important;font-size:25px!important",
+            ".tinyScore{left:18px!important;bottom:6px!important;font-size:29px!important",
+            "GW Review tinyScore font",
+        ),
     )
     for old, new, label in replacements:
         count = source.count(old)
