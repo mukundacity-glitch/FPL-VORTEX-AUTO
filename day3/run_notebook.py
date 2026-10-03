@@ -16,7 +16,7 @@ PLAN_VALUES = {"NEITHER", "ROLL", "TRANSFER"}
 TRANSFER_MODE_VALUES = {"AUTO", "MANUAL"}
 NOTEBOOK_CONTROL_CELL_INDEX = 1
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
-GW_REVIEW_ANIMATION_CELL_INDEX = 30
+GW_REVIEW_SOURCE_CELL_INDEX = 21
 
 
 def _replace_once(source: str, pattern: str, replacement: str, label: str) -> str:
@@ -219,7 +219,7 @@ print("✅ GitHub Manual Transfer selection loaded: "
 
 
 def _patch_gw_review_qa_fonts(source: str) -> str:
-    """Keep the Drive notebook untouched while meeting its own final-render QA after scaling."""
+    """Patch the generated GW Review source HTML before downstream animation scaling; Drive notebook stays untouched."""
     replacements = (
         (
             ".playerName{top:194px!important;height:70px!important;font-size:40px!important",
@@ -322,7 +322,7 @@ def run_notebook(notebook_path: Path) -> None:
     for cell_index, source in cells:
         if cell_index == NOTEBOOK_CONTROL_CELL_INDEX:
             source = _patch_control_cell(source)
-        if cell_index == GW_REVIEW_ANIMATION_CELL_INDEX:
+        if cell_index == GW_REVIEW_SOURCE_CELL_INDEX:
             source = _patch_gw_review_qa_fonts(source)
         if PREVIEW_CELL_MARKER in source:
             print(f"⏭️ Skipping Colab-only live preview cell {cell_index}.")
