@@ -19,6 +19,7 @@ TRANSFER_MODE_VALUES = {"AUTO", "MANUAL"}
 NOTEBOOK_CONTROL_CELL_INDEX = 1
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
 PITCH_ANIMATION_CELL_INDEX = 30
+PITCH_SOURCE_CELL_INDEX = 21
 TTS_PROFILE_CELL_INDEX = 10
 PLAYER_CARD_DESIGN_CELL_INDEX = 23
 FULL_WORD_NARRATION_CELL_INDEX = 28
@@ -207,6 +208,18 @@ print("✅ GitHub Manual Transfer selection loaded: "
         # scenes; Roll keeps only 5A.
         transfer_mode = "AUTO"
 
+    return source
+
+
+def _patch_pitch_player_names(source: str) -> str:
+    old = ".playerName{top:194px!important;height:70px!important;font-size:40px!important;"
+    new = old + "font-family:var(--vx-dense)!important;"
+    count = source.count(old)
+    if count != 1:
+        raise RuntimeError(f"Pitch player names: expected exactly one match, found {count}")
+    # Use the existing condensed name font so long names fit without falling below readable type sizes.
+    source = source.replace(old, new, 1)
+    print("✅ Compact pitch labels use the shared condensed font for full player names")
     return source
 
 
@@ -599,6 +612,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_player_card_sample(source)
         if cell_index == FULL_WORD_NARRATION_CELL_INDEX:
             source = _patch_narration_tone(source)
+        if cell_index == PITCH_SOURCE_CELL_INDEX:
+            source = _patch_pitch_player_names(source)
         if cell_index == PITCH_ANIMATION_CELL_INDEX:
             source = _patch_pitch_card_entrance(source)
         if PREVIEW_CELL_MARKER in source:

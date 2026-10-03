@@ -61,6 +61,7 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_player_card_sample",
             "_patch_narration_tone",
             "_patch_pitch_card_entrance",
+            "_patch_pitch_player_names",
         ):
             self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda source: source))
 
