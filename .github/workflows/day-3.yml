@@ -3259,6 +3259,15 @@ jobs:
             --plan "$DAY3_PLAN" \
             --transfer-mode "$DAY3_TRANSFER_MODE"
 
+      - name: Save failed render diagnostics
+        if: ${{ failure() && steps.run_notebook.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: day3-render-diagnostics-${{ github.run_id }}
+          path: /content/FPL_VORTEX_DAY3_WORK/html
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Sync Day 3 output and persistent model state back to Drive
         if: ${{ always() && steps.restore_state.outcome == 'success' && steps.run_notebook.outcome != 'skipped' }}
         shell: bash

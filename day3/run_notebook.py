@@ -20,6 +20,8 @@ NOTEBOOK_CONTROL_CELL_INDEX = 1
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
 PITCH_ANIMATION_CELL_INDEX = 30
 PITCH_SOURCE_CELL_INDEX = 21
+SCENE_DESIGN_CELL_INDEX = 24
+SCENE_ANIMATION_CELL_INDEX = 33
 TTS_PROFILE_CELL_INDEX = 10
 PLAYER_CARD_DESIGN_CELL_INDEX = 23
 FULL_WORD_NARRATION_CELL_INDEX = 28
@@ -235,6 +237,46 @@ def _patch_pitch_card_entrance(source: str) -> str:
     return source
 
 
+def _patch_shared_card_scene_checks(source: str) -> str:
+    old = "const lanes=[...body.children];"
+    new = "const lanes=[...body.children].filter(el=>el.getClientRects().length && el.clientWidth>0 && el.clientHeight>0).sort((left,right)=>left.getBoundingClientRect().top-right.getBoundingClientRect().top);"
+    count = source.count(old)
+    if count != 2:
+        raise RuntimeError(f"Shared card lane checks: expected two matches, found {count}")
+    # Hidden footer/legend nodes have no box; CSS order determines the visible row sequence.
+    source = source.replace(old, new)
+    replacements = {
+        "    cards.forEach(card=>{": "    await Promise.all(cards.map(async card=>{",
+        "window.VXPlayerCard.mount(card.querySelector('.d3DefHeroHost'),data);": "window.VXPlayerCard.mount(card.querySelector('.d3DefHeroHost'),data);\n      await document.fonts.ready;\n      window.VXPlayerCard.fitText(card.querySelector('.d3DefHeroHost'));",
+        "    });\n  })();\n  const assertDefconBoardFit": "    }));\n  })();\n  const assertDefconBoardFit",
+        "    document.querySelectorAll('.d3DeskPop').forEach(pop => {": "    await Promise.all([...document.querySelectorAll('.d3DeskPop')].map(async pop => {",
+        "window.VXPlayerCard.mount(pop.querySelector('.d3DeskHeroHost'),data);": "window.VXPlayerCard.mount(pop.querySelector('.d3DeskHeroHost'),data);\n      await document.fonts.ready;\n      window.VXPlayerCard.fitText(pop.querySelector('.d3DeskHeroHost'));",
+        "    });\n    // A useful static preview": "    }));\n    // A useful static preview",
+    }
+    for old, new in replacements.items():
+        count = source.count(old)
+        if count != 1:
+            raise RuntimeError(f"Shared card font readiness: expected one match, found {count}")
+        source = source.replace(old, new, 1)
+    print("✅ Scene card QA checks visible rows in their actual layout order")
+    return source
+
+
+def _patch_defcon_card_motion(source: str) -> str:
+    replacements = {
+        "?`translateY(${(1-playerEnter)*18}px) scale(${.99+.01*playerEnter})`": "?`translateY(${(1-playerEnter)*18}px)`",
+        ':"translateY(18px) scale(.99)";': ':"translateY(18px)";',
+    }
+    for old, new in replacements.items():
+        count = source.count(old)
+        if count != 1:
+            raise RuntimeError(f"DEFCON card motion: expected one match, found {count}")
+        source = source.replace(old, new, 1)
+    # These cards register their fitted font size as the minimum; translate without shrinking it.
+    print("✅ DEFCON card entrances preserve their fitted text size")
+    return source
+
+
 
 def _patch_tts_profile(source: str) -> str:
     """Use a slightly quicker, brighter Ryan delivery without changing the voice."""
@@ -329,9 +371,9 @@ _vx_pc_bg_uri = (
 
 PLAYER_CARD_DESIGN_VERSION = "V6.0_SAMPLE_BLUE_4PNG"
 
-PLAYER_CARD_CSS += r"""
+_vx_pc_sample_css = r"""
 <style id="vx-github-sample-card-v6">
-.vx-player-card{
+.vx-player-card.vx-player-card{
   --pc-sample-line:rgba(53,145,255,.88);
   --pc-sample-dark:#03133f;
   --pc-sample-deep:#061d57;
@@ -388,6 +430,7 @@ PLAYER_CARD_CSS += r"""
 .vx-player-card.vx-player-card .pc-info-stack{
   position:absolute!important;left:18px!important;top:18px!important;z-index:5!important;
   width:min(39%,430px)!important;display:grid!important;gap:12px!important;
+  height:auto!important;grid-template-rows:none!important;grid-auto-rows:auto!important;
 }
 .vx-player-card.vx-player-card .pc-info-item{
   display:grid!important;grid-template-columns:62px minmax(0,1fr)!important;gap:10px!important;
@@ -402,22 +445,24 @@ PLAYER_CARD_CSS += r"""
 .vx-player-card.vx-player-card .pc-info-item:nth-child(1){order:3!important;border-color:#b22cff!important;background:linear-gradient(145deg,rgba(90,12,164,.96),rgba(62,7,117,.96))!important}
 .vx-player-card.vx-player-card .pc-info-item:nth-child(n+4){display:none!important}
 .vx-player-card.vx-player-card .pc-info-icon{font-size:40px!important;line-height:1!important;text-align:center!important;color:#fff!important}
-.vx-player-card.vx-player-card .pc-info-label{font-size:24px!important;line-height:1!important;font-weight:900!important;color:#eaf6ff!important;white-space:nowrap!important}
-.vx-player-card.vx-player-card .pc-info-value{font-size:48px!important;line-height:.94!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important}
+.vx-player-card.vx-player-card .pc-info-label{font-size:24px!important;line-height:1.2!important;font-weight:900!important;color:#eaf6ff!important;white-space:nowrap!important}
+.vx-player-card.vx-player-card .pc-info-value{font-size:48px!important;line-height:1.2!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important}
 .vx-player-card.vx-player-card .pc-identity{
   order:2!important;position:relative!important;min-height:0!important;height:auto!important;
+  flex-shrink:0!important;
   padding:12px 165px 12px 18px!important;overflow:visible!important;text-align:center!important;
   border:2px solid var(--pc-sample-line)!important;border-radius:22px!important;
   background:linear-gradient(180deg,var(--pc-sample-deep),var(--pc-sample-dark))!important;
   box-shadow:0 9px 24px rgba(0,0,0,.38)!important;
 }
 .vx-player-card.vx-player-card .pc-name-first{
-  display:block!important;margin:0!important;font-size:34px!important;line-height:.9!important;
+  display:block!important;margin:0!important;font-size:34px!important;line-height:1.2!important;
   font-weight:900!important;letter-spacing:1px!important;color:#d9ecff!important;
 }
 .vx-player-card.vx-player-card .pc-name-last{
   display:block!important;margin:3px 0 0!important;
-  font-size:82px!important;line-height:.90!important;font-weight:1000!important;
+  font-family:var(--vx-dense,Arial,sans-serif)!important;
+  font-size:82px!important;line-height:1.2!important;font-weight:1000!important;
   letter-spacing:.2px!important;color:#fff!important;background:none!important;
   -webkit-text-fill-color:#fff!important;text-shadow:0 4px 12px rgba(0,0,0,.58)!important;
   white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
@@ -430,6 +475,8 @@ PLAYER_CARD_CSS += r"""
 }
 .vx-player-card.vx-player-card .pc-stat-rows{
   order:3!important;display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  grid-template-rows:none!important;
+  flex-shrink:0!important;
   grid-auto-rows:minmax(92px,1fr)!important;gap:12px!important;min-height:0!important;
 }
 .vx-player-card.vx-player-card .pc-stat-row{
@@ -441,10 +488,11 @@ PLAYER_CARD_CSS += r"""
   box-shadow:0 7px 18px rgba(0,0,0,.24),inset 0 0 18px rgba(35,135,255,.08)!important;
 }
 .vx-player-card.vx-player-card .pc-stat-icon{grid-row:1/3!important;align-self:center!important;font-size:38px!important;line-height:1!important}
-.vx-player-card.vx-player-card .pc-stat-label{align-self:end!important;font-size:20px!important;line-height:1!important;font-weight:900!important;color:#dbeaff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-.vx-player-card.vx-player-card .pc-stat-value{align-self:start!important;font-size:38px!important;line-height:.96!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.vx-player-card.vx-player-card .pc-stat-label{align-self:end!important;font-family:var(--vx-dense,Arial,sans-serif)!important;font-size:20px!important;line-height:1.2!important;font-weight:900!important;color:#dbeaff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.vx-player-card.vx-player-card .pc-stat-value{align-self:start!important;font-size:38px!important;line-height:1.2!important;font-weight:1000!important;color:#fff!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
 .vx-player-card.vx-player-card .pc-fixture-row{
   order:5!important;position:relative!important;display:grid!important;
+  flex-shrink:0!important;
   grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:10px!important;
   padding-top:48px!important;min-height:0!important;
 }
@@ -462,13 +510,13 @@ PLAYER_CARD_CSS += r"""
 .vx-player-card.vx-player-card .pc-fixture-card.fdr-3{background:linear-gradient(180deg,#e8edf5,#cbd3de)!important;color:#081226!important}
 .vx-player-card.vx-player-card .pc-fixture-card.fdr-5{background:linear-gradient(180deg,#ffd91f,#f2bb00)!important;color:#171100!important}
 .vx-player-card.vx-player-card .pc-fixture-card.fdr-none{background:linear-gradient(180deg,#354a70,#243655)!important;color:#fff!important}
-.vx-player-card.vx-player-card .pc-fixture-main{display:grid!important;grid-template-columns:1fr!important;justify-items:center!important;gap:2px!important}
+.vx-player-card.vx-player-card .pc-fixture-main{display:grid!important;grid-template-columns:1fr!important;justify-items:center!important;gap:2px!important;flex-shrink:0!important}
 .vx-player-card.vx-player-card .pc-fixture-crest{width:40px!important;height:40px!important;object-fit:contain!important}
-.vx-player-card.vx-player-card .pc-fixture-team{font-size:23px!important;line-height:.95!important;font-weight:1000!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
-.vx-player-card.vx-player-card .pc-fixture-venue{font-size:18px!important;line-height:1!important;font-weight:900!important}
-.vx-player-card.vx-player-card .pc-fixture-meta{display:grid!important;gap:2px!important}
-.vx-player-card.vx-player-card .pc-fixture-gw{font-size:18px!important;line-height:1!important;font-weight:900!important}
-.vx-player-card.vx-player-card .pc-fixture-fdr{font-size:28px!important;line-height:1!important;font-weight:1000!important}
+.vx-player-card.vx-player-card .pc-fixture-team{font-size:23px!important;line-height:1.2!important;font-weight:1000!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
+.vx-player-card.vx-player-card .pc-fixture-venue{font-size:18px!important;line-height:1.2!important;font-weight:900!important}
+.vx-player-card.vx-player-card .pc-fixture-meta{display:grid!important;gap:2px!important;flex-shrink:0!important}
+.vx-player-card.vx-player-card .pc-fixture-gw{font-size:18px!important;line-height:1.2!important;font-weight:900!important}
+.vx-player-card.vx-player-card .pc-fixture-fdr{font-size:28px!important;line-height:1.2!important;font-weight:1000!important}
 .vx-player-card.vx-player-card .pc-legend,.vx-player-card.vx-player-card .pc-card-footer{display:none!important}
 @container (max-height:1100px){
   .vx-player-card.vx-player-card .pc-info-stack{gap:8px!important}
@@ -488,6 +536,12 @@ PLAYER_CARD_CSS += r"""
 }
 </style>
 """.replace("__VX_PC_BG__", _vx_pc_bg_uri)
+# Scene-specific rules describe the earlier card layout. Keep the shared sample
+# layout authoritative even when those styles are appended after this stylesheet.
+PLAYER_CARD_CSS += _vx_pc_sample_css.replace(
+    ".vx-player-card.vx-player-card",
+    ".vx-player-card.vx-player-card.vx-player-card.vx-player-card",
+)
 
 _vx_pc_sample_fit = r"""  function fitOne(el){
     if (!el) return;
@@ -616,6 +670,10 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_pitch_player_names(source)
         if cell_index == PITCH_ANIMATION_CELL_INDEX:
             source = _patch_pitch_card_entrance(source)
+        if cell_index == SCENE_DESIGN_CELL_INDEX:
+            source = _patch_shared_card_scene_checks(source)
+        if cell_index == SCENE_ANIMATION_CELL_INDEX:
+            source = _patch_defcon_card_motion(source)
         if PREVIEW_CELL_MARKER in source:
             print(f"⏭️ Skipping Colab-only live preview cell {cell_index}.")
             continue
