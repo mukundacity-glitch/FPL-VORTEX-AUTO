@@ -10,6 +10,10 @@ import types
 from pathlib import Path
 from typing import Iterable
 
+# Direct workflow invocation must also resolve shared repository modules inside IPython.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.inputtransformer2 import TransformerManager
 
@@ -654,6 +658,13 @@ PLAYER_CARD_JS, _vx_pc_fit_count = _vx_pc_re.subn(
 )
 if _vx_pc_fit_count != 1:
     raise RuntimeError("The shared player-card text fitter was not found exactly once.")
+
+# One shared responsive layout and live badge registry for every hero host.
+from day3.player_cards import readable_player_cards as _vx_readable_cards
+PLAYER_CARD_CSS, PLAYER_CARD_JS = _vx_readable_cards(
+    PLAYER_CARD_CSS, PLAYER_CARD_JS, team_meta_by_id,
+)
+PLAYER_CARD_DESIGN_VERSION = "V7.0_READABLE_SHARED_CARDS"
 
 print("✅ Player card switched to supplied blue sample format")
 print("✅ Player card background: Assets/4.png")

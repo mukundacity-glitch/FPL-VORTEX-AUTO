@@ -3215,6 +3215,10 @@ jobs:
           done
           echo "Day 3 production assets restored"
 
+      - name: Check shared player card layouts in Chromium
+        shell: bash
+        run: python -m day3.check_player_cards "$DAY3_NOTEBOOK_PATH"
+
       - name: Reset only previous Day 3 render outputs
         shell: bash
         run: |
