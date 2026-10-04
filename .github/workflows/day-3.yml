@@ -3,9 +3,6 @@ name: Day 3
 run-name: Day 3 • ${{ inputs.plan || 'ROLL' }}
 
 on:
-  push:
-    branches: [main]
-    paths: [.github/day3-repair-trigger]
   workflow_dispatch:
     inputs:
       plan:
@@ -2904,7 +2901,7 @@ permissions:
 
 concurrency:
   group: fpl-vortex-day-3
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  cancel-in-progress: false
 
 env:
   PYTHONUNBUFFERED: "1"
