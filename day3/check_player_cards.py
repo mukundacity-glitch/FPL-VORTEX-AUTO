@@ -4,9 +4,12 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from PIL import Image
 
 from day3.run_notebook import PLAYER_CARD_DESIGN_CELL_INDEX, SCENE_DESIGN_CELL_INDEX, _patch_player_card_sample
 
@@ -23,7 +26,19 @@ def check_cards(notebook_path: Path, browser_channel: str | None = None) -> None
     notebook = json.loads(notebook_path.read_text(encoding='utf-8'))
     source = ''.join(notebook['cells'][PLAYER_CARD_DESIGN_CELL_INDEX]['source'])
     namespace = {'team_meta_by_id': _METADATA}
-    exec(compile(_patch_player_card_sample(source), '<production-player-card>', 'exec'), namespace)
+    # The background is decorative. Use a fixture so checks can run before
+    # downloading model history and production assets from Drive.
+    previous_assets = os.environ.get('DAY1_ASSET_DIR')
+    with tempfile.TemporaryDirectory() as assets:
+        Image.new('RGB', (8, 8), '#03133f').save(Path(assets) / '4.png')
+        os.environ['DAY1_ASSET_DIR'] = assets
+        try:
+            exec(compile(_patch_player_card_sample(source), '<production-player-card>', 'exec'), namespace)
+        finally:
+            if previous_assets is None:
+                os.environ.pop('DAY1_ASSET_DIR', None)
+            else:
+                os.environ['DAY1_ASSET_DIR'] = previous_assets
     scene_source = ''.join(notebook['cells'][SCENE_DESIGN_CELL_INDEX]['source'])
     scene_css = []
     expected = {'_D3_DEFCON_PRODUCTION_CSS', '_D3_DESK_SHARED_CSS', '_D3_SHORT_SHARED_CARD_CSS'}
@@ -60,9 +75,9 @@ def check_cards(notebook_path: Path, browser_channel: str | None = None) -> None
                 for host in ('d3DefHeroHost', 'd3DeskHeroHost', 'd3ShortHeroHost', 'review'):
                     for variant in variants:
                         page.set_content('<html><head>' + namespace['PLAYER_CARD_CSS'] + ''.join(scene_css)
-                            + '</head><body class="vxPremium"><div id="host" class="' + host
+                            + '<style>:root{--vx-dense:Arial}.vx-player-card{font-family:Arial!important}</style></head><body class="vxPremium"><div id="host" class="' + host
                             + f'" style="width:{width}px!important;height:{height}px!important"></div>'
-                            + namespace['PLAYER_CARD_JS'] + '</body></html>')
+                            + '<script>window.vxPrepareCapture=undefined;</script>' + namespace['PLAYER_CARD_JS'] + '</body></html>')
                         page.evaluate('data=>window.VXPlayerCard.mount(document.getElementById("host"),data)', payload | variant)
                         # Production scenes remove data-pc-fit, then a card may be resized
                         # or revealed later. Capture must still refit it with loaded fonts.
