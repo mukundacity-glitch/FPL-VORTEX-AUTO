@@ -66,6 +66,9 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_pitch_player_names",
             "_patch_shared_card_scene_checks",
             "_patch_defcon_card_motion",
+            "_patch_scene_polish",
+            "_patch_desk_closing_audio",
+            "_patch_transition_title_bounds",
         ):
             self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda source: source))
 

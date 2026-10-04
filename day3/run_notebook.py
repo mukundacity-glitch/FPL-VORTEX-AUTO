@@ -31,6 +31,82 @@ SCENE_ANIMATION_CELL_INDEX = 33
 TTS_PROFILE_CELL_INDEX = 10
 PLAYER_CARD_DESIGN_CELL_INDEX = 23
 FULL_WORD_NARRATION_CELL_INDEX = 28
+SHARED_NARRATION_CELL_INDEX = 32
+FINAL_ASSEMBLY_CELL_INDEX = 35
+
+
+def _replace_exact(source: str, old: str, new: str, label: str) -> str:
+    count = source.count(old)
+    if count != 1:
+        raise RuntimeError(f"{label}: expected exactly one match, found {count}")
+    return source.replace(old, new, 1)
+
+
+def _patch_scene_polish(source: str) -> str:
+    # Leave the recap unmanaged so it is fully visible even at seek(0).
+    # The right agenda retains its existing narration-synchronised entrances.
+    source = _replace_exact(
+        source,
+        '                {"sel":".leftAgendaHeader","at":left_header_at,"dur":0.55,"stagger":0,"fx":"rise"},\n                *left_events,\n',
+        '                # Left recap header and cards persist from frame zero.\n',
+        "intro recap at frame zero",
+    )
+    return _replace_exact(
+        source,
+        '            close_at = float(cues["closing_at"])',
+        '            close_at = max(float(cues["closing_at"]), float(windows[-1]["settle"]))',
+        "desk closing visual after final cards",
+    )
+
+
+def _patch_desk_closing_audio(source: str) -> str:
+    # Play the unchanged closing speech over the two unspoken SELL popups.
+    # BUY/HOLD timing and all player explanations remain unchanged.
+    source = _replace_exact(
+        source,
+        '                if action == "CLOSE":\n                    closing_at = offset\n                    continue',
+        '''                if action == "CLOSE":
+                    closing_at = offset
+                    final_section = plan["sections"][-1]
+                    cards = final_section["silent_cards"]
+                    seconds = min(float(final_section["silent_card_seconds"]), (end-offset)/len(cards))
+                    if not math.isfinite(seconds) or seconds <= 0:
+                        raise RuntimeError("Transfer Desk closing-card duration is invalid")
+                    for index, player in enumerate(cards):
+                        start = offset + index * seconds
+                        settle = start + seconds
+                        windows.append(dict(player, action="SELL", start=start, settle=settle,
+                                            exit_at=settle-min(.34, seconds*.2), narrated=False))
+                    continue''',
+        "desk closing speech over final sell cards",
+    )
+    source = _replace_exact(
+        source,
+        '                seconds = float(section["silent_card_seconds"])',
+        '''                if action == "SELL":
+                    # CLOSE supplies the soundtrack and measured windows for these cards.
+                    continue
+                seconds = float(section["silent_card_seconds"])''',
+        "remove final sell silence",
+    )
+    return _replace_exact(
+        source,
+        'len(silent_intervals) != 6',
+        'len(silent_intervals) != 4',
+        "desk silence count",
+    )
+
+
+def _patch_transition_title_bounds(source: str) -> str:
+    # Pillow's textbbox includes a font-dependent origin offset. Compensate
+    # before drawing into the measured mask so the lower glyphs are retained.
+    return _replace_exact(
+        source,
+        '            md.text((stroke*2,yy), line, font=chosen_font, fill=255, stroke_width=stroke, stroke_fill=255)',
+        '''            b=draw.textbbox((0,0), line, font=chosen_font, stroke_width=stroke)
+            md.text((stroke*2-b[0],yy-b[1]), line, font=chosen_font, fill=255, stroke_width=stroke, stroke_fill=255)''',
+        "transition title glyph bounds",
+    )
 
 
 def _replace_once(source: str, pattern: str, replacement: str, label: str) -> str:
@@ -764,6 +840,11 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_shared_card_scene_checks(source)
         if cell_index == SCENE_ANIMATION_CELL_INDEX:
             source = _patch_defcon_card_motion(source)
+            source = _patch_scene_polish(source)
+        if cell_index == SHARED_NARRATION_CELL_INDEX:
+            source = _patch_desk_closing_audio(source)
+        if cell_index == FINAL_ASSEMBLY_CELL_INDEX:
+            source = _patch_transition_title_bounds(source)
         if PREVIEW_CELL_MARKER in source:
             print(f"⏭️ Skipping Colab-only live preview cell {cell_index}.")
             continue
