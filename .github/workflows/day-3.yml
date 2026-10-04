@@ -3163,6 +3163,10 @@ jobs:
         shell: bash
         run: python day3/run_notebook.py "$DAY3_NOTEBOOK_PATH" --validate-only
 
+      - name: Check shared player card layouts in Chromium
+        shell: bash
+        run: python -m day3.check_player_cards "$DAY3_NOTEBOOK_PATH"
+
       - name: Restore Day 3 model state and production assets
         id: restore_state
         shell: bash
@@ -3214,10 +3218,6 @@ jobs:
             fi
           done
           echo "Day 3 production assets restored"
-
-      - name: Check shared player card layouts in Chromium
-        shell: bash
-        run: python -m day3.check_player_cards "$DAY3_NOTEBOOK_PATH"
 
       - name: Reset only previous Day 3 render outputs
         shell: bash

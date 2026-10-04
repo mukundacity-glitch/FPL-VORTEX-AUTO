@@ -11,14 +11,14 @@ READABLE_CARD_CSS = r'''
 <style id="vx-readable-player-cards">
 CARD .pc-card-body{
   display:grid!important;grid-template-columns:minmax(0,1fr)!important;
-  grid-template-rows:minmax(0,1fr) auto auto auto!important;
+  grid-template-rows:minmax(min-content,1fr) auto auto auto!important;
   gap:clamp(8px,1.1cqw,16px)!important;
 }
-CARD .pc-photo-info{order:1!important;display:block!important;min-height:0!important}
+CARD .pc-photo-info{order:1!important;display:block!important;min-height:min-content!important}
 CARD .pc-portrait-box{left:44%!important;width:56%!important;display:block!important}
 CARD .pc-portrait{max-width:100%!important;width:auto!important;height:96%!important;max-height:100%!important;aspect-ratio:auto!important}
 CARD .pc-info-stack{
-  left:0!important;top:0!important;width:43%!important;height:auto!important;
+  position:relative!important;left:0!important;top:0!important;width:43%!important;height:auto!important;
   display:grid!important;grid-template-rows:repeat(3,auto)!important;
   gap:clamp(6px,1cqh,14px)!important;max-height:none!important;
 }
