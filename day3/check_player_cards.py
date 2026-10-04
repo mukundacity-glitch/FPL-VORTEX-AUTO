@@ -48,6 +48,20 @@ def check_cards(notebook_path: Path, browser_channel: str | None = None) -> None
     if len(scene_css) != len(expected):
         raise RuntimeError('Expected all three production scene card styles for layout checks')
 
+    premium_source = ''.join(notebook['cells'][10]['source'])
+    premium_js = next(ast.literal_eval(node.value) for node in ast.walk(ast.parse(premium_source))
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == 'VX_PREMIUM_JS' for t in node.targets))
+    start = premium_js.index('function fitSecondary(root){')
+    end = premium_js.index('function removeExactRowDuplicates(root)', start)
+    # Exercise the actual notebook's secondary fitter, which runs inside the
+    # capture chain after scene cards have registered their font floors.
+    secondary_fitter = '<script>(()=>{const cfg={key:"card-test"};' \
+        'const fitCache=new WeakMap();const normalize=s=>String(s||"").trim();' \
+        'const visible=e=>e.getClientRects().length>0;' \
+        'const set=(e,k,v)=>e.style.setProperty(k,String(v),"important");' \
+        + premium_js[start:end] \
+        + 'window.vxPrepareCapture=async()=>{fitSecondary(document.getElementById("host"));return {passed:true};};})();</script>'
+
     fixtures = [{'gw': 7+i, 'opponent': 'AAA/BBB' if i == 2 else 'AAA',
                  'venue': 'H/A' if i == 2 else 'H', 'fdr_value': 2.5} for i in range(5)]
     # Long labels, large numbers, full club names, blank weeks and two opponents.
@@ -77,13 +91,17 @@ def check_cards(notebook_path: Path, browser_channel: str | None = None) -> None
                         page.set_content('<html><head>' + namespace['PLAYER_CARD_CSS'] + ''.join(scene_css)
                             + '<style>:root{--vx-dense:Arial}.vx-player-card{font-family:Arial!important}</style></head><body class="vxPremium"><div id="host" class="' + host
                             + f'" style="width:{width}px!important;height:{height}px!important"></div>'
-                            + '<script>window.vxPrepareCapture=undefined;</script>' + namespace['PLAYER_CARD_JS'] + '</body></html>')
+                            + secondary_fitter + namespace['PLAYER_CARD_JS'] + '</body></html>')
                         page.evaluate('data=>window.VXPlayerCard.mount(document.getElementById("host"),data)', payload | variant)
                         # Production scenes remove data-pc-fit, then a card may be resized
                         # or revealed later. Capture must still refit it with loaded fonts.
                         page.evaluate('''async()=>{
                           await document.fonts.ready;
-                          document.querySelectorAll('[data-pc-fit]').forEach(el=>el.removeAttribute('data-pc-fit'));
+                          document.querySelectorAll('[data-pc-fit]').forEach(el=>{
+                            const size=parseFloat(getComputedStyle(el).fontSize);
+                            el.dataset.vxFit='true';el.dataset.vxPreferred=String(size);el.dataset.vxMin=String(size);
+                            el.removeAttribute('data-pc-fit');
+                          });
                           await window.vxPrepareCapture();
                         }''')
                         result = page.evaluate('''()=>{

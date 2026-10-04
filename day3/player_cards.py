@@ -139,6 +139,7 @@ _READY_JS = r'''
       card.querySelectorAll('[data-vx-fit]').forEach(el=>{
         const size=parseFloat(getComputedStyle(el).fontSize);
         el.dataset.vxPreferred=String(size);el.dataset.vxMin=String(size);
+        el.dataset.vxWrap=getComputedStyle(el).whiteSpace==='normal' ? 'soft' : 'nowrap';
       });
     }
     const report=prepare ? await prepare(...args) : {passed:true};
