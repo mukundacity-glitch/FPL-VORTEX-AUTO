@@ -47,6 +47,18 @@ class FinalVideoSelectionTests(unittest.TestCase):
             _one_final_video(self.output_root)
 
 
+class TransferDeskPacingTests(unittest.TestCase):
+    def test_unvoiced_card_hold_is_shortened(self) -> None:
+        source = 'sections.append({"silent_card_seconds": 4.0})'
+        updated = runner._patch_transfer_desk_pacing(source)
+        self.assertIn('"silent_card_seconds": 1.35}', updated)
+        self.assertNotIn('"silent_card_seconds": 4.0}', updated)
+
+    def test_pacing_rejects_unrecognized_notebook_source(self) -> None:
+        with self.assertRaises(RuntimeError):
+            runner._patch_transfer_desk_pacing('sections = []')
+
+
 class NotebookPreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -65,6 +77,7 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_pitch_card_entrance",
             "_patch_pitch_player_names",
             "_patch_shared_card_scene_checks",
+            "_patch_transfer_desk_pacing",
             "_patch_defcon_card_motion",
             "_patch_scene_polish",
             "_patch_desk_closing_audio",
