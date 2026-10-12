@@ -89,11 +89,27 @@ def _patch_desk_closing_audio(source: str) -> str:
                 seconds = float(section["silent_card_seconds"])''',
         "remove final sell silence",
     )
-    return _replace_exact(
+    source = _replace_exact(
         source,
         'len(silent_intervals) != 6',
-        'len(silent_intervals) != 4',
-        "desk silence count",
+        'len(silent_intervals) != 4 or any(interval["end"] - interval["start"] > 1.50 for interval in silent_intervals)',
+        "desk silence count and maximum pause",
+    )
+    return _replace_exact(
+        source,
+        "                padded_frames = max(frame_count, math.ceil(last_word_end * sample_rate))\n                output.writeframesraw(frames)\n                if padded_frames > frame_count:\n                    output.writeframesraw(b\"\\x00\\x00\" * (padded_frames - frame_count))\n                sample_cursor += padded_frames",
+        "                # Edge-TTS can append long silence after the last spoken word.\n                # Retain a natural 0.30-second hand-off without clipping WordBoundary audio.\n                if last_word_end > frame_count / sample_rate + 0.5:\n                    raise RuntimeError(f\"Transfer Desk {action} words exceed decoded audio\")\n                spoken_frames = math.ceil((last_word_end + 0.30) * sample_rate)\n                output.writeframesraw(frames[:min(frame_count, spoken_frames) * 2])\n                if spoken_frames > frame_count:\n                    output.writeframesraw(b\"\\x00\\x00\" * (spoken_frames - frame_count))\n                sample_cursor += spoken_frames",
+        "trim Transfer Desk TTS tails",
+    )
+
+
+def _patch_transfer_desk_pacing(source: str) -> str:
+    """Reduce non-narrated card holds without shifting spoken-player cues."""
+    return _replace_exact(
+        source,
+        '"silent_card_seconds": 4.0})',
+        '"silent_card_seconds": 1.35})',
+        "Transfer Desk unspoken card duration",
     )
 
 
@@ -838,6 +854,7 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_pitch_card_entrance(source)
         if cell_index == SCENE_DESIGN_CELL_INDEX:
             source = _patch_shared_card_scene_checks(source)
+            source = _patch_transfer_desk_pacing(source)
         if cell_index == SCENE_ANIMATION_CELL_INDEX:
             source = _patch_defcon_card_motion(source)
             source = _patch_scene_polish(source)
