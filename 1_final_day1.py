@@ -1636,7 +1636,7 @@ from typing import Any as _vx_day1_image_Any
 _vx_day1_photo_module = _vx_day1_image_types.ModuleType("vortex_day1_wc_fh_player_images")
 exec(_VX_DAY1_WC_FH_IMAGE_SOURCE, _vx_day1_photo_module.__dict__)
 _vx_day1_photo_bootstrap = data["bootstrap"]
-_vx_day1_photo_work = Path(DATA_DIR) / "wc_fh_official_images"
+_vx_day1_photo_work = Path(WORK_ROOT) / "wc_fh_official_images"
 _vx_day1_photo_records = {}
 
 
