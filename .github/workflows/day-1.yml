@@ -242,6 +242,16 @@ jobs:
           sudo mkdir -p /content/drive/MyDrive
           sudo chown -R "$(id -u):$(id -g)" /content
 
+          available_assets="$(rclone lsf "day1-assets:" --files-only --max-depth 1)"
+          for asset_name in opening.mp4 Background_music.mp3 outro.mp3; do
+            if ! grep -Fxq "${asset_name}" <<< "${available_assets}"; then
+              echo "::error title=Missing original Day 1 media asset::${asset_name} is absent from Google Drive folder ${DAY1_ASSET_FOLDER_ID}" >&2
+              echo "Restore the original ${asset_name} to the existing Drive Assets folder before running Day 1." >&2
+              exit 1
+            fi
+          done
+          echo "Required original Day 1 media assets: present"
+
           restore_optional() {
             local remote_path="$1"
             local local_path="/content/drive/MyDrive/$1"
