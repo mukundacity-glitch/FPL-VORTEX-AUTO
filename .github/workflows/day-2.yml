@@ -84,6 +84,9 @@ jobs:
           sudo mkdir -p /content/drive/MyDrive
           sudo chown -R "$(id -u):$(id -g)" /content
           python -m day2.drive_io restore
+          rclone backend copyid day2-shared-assets: \
+            1Lxt7hDn5VAVj3njo9n6H2ymXY_gd2vP8 \
+            "${DAY2_ASSET_DIR}/logo1.png"
 
       - name: Install fresh Day 2 render dependencies
         shell: bash

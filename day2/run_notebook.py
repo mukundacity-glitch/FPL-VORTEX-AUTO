@@ -19,6 +19,7 @@ from edge_tts import constants as edge_constants
 from IPython.core.interactiveshell import InteractiveShell
 
 from .common import read_json
+from .visuals import install_visual_polish
 
 
 DAY2_OUTPUT_ROOT = "/content/drive/MyDrive/FPL_VORTEX/Day_2"
@@ -1054,6 +1055,19 @@ def _patch_quality(payload: dict, quality: str, notebook_path: Path) -> None:
     _set_cell_source(cells[0], patched)
 
 
+def _patch_brand_asset(payload: dict) -> None:
+    logo = Path(os.environ["DAY2_ASSET_DIR"]) / "logo1.png"
+    if not logo.is_file():
+        raise FileNotFoundError(f"Day 2 original logo is missing: {logo}")
+    source = _cell_source(payload["cells"][2])
+    original = '_vx_logo_path = _vx_find_asset("logo.png")'
+    if source.count(original) != 1:
+        raise RuntimeError("Day 2 shared logo selector changed unexpectedly")
+    _set_cell_source(payload["cells"][2], source.replace(
+        original, f"_vx_logo_path = _vx_Path({str(logo)!r})", 1
+    ))
+
+
 def _install_colab_compat() -> None:
     """Provide only the Colab APIs used by the saved notebook."""
     try:
@@ -1100,6 +1114,7 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
     if repaired or replaced:
         _sync_repaired_notebook(payload, notebook_path)
     _patch_quality(payload, quality, notebook_path)
+    _patch_brand_asset(payload)
 
     # The execution copy is ephemeral. Only the Python 3.11 source repair above
     # is synced back to Drive; workflow-only quality/path overrides stay local.
@@ -1142,6 +1157,7 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
             result = shell.run_cell(source, store_history=False, silent=False)
             if not result.success:
                 raise RuntimeError(f"Day 2 execution failed in notebook cell {cell_index}")
+            install_visual_polish(shell.user_ns)
         finally:
             print("::endgroup::", flush=True)
 
