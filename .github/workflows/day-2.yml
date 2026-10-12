@@ -37,8 +37,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main:refs/remotes/origin/main
-          unexpected="$(git diff --name-only origin/main...HEAD | grep -Ev '^(\.github/workflows/day-2\.yml|day2/|README\.md)$' || true)"
+          # Freeze the checkout baseline so concurrent main updates cannot invalidate this run.
+          baseline="$(git rev-parse refs/remotes/origin/main)"
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            baseline="$(git rev-parse HEAD)"
+          fi
+          changed="$(git diff --name-only "${baseline}...HEAD")"
+          unexpected="$(printf '%s\n' "${changed}" | grep -Ev '^(\.github/workflows/day-2\.yml|day2/.*|README\.md)?$' || true)"
           if [[ -n "${unexpected}" ]]; then
             echo "Unexpected non-Day-2 changes:" >&2
             echo "${unexpected}" >&2
@@ -51,11 +56,12 @@ jobs:
             vortex/day1_media.py \
             vortex/youtube_private_upload.py \
             vortex/youtube_studio_package.py; do
-            [[ "$(git rev-parse HEAD:${file})" == "$(git rev-parse origin/main:${file})" ]] || {
+            # A tree diff accepts a path absent in both refs and rejects additions/deletions.
+            git diff --quiet "${baseline}" HEAD -- "${file}" || {
               echo "Protected Day 1 file changed: ${file}" >&2; exit 1;
             }
           done
-          echo "[DAY 2] Day 1 protected files: byte-identical to main"
+          echo "[DAY 2] Day 1 protected files: unchanged from frozen baseline ${baseline}"
 
       - name: Set up Python
         uses: actions/setup-python@v7
