@@ -20,6 +20,7 @@ from IPython.core.interactiveshell import InteractiveShell
 
 from .common import read_json
 from .visuals import install_visual_polish
+from .player_images import install_player_images
 
 
 DAY2_OUTPUT_ROOT = "/content/drive/MyDrive/FPL_VORTEX/Day_2"
@@ -192,6 +193,9 @@ def _vx_name(row):
     return str(value).strip() if value not in (None, "") else ""
 
 def _vx_photo(row):
+    resolver = globals().get("vx_player_visual")
+    if callable(resolver):
+        return str(resolver(row).get("src") or "")
     value = _vx_pick(row, "photo", "photo_url", "image", "image_url", "headshot", "portrait", "player_image")
     return str(value).strip() if value not in (None, "") else ""
 
@@ -1158,6 +1162,7 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
             if not result.success:
                 raise RuntimeError(f"Day 2 execution failed in notebook cell {cell_index}")
             install_visual_polish(shell.user_ns)
+            install_player_images(shell.user_ns)
         finally:
             print("::endgroup::", flush=True)
 
@@ -1176,3 +1181,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
