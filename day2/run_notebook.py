@@ -1069,6 +1069,77 @@ def _patch_edge_ryan_retry(payload: dict) -> None:
     print("[DAY 2] Edge Ryan unchanged; bounded 403 cooldown enabled")
 
 
+def _preflight_edge_ryan() -> None:
+    """Try the original Edge Ryan connection, then current Edge handshakes on 403.
+
+    Preserve the Drive notebook and its voice, rate, pitch, volume, word timing,
+    and output encoding. The accepted handshake persists in this Python process.
+    """
+    import asyncio
+    import importlib
+    import edge_tts
+
+    constants = importlib.import_module("edge_tts.constants")
+    communicate = importlib.import_module("edge_tts.communicate")
+    original = str(constants.CHROMIUM_FULL_VERSION)
+    candidates = tuple(dict.fromkeys((
+        original, "155.0.4283.45", "154.0.4258.62", "152.0.4191.122",
+    )))
+
+    def set_browser_handshake(version: str) -> None:
+        major = version.partition(".")[0]
+        user_agent = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"Chrome/{major}.0.0.0 Safari/537.36 Edg/{major}.0.0.0"
+        )
+        # communicate.py imports the version by value. Both need updating.
+        communicate.SEC_MS_GEC_VERSION = f"1-{version}"
+        communicate.WSS_HEADERS["User-Agent"] = user_agent
+        constants.BASE_HEADERS["User-Agent"] = user_agent
+        constants.VOICE_HEADERS["User-Agent"] = user_agent
+        constants.VOICE_HEADERS["Sec-CH-UA"] = (
+            f'" Not;A Brand";v="99", "Microsoft Edge";v="{major}", '
+            f'"Chromium";v="{major}"'
+        )
+
+    async def probe() -> None:
+        got_audio = False
+        got_words = False
+        request = edge_tts.Communicate(
+            "FPL Vortex narrator check.", voice="en-GB-RyanNeural",
+            rate="+17%", pitch="-4Hz", volume="+0%", boundary="WordBoundary",
+        )
+        async for item in request.stream():
+            got_audio |= item.get("type") == "audio" and bool(item.get("data"))
+            got_words |= item.get("type") == "WordBoundary"
+        if not (got_audio and got_words):
+            raise RuntimeError("Edge Ryan returned incomplete audio or word boundaries")
+
+    for version in candidates:
+        set_browser_handshake(version)
+        try:
+            asyncio.run(asyncio.wait_for(probe(), timeout=25))
+        except Exception as exc:
+            status = getattr(exc, "status", None)
+            # A newer browser handshake is useful only for an HTTP 403.
+            if status != 403 and "403" not in str(exc):
+                raise RuntimeError(
+                    f"Edge Ryan probe failed for a reason other than 403: {type(exc).__name__}"
+                ) from exc
+            # Do not log the full exception: its URL includes a shared token.
+            print(f"[DAY 2] Edge speech rejected browser protocol {version} (HTTP 403)")
+        else:
+            print(f"[DAY 2] Edge Ryan speech verified with browser version {version}; "
+                  "real audio + WordBoundary timing; voice/pitch/rate unchanged")
+            return
+
+    raise RuntimeError(
+        "Microsoft Edge Ryan rejected all browser handshakes (HTTP 403). "
+        "No audio provider or narration settings were changed."
+    )
+
+
 def execute_notebook(notebook_path: Path, quality: str) -> None:
     notebook_path = notebook_path.resolve()
     if not notebook_path.is_file():
@@ -1097,6 +1168,7 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
         if cell.get("cell_type") == "code"
     ]
 
+    _preflight_edge_ryan()
     _install_colab_compat()
     shell = InteractiveShell.instance()
     shell.autoawait = True
