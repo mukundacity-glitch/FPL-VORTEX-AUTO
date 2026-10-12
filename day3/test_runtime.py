@@ -84,7 +84,7 @@ class ReviewOnlyChipTeaserTests(unittest.TestCase):
             with self.subTest(chip=chip):
                 with patch.dict(runner.os.environ, {"DAY3_PLAN": "NEITHER", "DAY3_REVIEW_CHIP": chip}):
                     modified = runner._patch_review_only_teaser(self.SOURCE)
-                self.assertIn(f"I'm planning to play my {label} in Gameweek", modified)
+                self.assertIn(f"I'm playing my {label} in Gameweek", modified)
                 self.assertIn(' + " " + _vx_day3_review_teaser', modified)
                 compile("def render_review():\n" + modified, "<review-only-teaser>", "exec")
 
@@ -92,7 +92,7 @@ class ReviewOnlyChipTeaserTests(unittest.TestCase):
         with patch.dict(runner.os.environ, {"DAY3_PLAN": "NEITHER", "DAY3_REVIEW_CHIP": "NONE"}):
             modified = runner._patch_review_only_teaser(self.SOURCE)
         self.assertIn("My Gameweek plan will be in my next video.", modified)
-        self.assertNotIn("I'm planning to play my", modified)
+        self.assertNotIn("I'm playing my", modified)
 
     def test_roll_and_transfer_keep_original_narration(self) -> None:
         for plan in ("ROLL", "TRANSFER"):
