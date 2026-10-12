@@ -1594,7 +1594,7 @@ print("✅ Forecast timestamp remains EMPTY — no prediction layer exists yet")
 from pathlib import Path
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
-import json, re, time, requests
+import csv, json, re, time, requests
 
 CACHE_DIR = Path(globals().get("DATA_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/data"))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1687,6 +1687,397 @@ def fpl_photo_url(fpl_player):
         return "https://resources.premierleague.com/premierleague/" + f"photos/players/250x250/p{code}.png"
     return ""
 
+def _vx_fpl_core_players_path():
+    """Return the refreshed current-season FPL-Core players.csv when available."""
+    explicit = globals().get("FPL_CORE_PLAYERS_PATH")
+    if explicit:
+        path = Path(explicit)
+        if path.is_file():
+            return path
+
+    root = globals().get("DRIVE_ROOT")
+    if root:
+        path = Path(root) / "players.csv"
+        if path.is_file():
+            return path
+
+    season = str(globals().get("CURRENT_SEASON") or globals().get("SEASON") or "").strip()
+    if season:
+        if callable(globals().get("_vx_phase10_core_dir")):
+            path = Path(_vx_phase10_core_dir(season)) / "players.csv"
+            if path.is_file():
+                return path
+        path = (
+            Path("/content/drive/MyDrive/FPL_VORTEX_DATA/00_SOURCE_ARCHIVE/FPL_CORE/data")
+            / season
+            / "players.csv"
+        )
+        if path.is_file():
+            return path
+    return None
+
+
+_FPL_CORE_IMAGE_INDEX = {
+    "path": "",
+    "mtime_ns": -1,
+    "by_id": {},
+    "by_name": {},
+}
+
+
+def _vx_load_fpl_core_image_index():
+    """Index FPL-Core by official FPL player id and normalized names."""
+    path = _vx_fpl_core_players_path()
+    if path is None:
+        return {"by_id": {}, "by_name": {}}
+
+    try:
+        mtime_ns = int(path.stat().st_mtime_ns)
+    except Exception:
+        return {"by_id": {}, "by_name": {}}
+
+    if (
+        _FPL_CORE_IMAGE_INDEX["path"] == str(path)
+        and _FPL_CORE_IMAGE_INDEX["mtime_ns"] == mtime_ns
+    ):
+        return _FPL_CORE_IMAGE_INDEX
+
+    by_id = {}
+    by_name = {}
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            for row in csv.DictReader(handle):
+                try:
+                    player_id = int(float(row.get("player_id", "")))
+                    player_code = int(float(row.get("player_code", "")))
+                except Exception:
+                    continue
+
+                normalized = dict(row)
+                normalized["player_id"] = player_id
+                normalized["player_code"] = player_code
+                by_id[player_id] = normalized
+
+                names = {
+                    vx_normalize_name(row.get("web_name")),
+                    vx_normalize_name(
+                        " ".join(
+                            p for p in (
+                                str(row.get("first_name", "") or "").strip(),
+                                str(row.get("second_name", "") or "").strip(),
+                            )
+                            if p
+                        )
+                    ),
+                }
+                for name_key in names:
+                    if name_key:
+                        by_name.setdefault(name_key, []).append(normalized)
+    except Exception:
+        return {"by_id": {}, "by_name": {}}
+
+    _FPL_CORE_IMAGE_INDEX.update(
+        {
+            "path": str(path),
+            "mtime_ns": mtime_ns,
+            "by_id": by_id,
+            "by_name": by_name,
+        }
+    )
+    return _FPL_CORE_IMAGE_INDEX
+
+
+def _vx_current_team_code(fpl_player):
+    row = fpl_player.to_dict() if hasattr(fpl_player, "to_dict") else dict(fpl_player)
+    direct = row.get("team_code")
+    if direct not in (None, ""):
+        try:
+            return int(direct)
+        except Exception:
+            pass
+
+    try:
+        team_id = int(row.get("team") or row.get("team_id") or 0)
+    except Exception:
+        team_id = 0
+
+    try:
+        meta = (globals().get("team_meta_by_id") or {}).get(team_id, {}) or {}
+        if meta.get("code") not in (None, ""):
+            return int(meta["code"])
+    except Exception:
+        pass
+
+    teams_obj = globals().get("teams")
+    try:
+        if hasattr(teams_obj, "loc"):
+            match = teams_obj.loc[teams_obj["id"].astype(int) == team_id]
+            if not match.empty:
+                return int(match.iloc[-1]["code"])
+    except Exception:
+        pass
+    return None
+
+
+def _vx_fpl_core_player_code(fpl_player):
+    """
+    Recover the Premier League player code from the refreshed FPL-Core player map.
+    Exact official FPL player id is preferred; name matching is only a guarded rescue.
+    """
+    row = fpl_player.to_dict() if hasattr(fpl_player, "to_dict") else dict(fpl_player)
+    index = _vx_load_fpl_core_image_index()
+    by_id = index.get("by_id", {})
+    by_name = index.get("by_name", {})
+
+    try:
+        player_id = int(row.get("id") or row.get("player_id"))
+    except Exception:
+        player_id = None
+
+    if player_id is not None and player_id in by_id:
+        try:
+            return int(by_id[player_id]["player_code"])
+        except Exception:
+            pass
+
+    wanted_names = {
+        vx_normalize_name(str(row.get("web_name", "") or "")),
+        vx_normalize_name(_fpl_full_name(row)),
+    }
+    wanted_names.discard("")
+    wanted_team_code = _vx_current_team_code(row)
+
+    candidates = []
+    for key in wanted_names:
+        candidates.extend(by_name.get(key, []))
+
+    unique = {}
+    for candidate in candidates:
+        try:
+            unique[int(candidate["player_code"])] = candidate
+        except Exception:
+            continue
+
+    for candidate in unique.values():
+        if wanted_team_code is not None:
+            try:
+                if int(candidate.get("team_code")) != int(wanted_team_code):
+                    continue
+            except Exception:
+                continue
+        return int(candidate["player_code"])
+    return None
+
+
+def fpl_core_photo_url(fpl_player):
+    """FPL-Core is an identity/code rescue; the actual image still comes from PL."""
+    code = _vx_fpl_core_player_code(fpl_player)
+    if not code:
+        return ""
+    return (
+        "https://resources.premierleague.com/premierleague/"
+        f"photos/players/250x250/p{int(code)}.png"
+    )
+
+
+FOTMOB_SEARCH_ENDPOINTS = (
+    "https://www.fotmob.com/api/data/search/suggest",
+    "https://www.fotmob.com/api/search/suggest",
+)
+_FOTMOB_LAST_CALL = 0.0
+
+
+def _vx_extract_fotmob_player_rows(payload):
+    """Normalize both current and legacy FotMob search response shapes."""
+    rows = []
+
+    def add(value):
+        if not isinstance(value, dict):
+            return
+        value_type = str(value.get("type", "") or "").strip().lower()
+        if value_type and value_type not in {"player", "squadmember"}:
+            return
+        if value.get("id") in (None, "") and value.get("playerId") in (None, ""):
+            return
+        rows.append(value)
+
+    def walk(value):
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and isinstance(item.get("suggestions"), list):
+                    for suggestion in item["suggestions"]:
+                        add(suggestion)
+                else:
+                    add(item)
+        elif isinstance(value, dict):
+            for key in ("players", "squadMember", "suggestions"):
+                if isinstance(value.get(key), list):
+                    for item in value[key]:
+                        add(item)
+            if isinstance(value.get("groups"), list):
+                walk(value["groups"])
+            if isinstance(value.get("data"), (dict, list)):
+                walk(value["data"])
+
+    walk(payload)
+    deduped = {}
+    for row in rows:
+        try:
+            player_id = int(row.get("id") or row.get("playerId"))
+        except Exception:
+            continue
+        deduped[player_id] = row
+    return list(deduped.values())
+
+
+def _fotmob_search(name, max_age_hours=168):
+    """Search FotMob conservatively and cache the normalized player candidates."""
+    global _FOTMOB_LAST_CALL
+    name = str(name or "").strip()
+    if not name or not ENABLE_PLAYER_IMAGE_FALLBACK_LOCAL:
+        return []
+
+    cache_name = f"fotmob_player_{vx_normalize_name(name)}.json"
+    cached = _read_cache(cache_name, max_age_hours=max_age_hours)
+    if (
+        isinstance(cached, dict)
+        and isinstance(cached.get("players"), list)
+        and cached["players"]
+    ):
+        return cached["players"]
+
+    # Do not let a transient FotMob/network failure poison the fallback for a week.
+    recent_negative = _read_cache(cache_name, max_age_hours=1)
+    if (
+        isinstance(recent_negative, dict)
+        and isinstance(recent_negative.get("players"), list)
+        and not recent_negative["players"]
+    ):
+        return []
+
+    elapsed = time.time() - _FOTMOB_LAST_CALL
+    if elapsed < 0.40:
+        time.sleep(0.40 - elapsed)
+
+    last_error = ""
+    for endpoint in FOTMOB_SEARCH_ENDPOINTS:
+        try:
+            response = requests.get(
+                endpoint,
+                params={"term": name, "hits": 20},
+                headers={"User-Agent": "Mozilla/5.0 FPL-VORTEX/2.0"},
+                timeout=15,
+            )
+            _FOTMOB_LAST_CALL = time.time()
+            response.raise_for_status()
+            payload = response.json()
+            players_found = _vx_extract_fotmob_player_rows(payload)
+            if players_found:
+                _write_cache(
+                    cache_name,
+                    {
+                        "players": players_found,
+                        "source": endpoint,
+                        "checked_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                return players_found
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+
+    _write_cache(
+        cache_name,
+        {
+            "players": [],
+            "_error": last_error,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    return []
+
+
+def fotmob_player_photo_url(fpl_player):
+    """Resolve a FotMob player id only when the name/team match is sufficiently strong."""
+    row = fpl_player.to_dict() if hasattr(fpl_player, "to_dict") else dict(fpl_player)
+    full_name = _fpl_full_name(row)
+    web_name = str(row.get("web_name", "") or "").strip()
+    team_name = _fpl_team_name(row)
+
+    queries = []
+    for query in (full_name, web_name):
+        if query and query not in queries:
+            queries.append(query)
+
+    best = None
+    best_score = -1.0
+    for query in queries:
+        for candidate in _fotmob_search(query):
+            candidate_name = str(
+                candidate.get("name")
+                or candidate.get("localizedName")
+                or candidate.get("playerName")
+                or ""
+            ).strip()
+            if not candidate_name:
+                continue
+
+            name_score = max(
+                SequenceMatcher(
+                    None,
+                    vx_normalize_name(full_name),
+                    vx_normalize_name(candidate_name),
+                ).ratio() if full_name else 0.0,
+                SequenceMatcher(
+                    None,
+                    vx_normalize_name(web_name),
+                    vx_normalize_name(candidate_name),
+                ).ratio() if web_name else 0.0,
+            )
+
+            candidate_team = str(
+                candidate.get("teamName")
+                or candidate.get("info")
+                or (
+                    candidate.get("team", {}).get("name")
+                    if isinstance(candidate.get("team"), dict)
+                    else ""
+                )
+                or ""
+            ).strip()
+            team_score = (
+                SequenceMatcher(
+                    None,
+                    vx_normalize_name(team_name),
+                    vx_normalize_name(candidate_team),
+                ).ratio()
+                if team_name and candidate_team
+                else 0.0
+            )
+
+            # Exact/near-exact names can stand alone; looser names require a club match.
+            accepted = (
+                name_score >= 0.96
+                or (name_score >= 0.86 and team_score >= 0.55)
+            )
+            if not accepted:
+                continue
+
+            score = name_score + (0.35 * team_score)
+            if score > best_score:
+                best = candidate
+                best_score = score
+
+    if not best:
+        return ""
+
+    try:
+        fotmob_id = int(best.get("id") or best.get("playerId"))
+    except Exception:
+        return ""
+
+    return f"https://images.fotmob.com/image_resources/playerimages/{fotmob_id}.png"
+
+
 def _thesportsdb_search(name, max_age_hours=720):
     """Search one player. Cached for 30 days and throttled for the free limit."""
     global _THESPORTSDB_LAST_CALL
@@ -1772,49 +2163,155 @@ def _forced_image_fallback(fpl_player):
     return bool(FORCE_IMAGE_FALLBACK_SET.intersection(names))
 
 def _official_fpl_image_usable(url, max_age_hours=168):
-    """Validate the official FPL/PL image once, then cache the result for 7 days."""
+    """
+    Validate an image URL.
+    Successful checks are cached long-term; failures are retried after one hour so a
+    temporary CDN/network problem cannot force fallback images for an entire week.
+    """
     if not url:
         return False
     cache_name = f"fpl_image_check_{vx_normalize_name(url)}.json"
-    cached = _read_cache(cache_name, max_age_hours=max_age_hours)
-    if isinstance(cached, dict) and "ok" in cached:
-        return bool(cached["ok"])
+
+    cached_success = _read_cache(cache_name, max_age_hours=max_age_hours)
+    if isinstance(cached_success, dict) and cached_success.get("ok") is True:
+        return True
+
+    cached_failure = _read_cache(cache_name, max_age_hours=1)
+    if isinstance(cached_failure, dict) and cached_failure.get("ok") is False:
+        return False
+
     ok = False
+    status_code = None
+    content_type = ""
+    error = ""
     try:
         with requests.get(url, stream=True, timeout=12) as r:
-            ctype = str(r.headers.get("content-type", "") or "").lower()
+            status_code = int(r.status_code)
+            content_type = str(r.headers.get("content-type", "") or "").lower()
             first = next(r.iter_content(chunk_size=512), b"")
-            ok = (r.status_code == 200 and ctype.startswith("image/") and len(first) > 32)
-    except Exception:
-        ok = False
-    _write_cache(cache_name, {"ok": ok, "checked_at": datetime.now(timezone.utc).isoformat()})
+            ok = (
+                status_code == 200
+                and content_type.startswith("image/")
+                and len(first) > 32
+            )
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+
+    _write_cache(
+        cache_name,
+        {
+            "ok": ok,
+            "status_code": status_code,
+            "content_type": content_type,
+            "error": error,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
     return ok
+
+# FotMob fallbacks use the same square canvas as official 250x250 FPL portraits.
+_VX_FOTMOB_SQUARE_CACHE = {}
+
+def vx_fotmob_square_photo(url):
+    """Pad to the FPL canvas without changing a portrait's intrinsic proportions."""
+    from io import BytesIO
+    import base64
+    from PIL import Image
+
+    source_url = str(url or "").strip()
+    if not source_url:
+        return ""
+    if source_url in _VX_FOTMOB_SQUARE_CACHE:
+        return _VX_FOTMOB_SQUARE_CACHE[source_url]
+    try:
+        response = requests.get(source_url, timeout=12)
+        response.raise_for_status()
+        with Image.open(BytesIO(response.content)) as image:
+            portrait = image.convert("RGBA")
+        portrait.thumbnail((250, 250), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", (250, 250), (0, 0, 0, 0))
+        canvas.alpha_composite(portrait, ((250 - portrait.width) // 2, 250 - portrait.height))
+        output = BytesIO()
+        canvas.save(output, format="PNG")
+        normalized = "data:image/png;base64," + base64.b64encode(output.getvalue()).decode("ascii")
+    except Exception as exc:
+        print(f"⚠️ FotMob portrait normalization unavailable ({type(exc).__name__}); using the official shirt fallback.")
+        return ""
+    _VX_FOTMOB_SQUARE_CACHE[source_url] = normalized
+    return normalized
+
+
+_VX_OFFICIAL_PORTRAIT_URIS = {}
+
+def _vx_official_portrait_uri(url):
+    import base64
+    from io import BytesIO
+    from PIL import Image
+
+    if url in _VX_OFFICIAL_PORTRAIT_URIS:
+        return _VX_OFFICIAL_PORTRAIT_URIS[url]
+    uri = ""
+    try:
+        response = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0 FPL-VORTEX/2.0"})
+        response.raise_for_status()
+        payload = response.content
+        with Image.open(BytesIO(payload)) as image:
+            mime = Image.MIME.get(image.format)
+            image.verify()
+        if mime in {"image/png", "image/jpeg", "image/webp"}:
+            uri = f"data:{mime};base64," + base64.b64encode(payload).decode("ascii")
+    except Exception:
+        # The resolver continues its existing real-photo/official-shirt fallback chain.
+        pass
+    _VX_OFFICIAL_PORTRAIT_URIS[url] = uri
+    return uri
 
 def resolve_player_photo(fpl_player, prefer_cutout=True):
     """
-    FPL FIRST.
-    Use the official FPL/PL player image whenever it is valid.
-    Use TheSportsDB only when the FPL image is missing/broken or the player is
-    explicitly listed in FORCE_IMAGE_FALLBACK_PLAYERS because the visible kit is stale/wrong.
-    """
-    official = fpl_photo_url(fpl_player)
-    force_fallback = _forced_image_fallback(fpl_player)
+    Resolve one final image in Python — no CSS fallback chain.
 
+    Order:
+      1) official FPL / Premier League player photo using live FPL code
+      2) FPL-Core player_code rescue -> Premier League player photo
+      3) FotMob real player photo
+      4) official FPL real club shirt, embedded as a data URI
+
+    The synthetic avatar and synthetic SVG shirt are deliberately excluded.
+    """
+    row = fpl_player.to_dict() if hasattr(fpl_player, "to_dict") else dict(fpl_player)
+    force_fallback = _forced_image_fallback(row)
+
+    official = fpl_photo_url(row)
     if not force_fallback and _official_fpl_image_usable(official):
-        return official
+        embedded = _vx_official_portrait_uri(official)
+        if embedded:
+            return embedded
+
+    core_photo = fpl_core_photo_url(row)
+    if (
+        core_photo
+        and core_photo != official
+        and _official_fpl_image_usable(core_photo)
+    ):
+        embedded = _vx_official_portrait_uri(core_photo)
+        if embedded:
+            return embedded
 
     if ENABLE_PLAYER_IMAGE_FALLBACK_LOCAL:
-        art = thesportsdb_player_artwork(fpl_player)
-        if prefer_cutout and art.get("cutout"):
-            return art["cutout"]
-        if art.get("thumb"):
-            return art["thumb"]
-        if art.get("cutout"):
-            return art["cutout"]
+        fotmob_photo = fotmob_player_photo_url(row)
+        if fotmob_photo and _official_fpl_image_usable(fotmob_photo):
+            normalized_photo = vx_fotmob_square_photo(fotmob_photo)
+            if normalized_photo:
+                return normalized_photo
 
-    # If the only problem is that an image could not be validated, still return
-    # the official URL as the final graceful fallback rather than leaving blank.
-    return official or ""
+    try:
+        team_id = int(row.get("team") or row.get("team_id") or 0)
+    except Exception:
+        team_id = 0
+
+    if team_id and "vx_team_jersey_data_uri" in globals():
+        return str(vx_team_jersey_data_uri(team_id) or "")
+    return ""
 
 if ENABLE_PLAYER_IMAGE_FALLBACK_LOCAL:
     print("✅ Free player artwork fallback ON — TheSportsDB V1 (cached, CC-tagged artwork preferred)")
@@ -1883,6 +2380,88 @@ with ThreadPoolExecutor(max_workers=10) as _executor:
         _id,_badge=_job.result(); team_meta_by_id[_id]["badge"]=_badge
 team_meta_by_short={m["short"]:m for m in team_meta_by_id.values()}
 print("✅ Canonical club crests:",sum(1 for m in team_meta_by_id.values() if m["badge"]),f"/{len(team_meta_by_id)}")
+
+_VX_REAL_FPL_JERSEY_MEMORY = {}
+_vx_jersey_session = requests.Session()
+_vx_jersey_session.headers.update(
+    {
+        "User-Agent": "Mozilla/5.0 FPL-VORTEX/2.0",
+        "Accept": "image/avif,image/webp,image/apng,image/png,image/*,*/*;q=0.8",
+    }
+)
+
+
+def _vx_valid_png_bytes(payload):
+    if not isinstance(payload, (bytes, bytearray)) or len(payload) < 300:
+        return False
+    try:
+        image = Image.open(BytesIO(payload))
+        image.verify()
+        return str(image.format or "").upper() == "PNG"
+    except Exception:
+        return False
+
+
+def vx_team_jersey_data_uri(team_id):
+    """
+    Return the REAL official FPL club shirt as an embedded PNG data URI.
+
+    This is resolved/downloaded in Python. It does not draw a shirt, use CSS,
+    or depend on browser onerror logic. The official current FPL team code is
+    used in the Fantasy Premier League shirt CDN path.
+    """
+    try:
+        team_id = int(team_id)
+        meta = team_meta_by_id.get(team_id, {}) or {}
+        team_code = int(meta["code"])
+    except Exception:
+        return ""
+
+    if team_code in _VX_REAL_FPL_JERSEY_MEMORY:
+        return _VX_REAL_FPL_JERSEY_MEMORY[team_code]
+
+    shirt_cache_dir = Path(globals().get("WORK_ROOT", "/content/FPL_VORTEX_DAY1_WORK")) / "cache" / "official_fpl_shirts"
+    shirt_cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = shirt_cache_dir / f"shirt_{team_code}-220.png"
+
+    if cache_path.is_file():
+        try:
+            cached_bytes = cache_path.read_bytes()
+            if _vx_valid_png_bytes(cached_bytes):
+                uri = vx_bytes_to_data_uri(cached_bytes, "image/png")
+                _VX_REAL_FPL_JERSEY_MEMORY[team_code] = uri
+                return uri
+        except Exception:
+            pass
+
+    urls = (
+        f"https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_{team_code}-220.png",
+        f"https://fantasy.premierleague.com/dist/img/shirts/standard/shirt_{team_code}-110.png",
+    )
+
+    for url in urls:
+        try:
+            response = _vx_jersey_session.get(url, timeout=12)
+            ctype = str(response.headers.get("content-type", "") or "").lower()
+            if (
+                response.status_code == 200
+                and ctype.startswith("image/")
+                and _vx_valid_png_bytes(response.content)
+            ):
+                payload = bytes(response.content)
+                tmp = cache_path.with_suffix(".tmp")
+                tmp.write_bytes(payload)
+                tmp.replace(cache_path)
+                uri = vx_bytes_to_data_uri(payload, "image/png")
+                _VX_REAL_FPL_JERSEY_MEMORY[team_code] = uri
+                return uri
+        except Exception:
+            continue
+
+    # Real assets only: never manufacture a synthetic SVG shirt here.
+    # Do not memoize failure; a later call may succeed after a transient CDN issue.
+    return ""
+
 
 _vx_logo_candidates=[Path(MY_DRIVE)/"elements"/"logo.png",Path(PROJECT_ROOT)/"elements"/"logo.png",Path(PROJECT_ROOT)/"logo.png"]
 _vx_logo_path=next((x for x in _vx_logo_candidates if x.exists()),None)
@@ -15118,8 +15697,7 @@ else:
     # Self-contained approved GW Review pitch template.
     # It consumes only the canonical Python snapshot built earlier.
 
-    EMBEDDED_PITCH_TEMPLATE = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1.0" />\n<title>FPL VORTEX — 4K Gameweek Review</title>\n<style>\n  :root{\n    --W:3840px; --H:2160px;\n    --gold:#ffd33f; --gold2:#f6b800; --gold3:#b87900;\n    --ink:#07111e; --ink2:#0d1f31; --ink3:#132a3f;\n    --white:#f7fbff; --muted:#9fb1c3; --lime:#39e05e; --green:#12b94b;\n    --red:#ff5148; --orange:#ff9f26; --cyan:#48d9ff;\n    --panelShadow: 0 26px 70px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.45);\n  }\n  *{box-sizing:border-box}\n  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02070d;font-family:Inter,Arial,Helvetica,sans-serif;color:var(--white)}\n  body{display:flex;align-items:center;justify-content:center}\n  #scaleShell{width:3840px;height:2160px;transform-origin:center center;position:relative;flex:none}\n  #stage{width:3840px;height:2160px;position:relative;overflow:hidden;background:\n    radial-gradient(circle at 86% 2%,rgba(255,255,255,.82) 0 14px,rgba(182,220,255,.24) 16px 90px,transparent 220px),\n    radial-gradient(circle at 44% 10%,rgba(88,188,255,.20),transparent 20%),\n    linear-gradient(180deg,#071628 0 19%,#0c2234 31%,#153a2c 53%,#06190e 100%);\n  }\n  #stage:before{content:"";position:absolute;inset:0;background:\n    radial-gradient(ellipse at 56% 27%,rgba(124,207,255,.17),transparent 31%),\n    linear-gradient(104deg,transparent 0 9%,rgba(255,255,255,.08) 9.5% 10%,transparent 10.5% 21%,rgba(255,255,255,.06) 21.3% 21.8%,transparent 22.2% 100%);\n    pointer-events:none;mix-blend-mode:screen;opacity:.65}\n  .stadium{position:absolute;left:0;right:0;top:250px;height:900px;overflow:hidden;opacity:.82}\n  .stadium:before{content:"";position:absolute;inset:0;background:\n    repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 7px,transparent 7px 56px),\n    linear-gradient(180deg,rgba(2,9,18,.25),rgba(9,21,31,.62) 18%,rgba(55,73,83,.22) 48%,rgba(4,9,14,.84) 82%,transparent);\n    clip-path:polygon(0 15%,100% 0,100% 74%,0 88%);filter:blur(2px)}\n  .stadium:after{content:"";position:absolute;left:-5%;right:-5%;bottom:30px;height:245px;background:radial-gradient(ellipse at center,rgba(170,220,255,.2),transparent 60%);filter:blur(30px)}\n  .lights{position:absolute;left:0;right:0;top:0;height:320px;background:\n    radial-gradient(circle at 4% 28%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 9% 31%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 14% 34%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 78% 18%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 83% 14%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 88% 11%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 93% 9%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 98% 7%,white 0 8px,#b8e6ff 10px 19px,transparent 48px);opacity:.92}\n\n  /* BRAND */\n  .brand{position:absolute;left:58px;top:46px;width:1185px;height:360px;display:flex;align-items:center;gap:44px;z-index:20}\n  .crestmark{width:288px;height:288px;position:relative;filter:drop-shadow(0 12px 18px rgba(0,0,0,.45))}\n  .crestmark .ring{position:absolute;inset:36px;border:17px solid #fff;border-radius:50%;box-shadow:0 0 28px rgba(255,255,255,.14)}\n  .crestmark .ring:before{content:"";position:absolute;width:92px;height:66px;left:36px;top:82px;border:15px solid #fff;border-left-color:transparent;border-bottom-color:transparent;transform:rotate(-20deg);border-radius:8px}\n  .crestmark .crown{position:absolute;left:58px;top:0;width:170px;height:105px;clip-path:polygon(0 78%,8% 11%,34% 42%,50% 0,67% 42%,91% 11%,100% 78%);background:#fff}\n  .crestmark .ball{position:absolute;left:104px;top:128px;width:78px;height:78px;border:13px solid #fff;border-radius:50%;}\n  .brandText{margin-top:-5px}\n  .brandTop{font-weight:1000;font-size:111px;letter-spacing:-5px;line-height:.85;font-style:italic;text-shadow:0 6px 12px rgba(0,0,0,.55)}\n  .brandMain{font-weight:1000;font-size:148px;letter-spacing:-8px;line-height:.94;font-style:italic;background:linear-gradient(180deg,#fff6a3 0,#ffd84b 33%,#e9a900 76%,#8b5300 100%);-webkit-background-clip:text;color:transparent;text-shadow:0 4px 0 rgba(0,0,0,.08);filter:drop-shadow(0 9px 3px rgba(0,0,0,.55))}\n  .brandSub{font-size:30px;font-weight:900;letter-spacing:8px;color:#d9e6f4;margin-top:12px}\n  .slash{display:inline-block;width:108px;height:13px;background:linear-gradient(90deg,#fff4a6,var(--gold));transform:skewX(-42deg) translateY(-22px);margin-left:9px;box-shadow:0 0 18px rgba(255,210,63,.65)}\n\n  /* LEFT PANELS */\n  .left{position:absolute;left:54px;top:428px;width:1202px;height:1642px;z-index:15;display:flex;flex-direction:column;gap:24px}\n  .panel{position:relative;border-radius:21px;overflow:hidden;background:linear-gradient(180deg,#ffe86f 0,#ffd33e 46%,#efaf13 100%);border:2px solid rgba(255,241,164,.9);box-shadow:var(--panelShadow);color:#09111a}\n  .panel:after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,rgba(255,255,255,.32),transparent 23%,transparent 73%,rgba(122,72,0,.08));pointer-events:none}\n  .panelTitle{height:98px;padding:18px 39px 12px;font-size:52px;font-weight:1000;font-style:italic;letter-spacing:1px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(255,255,255,.47),rgba(255,255,255,.05));border-bottom:5px solid rgba(68,45,0,.65);text-shadow:0 2px 0 rgba(255,255,255,.5)}\n  .panelTitle .smallTitle{font-size:24px;font-style:normal;letter-spacing:3px;padding:9px 16px;background:#091523;color:#fff;border-radius:999px}\n  .reviewPanel{height:474px}\n  .reviewGrid{height:376px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;background:rgba(20,20,20,.18)}\n  .metric{padding:22px 24px 16px;background:linear-gradient(180deg,rgba(255,248,177,.45),rgba(255,215,61,.10));display:flex;flex-direction:column;justify-content:center}\n  .metricLabel{font-size:27px;font-weight:900;letter-spacing:.8px;opacity:.76}\n  .metricValue{font-size:61px;font-weight:1000;letter-spacing:-3px;line-height:1.08;margin-top:5px}\n  .metricValue.good{color:#086e2d}.metricValue.bad{color:#9d1616}.metricValue.neutral{color:#131c26}\n  .metricSub{font-size:20px;font-weight:850;margin-top:3px;opacity:.7}\n  .chipsPanel{height:272px}\n  .chipRow{height:174px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:13px 17px 16px}\n  .chip{border-radius:16px;border:2px solid rgba(62,35,0,.18);background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,231,115,.14));display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative;text-align:center}\n  .chipCode{width:88px;height:61px;border-radius:13px;background:#071522;color:#fff;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:1000;box-shadow:0 5px 12px rgba(0,0,0,.22)}\n  .chipName{font-size:22px;font-weight:1000;margin-top:8px}.chipStatus{font-size:18px;font-weight:900;margin-top:2px;color:#116c31}.chipStatus.used{color:#a11b1b}\n  .chipPlan{position:absolute;right:9px;top:8px;font-size:14px;font-weight:1000;background:rgba(4,18,29,.92);color:#ffe263;padding:5px 7px;border-radius:8px}\n  .fixturesPanel{height:294px}\n  .fixtureRow{height:196px;display:grid;grid-template-columns:repeat(5,1fr);padding:12px 14px 15px;gap:8px}\n  .fx{border-right:2px solid rgba(46,34,4,.26);display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0}.fx:last-child{border-right:none}\n  .fxCrest{width:72px;height:72px;object-fit:contain;filter:drop-shadow(0 3px 3px rgba(0,0,0,.25))}.fxCrest.ph{border-radius:50%;background:#111d2c;color:#fff;font-weight:1000;display:flex;align-items:center;justify-content:center;font-size:22px}\n  .fxOpp{font-size:24px;font-weight:1000;margin-top:5px;white-space:nowrap}\n  .benchPanel{height:408px;flex:1}\n  .benchCards{height:calc(100% - 98px);display:grid;grid-template-columns:repeat(4,1fr);gap:15px;padding:14px 17px 17px}\n  .mini{position:relative;border-radius:15px;background:linear-gradient(180deg,#ffe85f,#dca216);border:2px solid rgba(92,55,0,.28);overflow:hidden;padding-top:39px;text-align:center}\n  .miniPos{position:absolute;left:0;right:0;top:5px;font-size:18px;font-weight:1000;letter-spacing:.7px}\n  .miniPhoto{height:128px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden}.miniPhoto img{height:144px;max-width:100%;object-fit:contain;filter:drop-shadow(0 5px 5px rgba(0,0,0,.25))}.miniAvatar{width:98px;height:98px;border-radius:50%;background:linear-gradient(160deg,#15273a,#07111c);display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;font-weight:1000;margin-bottom:8px}\n  .miniName{height:45px;background:#07131f;color:#fff;font-size:21px;font-weight:1000;display:flex;align-items:center;justify-content:center;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n  .miniMeta{height:39px;background:#0b1722;color:#fff;font-size:17px;font-weight:850;display:flex;align-items:center;justify-content:center}.miniPts{position:absolute;right:9px;bottom:8px;width:51px;height:37px;border-radius:7px;background:#2ee86c;color:#06120b;font-size:22px;font-weight:1000;display:flex;align-items:center;justify-content:center}\n\n  /* PITCH */\n  .pitchShell{position:absolute;left:1286px;top:105px;width:2512px;height:1978px;z-index:10;filter:drop-shadow(0 30px 40px rgba(0,0,0,.55))}\n  .pitch{position:absolute;inset:0;clip-path:polygon(6.7% 0,91.5% 0,100% 100%,0 100%);background:\n    repeating-linear-gradient(90deg,rgba(255,255,255,.026) 0 18px,rgba(0,0,0,.018) 18px 35px),\n    repeating-linear-gradient(0deg,rgba(22,115,27,.10) 0 125px,rgba(38,150,39,.08) 125px 250px),\n    radial-gradient(ellipse at 50% 25%,rgba(129,238,70,.34),transparent 37%),\n    linear-gradient(180deg,#3a9d28 0,#208425 27%,#197324 60%,#176622 100%);border:7px solid rgba(238,255,228,.8)}\n  .pitch:before{content:"";position:absolute;inset:0;background-image:\n    radial-gradient(circle at 20% 20%,rgba(255,255,255,.09) 0 1px,transparent 1.5px),\n    radial-gradient(circle at 70% 60%,rgba(0,0,0,.07) 0 1px,transparent 1.5px);background-size:12px 12px,15px 15px;opacity:.55}\n  .pitchSvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}\n  .pitchGlow{position:absolute;inset:-20px;clip-path:polygon(6.7% 0,91.5% 0,100% 100%,0 100%);border:16px solid rgba(172,228,255,.26);filter:blur(7px);pointer-events:none}\n  .pitchHeader{position:absolute;top:24px;left:50%;transform:translateX(-50%);z-index:6;background:rgba(4,17,27,.82);border:2px solid rgba(255,221,77,.75);border-radius:18px;padding:10px 26px;display:flex;gap:17px;align-items:center;backdrop-filter:blur(8px);box-shadow:0 10px 24px rgba(0,0,0,.25)}\n  .pitchHeader .gw{font-size:28px;font-weight:1000;color:#ffe45f}.pitchHeader .team{font-size:23px;font-weight:900}.sourceDot{width:12px;height:12px;border-radius:50%;background:#2ee86c;box-shadow:0 0 16px #2ee86c}\n  .players{position:absolute;inset:0;z-index:8}\n  .playerCard{position:absolute;width:300px;height:350px;transform:translate(-50%,-50%);background:linear-gradient(155deg,#07111b 0,#102638 65%,#02070d 100%);border-radius:25px;border:4px solid rgba(236,249,255,.72);box-shadow:0 20px 35px rgba(0,0,0,.58),inset 0 0 0 2px rgba(255,255,255,.08);overflow:hidden}\n  .playerCard.captain{border-color:#ffdf52;box-shadow:0 20px 35px rgba(0,0,0,.58),0 0 25px rgba(255,217,66,.36),inset 0 0 0 2px rgba(255,255,255,.12)}\n  .playerCard.vice{border-color:#9ddcff}\n  .photoZone{position:absolute;left:0;right:0;top:0;height:226px;display:flex;align-items:flex-end;justify-content:center;background:radial-gradient(circle at 50% 42%,rgba(56,97,128,.6),transparent 62%);overflow:hidden}\n  .photoZone img{height:226px;max-width:255px;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 7px 8px rgba(0,0,0,.55))}\n  .avatarFallback{width:165px;height:165px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:22px;background:linear-gradient(145deg,#274a65,#07131f);font-size:46px;font-weight:1000;color:#dcecff;border:3px solid rgba(255,255,255,.18)}\n  .teamCrest{position:absolute;right:14px;top:13px;width:72px;height:72px;object-fit:contain;filter:drop-shadow(0 4px 3px rgba(0,0,0,.65))}\n  .badge{position:absolute;left:13px;top:14px;min-width:58px;height:54px;padding:0 10px;border-radius:12px;background:#ffda43;color:#06111a;font-size:28px;font-weight:1000;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(0,0,0,.35)}\n  .badge.vc{background:#b8e8ff}.playerName{position:absolute;left:0;right:0;top:221px;height:58px;background:linear-gradient(180deg,#03070b,#0b1117);border-top:3px solid rgba(230,243,255,.58);border-bottom:3px solid rgba(230,243,255,.58);display:flex;align-items:center;justify-content:center;padding:0 8px;font-size:25px;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 2px 2px #000}\n  .playerMeta{position:absolute;left:0;right:0;bottom:0;height:69px;background:#07111a;display:flex;align-items:center;padding:0 84px 0 16px;font-size:23px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.points{position:absolute;right:0;bottom:0;width:81px;height:69px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:1000;color:#04100b;border-left:3px solid rgba(255,255,255,.4)}\n  .points.p0{background:#6f7c87;color:#fff}.points.p1{background:#ef5548;color:#fff}.points.p2{background:#a4ec42}.points.p3{background:#5ee84d}.points.p4{background:#2fdb5b}.points.p5{background:#14be54}.points.p6{background:#06a950;color:#fff}.points.haul{background:linear-gradient(180deg,#ffe96e,#ffb21f);color:#241400}\n  .tinyScore{position:absolute;left:12px;bottom:8px;font-size:13px;font-weight:900;color:#8ca2b5;letter-spacing:1px}\n\n  /* review ribbons on pitch */\n  .analysisRibbon{position:absolute;right:46px;top:44px;width:510px;z-index:11;display:flex;flex-direction:column;gap:12px}\n  .insight{height:82px;border-radius:16px;background:linear-gradient(90deg,rgba(4,16,27,.95),rgba(8,27,42,.88));border:2px solid rgba(255,220,65,.48);box-shadow:0 10px 24px rgba(0,0,0,.28);padding:10px 18px;display:grid;grid-template-columns:134px 1fr;align-items:center;backdrop-filter:blur(7px)}\n  .insightKey{font-size:17px;color:#ffdb55;font-weight:1000;letter-spacing:1.1px}.insightVal{font-size:24px;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.insightVal.good{color:#5cff80}.insightVal.bad{color:#ff7e72}\n\n  __PL_BUG_CSS__\n  .footer{position:absolute;left:58px;bottom:22px;right:64px;height:47px;display:flex;align-items:center;justify-content:space-between;z-index:30;font-size:24px;font-weight:850;color:#b8c7d4;letter-spacing:1px;text-shadow:0 2px 4px #000}.footer strong{color:#ffe04a}\n  .loading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:60;border-radius:26px;padding:28px 44px;background:rgba(3,13,23,.93);border:2px solid rgba(255,220,72,.6);font-size:29px;font-weight:900;box-shadow:0 20px 50px rgba(0,0,0,.45)}\n  .hide{display:none!important}\n</style>\n\n<style id="gw-review-v2-ui">\n.panel{background:linear-gradient(180deg,#fff2a6 0%,#ffe37a 48%,#f4c94f 100%) !important;border-color:#fff1b7 !important}\n.panel:after{background:linear-gradient(105deg,rgba(255,255,255,.48),transparent 26%,transparent 76%,rgba(110,65,0,.05)) !important}\n.panelTitle{background:linear-gradient(90deg,rgba(255,255,255,.72),rgba(255,244,177,.30)) !important;border-bottom-color:rgba(69,43,0,.52) !important}\n.metric{background:linear-gradient(180deg,rgba(255,255,255,.48),rgba(255,236,139,.22)) !important}\n.metricLabel{opacity:.92 !important;color:#17202a !important}\n.metricSub{opacity:.88 !important;color:#24303a !important;font-size:22px !important;font-weight:900 !important}\n.chip{background:linear-gradient(180deg,#fff7c7 0%,#ffe98c 100%) !important;border-color:rgba(71,43,0,.22) !important}\n.chipCode{width:96px !important;height:66px !important;border-radius:18px !important;font-size:32px !important;letter-spacing:1px !important;color:#fff !important;border:3px solid rgba(255,255,255,.72) !important;box-shadow:0 7px 16px rgba(0,0,0,.24),inset 0 0 0 2px rgba(255,255,255,.12) !important}\n.chip:nth-child(1) .chipCode{background:linear-gradient(135deg,#4b0e8f,#e61792) !important}\n.chip:nth-child(2) .chipCode{background:linear-gradient(135deg,#00c8ff,#5b2cff) !important}\n.chip:nth-child(3) .chipCode{background:linear-gradient(135deg,#29e56f,#08a7d8) !important}\n.chip:nth-child(4) .chipCode{background:linear-gradient(135deg,#ffd447,#ff4f91) !important;color:#151018 !important}\n.chipName{font-size:23px !important}.chipStatus{font-size:19px !important}\n.pitchHeader{top:30px !important;left:70px !important;right:auto !important;transform:none !important;justify-content:flex-start !important;min-width:710px !important;padding:15px 26px !important;border-radius:15px !important;background:rgba(4,17,27,.90) !important}\n.pitchHeader .gw{font-size:48px !important;line-height:1 !important;font-weight:1000 !important;letter-spacing:1.2px !important;color:#ffe681 !important;text-transform:uppercase !important}\n.pitchHeader .team{font-size:25px !important;font-weight:950 !important;color:#fff !important;text-transform:uppercase !important}\n.sourceDot{width:15px !important;height:15px !important}\n.analysisRibbon{display:none !important}\n.playerCard{width:310px !important;height:350px !important}\n.photoZone{height:210px !important}\n.photoZone img{height:210px !important;max-width:270px !important}\n.teamCrest{width:82px !important;height:82px !important;right:12px !important;top:10px !important}\n.playerName{top:206px !important;height:66px !important;background:linear-gradient(180deg,#fff2a3,#f1c64e) !important;color:#07111a !important;border-top:3px solid rgba(255,255,255,.88) !important;border-bottom:3px solid rgba(91,58,0,.32) !important;font-size:30px !important;font-weight:1000 !important;text-shadow:none !important;padding:0 10px !important}\n.playerMeta{height:78px !important;background:linear-gradient(180deg,#fff8cf,#f6df8c) !important;color:#101922 !important;padding:0 102px 0 17px !important;font-size:27px !important;font-weight:1000 !important;letter-spacing:.2px !important}\n.tinyScore{left:17px !important;bottom:7px !important;font-size:16px !important;color:#3b4650 !important;font-weight:1000 !important}\n.points{width:96px !important;height:78px !important;font-size:43px !important;font-weight:1000 !important;border-left:3px solid rgba(55,37,0,.25) !important}\n.mini{background:linear-gradient(180deg,#fff2a6,#f2c84e) !important}\n.miniName{background:#fff0a4 !important;color:#101820 !important;font-size:23px !important;font-weight:1000 !important;border-top:2px solid rgba(86,55,0,.22) !important}\n.miniMeta{background:#fff8ce !important;color:#202b34 !important;font-size:19px !important;font-weight:950 !important}\n.miniPts{font-size:24px !important}\n</style>\n\n<style id="vortex-gw-review-final-polish">\n.brand.brandImage{left:58px!important;top:42px!important;width:1185px!important;height:345px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important}\n.brand.brandImage .vortex-logo{display:block!important;width:auto!important;max-width:1120px!important;height:auto!important;max-height:320px!important;object-fit:contain!important;object-position:left center!important;filter:drop-shadow(0 12px 18px rgba(0,0,0,.42))!important}\n.brand.brandImage .logo-fallback,.brand.brandImage .text-logo{font-size:118px!important;font-weight:1000!important;color:#fff!important}\n#reviewMode{display:none!important}\n.pitchHeader{top:30px!important;left:190px!important;right:auto!important;transform:none!important;min-width:0!important;width:auto!important;max-width:1180px!important;padding:15px 28px!important;justify-content:flex-start!important}\n.pitchHeader .gw{font-size:50px!important;line-height:1!important;font-weight:1000!important;letter-spacing:1.2px!important;white-space:nowrap!important}\n.pitchHeader .team{font-size:27px!important;font-weight:1000!important;white-space:nowrap!important}\n.chipRow{height:174px!important;grid-template-columns:repeat(4,1fr)!important;gap:12px!important;padding:10px 17px 13px!important}\n.chip{border-radius:16px!important;padding:6px 8px 8px!important;justify-content:center!important;background:linear-gradient(180deg,#fff8c8 0%,#f7dd80 100%)!important;border:2px solid rgba(69,43,0,.18)!important}\n.chipPlan{display:none!important}\n.chipIcon{width:58px!important;height:58px!important;object-fit:contain!important;display:block!important;margin:0 auto 2px!important;filter:brightness(.48) saturate(.92) contrast(1.15)!important}\n.chipName{font-size:23px!important;line-height:1.05!important;font-weight:1000!important;margin:1px 0 5px!important;color:#101722!important;text-transform:uppercase!important;white-space:nowrap!important}\n.chipStatus{width:92%!important;min-height:34px!important;padding:5px 8px!important;margin:0 auto!important;border-radius:7px!important;display:flex!important;align-items:center!important;justify-content:center!important;font-size:20px!important;line-height:1!important;font-weight:1000!important;letter-spacing:.7px!important;text-transform:uppercase!important;border:2px solid rgba(0,0,0,.22)!important}\n.chipStatus.available{background:#49e675!important;color:#07130b!important}\n.chipStatus.used{background:#e7353d!important;color:#fff!important;border-color:#a70d14!important}\n.benchCards{height:calc(100% - 98px)!important;gap:14px!important;padding:12px 17px 15px!important}\n.mini{padding-top:28px!important;background:linear-gradient(180deg,#fff4b0 0%,#f1ce62 100%)!important;border-radius:18px!important;overflow:hidden!important}\n.miniPos{top:4px!important;font-size:18px!important;line-height:1.05!important}\n.miniPhoto{height:188px!important;display:flex!important;align-items:flex-end!important;justify-content:center!important;overflow:hidden!important;padding-top:10px!important}\n.miniPhoto img{height:172px!important;max-width:94%!important;object-fit:contain!important;object-position:center bottom!important;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28))!important}\n.miniAvatar{width:142px!important;height:142px!important;font-size:40px!important;margin-bottom:7px!important}\n.miniName{height:62px!important;background:linear-gradient(180deg,#fff2a3,#f1c64e)!important;color:#07111a!important;font-size:30px!important;line-height:1!important;font-weight:1000!important;padding:0 8px!important;border-top:3px solid rgba(255,255,255,.85)!important;border-bottom:3px solid rgba(91,58,0,.28)!important}\n.miniMeta{height:72px!important;background:linear-gradient(180deg,#fff8cf,#f6df8c)!important;color:#101922!important;font-size:27px!important;line-height:1!important;font-weight:1000!important;padding:0 88px 0 10px!important;justify-content:flex-start!important}\n.miniPts{right:0!important;bottom:0!important;width:80px!important;height:72px!important;border-radius:0!important;font-size:40px!important;font-weight:1000!important;border-left:3px solid rgba(55,37,0,.25)!important}\n.miniPts.p0{background:#6f7c87!important;color:#fff!important}.miniPts.p1{background:#ef5548!important;color:#fff!important}.miniPts.p2{background:#a4ec42!important;color:#07120b!important}.miniPts.p3{background:#5ee84d!important;color:#07120b!important}.miniPts.p4{background:#2fdb5b!important;color:#07120b!important}.miniPts.p5{background:#14be54!important;color:#07120b!important}.miniPts.p6{background:#06a950!important;color:#fff!important}.miniPts.haul{background:linear-gradient(180deg,#ffe96e,#ffb21f)!important;color:#241400!important}\n</style>\n\n\n<style id="gw-review-v3-final-request">\n/* Left data stack slightly higher for clean footer clearance */\n.left{top:398px!important;}\n\n/* Review metric typography: black, larger, fully opaque; GW points red */\n.metric{padding:19px 24px 14px!important;}\n.metricLabel{font-size:32px!important;line-height:1!important;font-weight:1000!important;color:#070b0f!important;opacity:1!important;letter-spacing:.5px!important;}\n.metricValue{font-size:68px!important;line-height:1!important;font-weight:1000!important;color:#070b0f!important;opacity:1!important;margin-top:8px!important;}\n.metricValue.good,.metricValue.bad,.metricValue.neutral{color:#070b0f!important;}\n#gwPoints{color:#d71920!important;}\n.metricSub{font-size:25px!important;line-height:1.05!important;font-weight:1000!important;color:#070b0f!important;opacity:1!important;margin-top:8px!important;}\n\n/* Chips: actual reference symbols, enlarged to fit the card, all dark blue */\n.chipRow{height:174px!important;gap:12px!important;padding:7px 17px 10px!important;}\n.chip{padding:3px 7px 7px!important;justify-content:center!important;overflow:hidden!important;}\n.chipIcon{width:82px!important;height:82px!important;max-width:82px!important;max-height:82px!important;object-fit:contain!important;margin:-2px auto 0!important;filter:none!important;}\n.chipName{font-size:22px!important;line-height:1!important;margin:-3px 0 5px!important;color:#071522!important;font-weight:1000!important;}\n.chipStatus{min-height:33px!important;height:33px!important;font-size:19px!important;line-height:1!important;padding:4px 7px!important;}\n\n/* Bench cards: team crest by player\'s head/right, no overlap */\n.miniPhoto{position:relative!important;height:188px!important;padding-top:10px!important;overflow:hidden!important;}\n.miniPlayerImg{height:172px!important;max-width:88%!important;object-fit:contain!important;object-position:center bottom!important;}\n.miniCrest{position:absolute!important;right:8px!important;top:14px!important;width:55px!important;height:55px!important;object-fit:contain!important;z-index:8!important;padding:4px!important;border-radius:50%!important;background:rgba(255,250,218,.92)!important;border:2px solid rgba(7,21,34,.24)!important;box-shadow:0 4px 10px rgba(0,0,0,.24)!important;}\n.miniName{font-size:30px!important;font-weight:1000!important;}\n.miniMeta{font-size:27px!important;font-weight:1000!important;}\n.miniPts{font-size:40px!important;font-weight:1000!important;}\n\n/* Footer social strip: large, centered, clear */\n.footer{left:58px!important;right:58px!important;bottom:10px!important;height:66px!important;font-size:24px!important;font-weight:950!important;color:#eef6ff!important;letter-spacing:.5px!important;text-shadow:0 2px 4px #000!important;display:flex!important;align-items:center!important;justify-content:space-between!important;z-index:50!important;}\n.footerLeft{white-space:nowrap!important;}\n.footerRight{white-space:nowrap!important;font-size:22px!important;color:#cbd8e5!important;}\n.footerSocial{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-50%,-50%)!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:32px!important;white-space:nowrap!important;font-size:29px!important;font-weight:1000!important;color:#ffffff!important;letter-spacing:.5px!important;}\n.socialPair{display:inline-flex!important;align-items:center!important;gap:10px!important;}\n.ytIcon{width:48px!important;height:34px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))!important;}\n.ytIcon svg{width:48px!important;height:34px!important;display:block!important;}\n.xIcon{width:38px!important;height:38px!important;border-radius:9px!important;background:#020406!important;color:#ffffff!important;border:2px solid rgba(255,255,255,.88)!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;font-size:27px!important;line-height:1!important;font-family:Arial,Helvetica,sans-serif!important;font-weight:1000!important;box-shadow:0 2px 4px rgba(0,0,0,.5)!important;}\n</style>\n\n</head>\n<body>\n<div id="scaleShell">\n<div id="stage">\n  <div class="lights"></div><div class="stadium"></div>\n\n  <div class="brand brandImage">__VORTEX_LOGO_HTML__</div>\n\n  <section class="left">\n    <div class="panel reviewPanel">\n      <div class="panelTitle"><span>GAMEWEEK REVIEW</span></div>\n      <div class="reviewGrid">\n        <div class="metric"><div class="metricLabel">GW POINTS</div><div class="metricValue neutral" id="gwPoints">—</div><div class="metricSub" id="vsAvg">vs avg —</div></div>\n        <div class="metric"><div class="metricLabel">OVERALL RANK</div><div class="metricValue neutral" id="overallRank">—</div><div class="metricSub" id="rankDelta">movement —</div></div>\n        <div class="metric"><div class="metricLabel">GW RANK</div><div class="metricValue neutral" id="gwRank">—</div><div class="metricSub" id="gwPercentile">global finish</div></div>\n        <div class="metric"><div class="metricLabel">CAPTAIN RETURN</div><div class="metricValue neutral" id="captainReturn">—</div><div class="metricSub" id="captainName">captain</div></div>\n        <div class="metric"><div class="metricLabel">BENCH POINTS</div><div class="metricValue neutral" id="benchPoints">—</div><div class="metricSub">unused output</div></div>\n        <div class="metric"><div class="metricLabel">TRANSFER COST</div><div class="metricValue neutral" id="hitPoints">0</div><div class="metricSub" id="teamValue">team value —</div></div>\n      </div>\n    </div>\n\n    <div class="panel chipsPanel">\n      <div class="panelTitle"><span>CHIP INTELLIGENCE</span><span class="smallTitle">H1 • USE BY GW19</span></div>\n      <div class="chipRow" id="chipRow"></div>\n    </div>\n\n    <div class="panel fixturesPanel">\n      <div class="panelTitle"><span id="fixtureTitle">GW REVIEW • CAPTAIN</span><span class="smallTitle">FIXTURE</span></div>\n      <div class="fixtureRow" id="fixtureRow"></div>\n    </div>\n\n    <div class="panel benchPanel">\n      <div class="panelTitle"><span>SUBSTITUTES</span><span id="benchSum" class="smallTitle">0 PTS</span></div>\n      <div class="benchCards" id="benchCards"></div>\n    </div>\n  </section>\n\n  <section class="pitchShell">\n    <div class="pitch"></div><div class="pitchGlow"></div>\n    <svg class="pitchSvg" viewBox="0 0 2512 1978" preserveAspectRatio="none" aria-hidden="true">\n      <g fill="none" stroke="rgba(246,255,239,.90)" stroke-width="10">\n        <path d="M171,43 L2290,43 L2473,1870 L38,1870 Z" />\n        <line x1="104" y1="1000" x2="2385" y2="1000" />\n        <ellipse cx="1245" cy="1000" rx="252" ry="165" />\n        <circle cx="1245" cy="1000" r="11" fill="rgba(246,255,239,.9)" />\n        <path d="M672 43 L1811 43 L1848 377 L633 377 Z" />\n        <path d="M979 43 L1507 43 L1523 188 L962 188 Z" />\n        <path d="M466 1870 L2048 1870 L2017 1515 L492 1515 Z" />\n        <path d="M835 1870 L1679 1870 L1665 1688 L849 1688 Z" />\n        <path d="M1035 377 C1105 494 1385 494 1455 377" />\n        <path d="M920 1515 C1015 1375 1465 1375 1560 1515" />\n        <path d="M104 1000 C104 936 161 886 224 886" /><path d="M2385 1000 C2385 936 2328 886 2265 886" />\n        <path d="M38 1870 C38 1802 98 1748 168 1748" /><path d="M2473 1870 C2473 1802 2413 1748 2343 1748" />\n      </g>\n    </svg>\n    <div class="pitchHeader"><span class="sourceDot" id="sourceDot"></span><span class="gw" id="pitchGW">GW — REVIEW</span><span class="team" id="entryName">FPL VORTEX</span></div>\n    <div class="analysisRibbon" id="analysisRibbon"></div>\n    <div class="players" id="players"></div>\n  </section>\n\n  __PL_BUG_HTML__<div class="footer">\n    <span class="footerLeft">FPL VORTEX &nbsp;|&nbsp; <strong id="footerGW">GAMEWEEK REVIEW</strong> &nbsp;|&nbsp; __SEASON_FULL__ SEASON</span>\n    <span class="footerSocial">\n      <span class="socialPair"><span class="ytIcon" aria-label="YouTube"><svg viewBox="0 0 48 34" aria-hidden="true"><rect x="1" y="1" width="46" height="32" rx="9" fill="#ff0000"/><path d="M20 9 L34 17 L20 25 Z" fill="#ffffff"/></svg></span><span>@FPLVORTEX</span></span>\n      <span class="socialPair"><span class="xIcon" aria-label="X">𝕏</span><span>@FPLVORTEXM</span></span>\n    </span>\n    <span id="dataStamp" class="footerRight">PUBLIC FPL DATA • ENTRY 158256</span>\n  </div>\n  <div id="loading" class="loading">Loading FPL review data…</div>\n</div>\n</div>\n<script>\n/* ============================================================\n   FPL VORTEX — GAMEWEEK REVIEW 4K\n   Native canvas: 3840 × 2160 (16:9)\n   Live URL options:\n     fpl_vortex_gw_review_4k.html?team=158256\n     fpl_vortex_gw_review_4k.html?team=158256&gw=3\n   ============================================================ */\nconst CONFIG = { teamId: __TEAM_ID__ };\nconst $ = s => document.querySelector(s);\nconst nf = n => (n==null || Number.isNaN(Number(n))) ? \'—\' : Number(n).toLocaleString(\'en-GB\');\nconst initials = s => (s||\'?\').split(/\\s+/).map(x=>x[0]).join(\'\').slice(0,2).toUpperCase();\nconst safe = s => String(s ?? \'\').replace(/[&<>"]/g, c=>({\'&\':\'&amp;\',\'<\':\'&lt;\',\'>\':\'&gt;\',\'"\':\'&quot;\'}[c]));\nfunction fit(){ const scale=Math.min(innerWidth/3840,innerHeight/2160); $(\'#scaleShell\').style.transform=`scale(${scale})`; }\naddEventListener(\'resize\',fit); fit();\nfunction playerImg(code){ return code ? `https://resources.premierleague.com/premierleague/photos/players/250x250/p${code}.png` : \'\'; }\nfunction crestImg(code){ return code ? `https://resources.premierleague.com/premierleague/badges/70/t${code}.png` : \'\'; }\nfunction pointsClass(p){ p=Number(p||0); if(p>=8) return \'haul\'; if(p<=0)return \'p0\'; if(p===1)return \'p1\'; if(p===2)return \'p2\'; if(p===3)return \'p3\'; if(p===4)return \'p4\'; if(p===5)return \'p5\'; return \'p6\'; }\nfunction posLabel(type){ return ({1:\'GK\',2:\'DEF\',3:\'MID\',4:\'FWD\'})[type]||\'SUB\'; }\nfunction chipPretty(name){ return ({wildcard:[\'WC\',\'WILDCARD\'],freehit:[\'FH\',\'FREE HIT\'],bboost:[\'BB\',\'BENCH BOOST\'],\'3xc\':[\'TC\',\'TRIPLE CAPTAIN\']})[name] || [name.toUpperCase(),name.toUpperCase()]; }\nfunction deltaFmt(d){ if(d==null) return \'movement —\'; if(d>0) return `▲ ${nf(d)} places`; if(d<0) return `▼ ${nf(Math.abs(d))} places`; return \'— no movement\'; }\nfunction setMetric(id,val,mode=\'neutral\'){ const el=$(id); el.textContent=val; el.className=\'metricValue \'+mode; }\nfunction scoreMode(n,good=0,bad=0){ return n>=good?\'good\':n<=bad?\'bad\':\'neutral\'; }\n\nconst CHIP_ICONS={"bboost":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAC4AAAA8CAYAAAAZp4inAAABhklEQVR4nO1ZSxbCIAykfS68i8fxnB7Hu7jTFb4aC2SSIf08ZifFzBCSJtApEXG93d+156/nY2JxzSxDLdHaOVq4PWAV4/W+y+MeD3q9bxbO2HaPDXi7mHG6BBo66sm9BEtoF9CchAouEbPsZBQfIkToNjNs/w32FMzk+vmhNcSsgFbe7+twK9GIzaXGWQ4wCLLNHmGXbaoLEGJ4KRhZAOIYlfAe4eHlonWHKdVDjl3AmsItieOZo+W8aAwxxMj5XdvayNhGuUc/Hm2jGOOtrVp7Hn5Y3jKWa1jTlceo7/FIDOHRKHaHloyv5Yolj2q63JVTIirRIeG9T/r0tnaPqAqPukuxcB/W41NKtlIt/2Pt262tA8XjSFKx3joqjzMJW9BqUXs8IlERDqg77CkePY/OcoBFgMByiD7HpSfLaAuMu3L6xf4aEbvTTOnMn1IkDvfxSoK1AGuCm0s+o5J6bLh6FQ+xd+G0/iP6UwytH9cI2uvF08DAwMDAwPlhPnJtXb4Pe3f4Ae1eCAMNvOM7AAAAAElFTkSuQmCC","3xc":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADYAAAA8CAYAAAAt3km7AAABzElEQVR4nO2ZQW7EMAhF66qL3qXH6TlznNwlu3YVybKCDZ8P7lS85UyC+TbGBLe3RD6/vn9m/1/n0VhjvbMMrViJ0j6jhTZDEqiz3tULXTHPCnhXL0wYI6w8NuihyNwnPdbQpAmLEjSiFegWZhUkOcaycwMLszhiDSOGbbOwSEHMsUJmkllBoOOq0/0uURabvY/mF1AHGCFs8YMmbHSGmf5721pfKJXHODD7TOvtacMyrbr3Yp0st7CIZMEYk7piWWWVhg/Py+PMXefR0K9kpKSaveMShpD14UkXdjvACkt0D8N7jBVSGpAjRD0bo+EnYZ7qAikCZn5Rs6ImbK7zaE/PsY+NkD0mzb61NJLe1RBSeaycsIYsspoqYU+OSM6tNjqSXCSbs9/+fOWB2tySPKJs99D32M4v6B6XMCnGV4f3mBBmCUKqZFYhSk3392Cr5HE7q1kJdI9RWgOe88mCtg6ltQYy2JI8kJ6EBSQiUtpv2f19dfvNalRr04J1fHUoIt1YFsik1qUEc1Cmbcl++sXfkyMMGyN1Vavl312uj7xs+20F4zzz2AitFT2OeScm7aYku3JJq+4j2wZFURRFURR7adE9wV28TCfYyi+STGRoqyIsewAAAABJRU5ErkJggg==","wildcard":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAC8AAAA8CAYAAAD2ZeOZAAABgElEQVR4nO1ZSxaDIBCDvi56lx6n5/Q43sVdu9KnVGFmEkB4ZOkniWHk6x0Zr/fnG7u/zJNnaT1YRM6ljUufkYKSgtUQ2gpw8kiSaCtA5hklgHCYmo1Zt3toy0j1cC7TIaQfIXpIa/pKnMWzInpTI6ZtcgY3nBDa3SFaf8JSMuZIadU9GECMM+pZq78RWI2jPZCVb5knrxqk2KWCaojNlzCu1aLOKktDZL5k6hrNvpOvkbpUu+/kESzz5HO2XNR8zZKRYDPPNrrnQ7jP3l2vPa2kUqGze6xFTdNbH/QfNmaOvYzczJ8Rl1qzxhDz1XQ/T/1h9wgTy9HtZkm+VAkmzdes+5R20zUvMl8jfYlm/8k7VzZ9qZYq+RIfoNHoY9PJSsACvN2nJQrJLKButLKIU2CUWZbDhTMxBkeI/o91QjR5oBaC9RHWnx6aHjC6S4QDntuwtzU0qD7QIKDOKiWm7r4LNzAwMDAwMOCdO85Jro5fpMO65R0rHleTqTscLKTwAxF8+OSxa/oLAAAAAElFTkSuQmCC","freehit":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADQAAAA8CAYAAAApK5mGAAABu0lEQVR4nO2Zy3UDIQxFmTlZuBeX4zpTjnvJzllNDsFgPUlPYuJwlzbogxgkxFaIXK63x6v/v+6fG1Nfj50lSHIGHePFvWJWI6Oi5YqQZ8WjomV2iGFQhFPqsEetLGsLwkIyPuhS/I6Jk7WOjAxiyZEYTtIYoFUeKftpcJSyQ249J0LXr0GoAm9E2vlMvT/HdpYzvd9QmYiNOzpQo1hjgFa2JBNOrJHOWHX0gBzKcMaqq4VWbR9kJeARokOWo9mLJ0ofDANK0TszGh+65ZjHKUovAWtwf0MRR75ngdIueJfr7TG1pyApt6xiVAKv2S0CIg2r5/TmSzLVW067zTSy0yqFg8ikyfq+YIcQZ6xGMQ+LrRQ5yc2KjCX5ihH6C9ushl6cokzrnCKKtcZFJtiXDqF11Yyb6Qi42mb0207xnDLjjjOtOEXJiMwB5FBmj8C7I6iVQku2M6Uoq+0z9LvhatvqlKXEl2SOQOTSmvWWXkB4sz5amUW2Vj79watnQGZb+P89Sba8zaNxyxnavj3MpQ/DkNNd8DwGRdV3NKEZTUQEWrUdcbNdLBaLxWKx4PIWpUhdR057TmHRFsXfD9E72ChremIAAAAASUVORK5CYII="};\nfunction renderChips(chips, gw){\n  const names=[\'bboost\',\'3xc\',\'wildcard\',\'freehit\'];\n  const byName=Object.fromEntries((chips||[]).map(c=>[c.name,c.event]));\n  $(\'#chipRow\').innerHTML=names.map(name=>{\n    const [code,title]=chipPretty(name), used=byName[name];\n    const status=used?`USED GW${used}`:\'AVAILABLE\';\n    const statusClass=used?\'used\':\'available\';\n    const icon=CHIP_ICONS[name]||\'\';\n    return `<div class="chip"><img class="chipIcon" src="${icon}" alt="${safe(title)}"><div class="chipName">${title}</div><div class="chipStatus ${statusClass}">${status}</div></div>`;\n  }).join(\'\');\n}\nfunction renderFixtures(fixtures){\n  $(\'#fixtureRow\').innerHTML=(fixtures||[]).slice(0,5).map(f=>{\n    const crest=f.teamCode?`<img class="fxCrest" src="${crestImg(f.teamCode)}" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'fxCrest ph\',textContent:\'${safe(initials(f.opp))}\'}))">`:`<div class="fxCrest ph">${safe(initials(f.opp))}</div>`;\n    return `<div class="fx">${crest}<div class="fxOpp">${safe(f.opp)} (${safe(f.side)})</div></div>`;\n  }).join(\'\');\n}\nfunction renderBench(bench){\n  const total=bench.reduce((s,p)=>s+Number(p.points||0),0); $(\'#benchSum\').textContent=`${total} PTS`;\n  $(\'#benchCards\').innerHTML=bench.map((p,i)=>{\n    const img=p.code?`<img class="miniPlayerImg" src="${playerImg(p.code)}" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">`:\'\';\n    const crest=p.teamCode?`<img class="miniCrest" src="${crestImg(p.teamCode)}" onerror="this.style.display=\'none\'">`:\'\';\n    return `<div class="mini"><div class="miniPos">${i+1}. ${posLabel(p.type)}</div><div class="miniPhoto">${img}<div class="miniAvatar" style="${p.code?\'display:none\':\'\'}">${safe(initials(p.name))}</div>${crest}</div><div class="miniName">${safe(p.name)}</div><div class="miniMeta">${safe(p.fixture||\'REVIEW FIXTURE\')}</div><div class="miniPts ${pointsClass(p.points)}">${p.points??0}</div></div>`;\n  }).join(\'\');\n}\nfunction cardHtml(p,x,y){\n  const badge=p.captain?`<div class="badge">C</div>`:p.vice?`<div class="badge vc">VC</div>`:\'\';\n  const photo=p.code?`<img src="${playerImg(p.code)}" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">`:\'\';\n  const crest=p.teamCode?`<img class="teamCrest" src="${crestImg(p.teamCode)}" onerror="this.style.display=\'none\'">`:\'\';\n  const shown=Number.isFinite(Number(p.appliedPoints))?Number(p.appliedPoints):(Number(p.points||0)*Math.max(1,Number(p.multiplier||1)));\n  return `<div class="playerCard ${p.captain?\'captain\':\'\'} ${p.vice?\'vice\':\'\'}" style="left:${x}%;top:${y}%">${badge}<div class="photoZone">${photo}<div class="avatarFallback" style="${p.code?\'display:none\':\'\'}">${safe(initials(p.name))}</div>${crest}</div><div class="playerName">${safe(p.name)}</div><div class="playerMeta">${safe(p.fixture||p.teamName||\'FIXTURE\')}<span class="tinyScore">${posLabel(p.type)}</span></div><div class="points ${pointsClass(shown)}">${shown}</div></div>`;\n}\nfunction renderPlayers(starters){\n  const groups={1:[],2:[],3:[],4:[]}; starters.forEach(p=>(groups[p.type]||groups[3]).push(p));\n  const ys={1:13.5,2:35.5,3:58.2,4:82.0};\n  const html=[];\n  [1,2,3,4].forEach(type=>{\n    const arr=groups[type]; if(!arr.length)return;\n    const span = type===1 ? 0 : (type===4?47:56);\n    arr.forEach((p,i)=>{\n      const x= arr.length===1 ? 50 : 50-span/2 + (span*(i/(arr.length-1)));\n      html.push(cardHtml(p,x,ys[type]));\n    });\n  });\n  $(\'#players\').innerHTML=html.join(\'\');\n}\nfunction renderInsights(data){\n  const starters=data.players.filter(p=>!p.bench), bench=data.players.filter(p=>p.bench);\n  const top=[...starters].sort((a,b)=>b.points-a.points)[0];\n  const cap=starters.find(p=>p.captain)||starters[0];\n  const benchPts=bench.reduce((s,p)=>s+p.points,0);\n  const diff=Number(data.history.points||0)-Number(data.event.average_entry_score||0);\n  const hit=Number(data.history.event_transfers_cost||0);\n  const rows=[\n    [\'TOP RETURN\',`${top?.name||\'—\'} • ${top?.points||0} pts`,\'good\'],\n    [\'CAPTAIN\',`${cap?.name||\'—\'} • ${cap?.points||0} raw pts`,cap?.points>=6?\'good\':\'\'],\n    [\'VS AVERAGE\',`${diff>=0?\'+\':\'\'}${diff} pts`,diff>=0?\'good\':\'bad\'],\n    [\'BENCH LEAK\',`${benchPts} pts`,benchPts>=10?\'bad\':benchPts<=5?\'good\':\'\'],\n    [\'TRANSFER HIT\',hit?`-${hit} pts`:\'No hit\',hit?\'bad\':\'good\']\n  ];\n  $(\'#analysisRibbon\').innerHTML=rows.map(r=>`<div class="insight"><div class="insightKey">${r[0]}</div><div class="insightVal ${r[2]}">${safe(r[1])}</div></div>`).join(\'\');\n}\nfunction render(data){\n  const h=data.history,e=data.event;\n  $(\'#pitchGW\').textContent=`GAMEWEEK ${e.id} REVIEW`;\n  $(\'#footerGW\').textContent=`GAMEWEEK ${e.id} REVIEW`;\n  $(\'#entryName\').textContent=(data.entry.name||\'FPL VORTEX\').toUpperCase();\n  setMetric(\'#gwPoints\',nf(h.points),scoreMode(Number(h.points)-Number(e.average_entry_score),4,-4));\n  const diff=Number(h.points||0)-Number(e.average_entry_score||0); $(\'#vsAvg\').textContent=`${diff>=0?\'+\':\'\'}${diff} vs avg ${e.average_entry_score??\'—\'}`;\n  setMetric(\'#overallRank\',nf(h.overall_rank),\'neutral\');\n  const rankMove=data.previousRank?Number(data.previousRank)-Number(h.overall_rank):null; $(\'#rankDelta\').textContent=deltaFmt(rankMove);\n  setMetric(\'#gwRank\',nf(h.rank),\'neutral\'); $(\'#gwPercentile\').textContent=e.highest_score?`high score ${e.highest_score}`:\'global finish\';\n  const starters=data.players.filter(p=>!p.bench), cap=starters.find(p=>p.captain)||starters[0];\n  const capMult=cap?.multiplier||2, capReturn=(cap?.points||0)*capMult; setMetric(\'#captainReturn\',capReturn,scoreMode(capReturn,12,4)); $(\'#captainName\').textContent=cap?`${cap.name} ×${capMult}`:\'captain\';\n  const bench=data.players.filter(p=>p.bench), bp=bench.reduce((s,p)=>s+Number(p.points||0),0); setMetric(\'#benchPoints\',bp,scoreMode(-bp,-5,-10));\n  const hit=Number(h.event_transfers_cost||0); setMetric(\'#hitPoints\',hit?`-${hit}`:\'0\',hit?\'bad\':\'good\'); $(\'#teamValue\').textContent=`team £${((h.value??data.entry.last_deadline_value??1000)/10).toFixed(1)}m`;\n  renderChips(data.chips,e.id); renderFixtures(data.fixtures); renderBench(bench); renderPlayers(starters); renderInsights(data);\n  $(\'#dataStamp\').textContent=`LIVE PUBLIC FPL API • ENTRY ${CONFIG.teamId}`;\n  $(\'#loading\').classList.add(\'hide\');\n}\n\nconst PY_LIVE_DATA = __REVIEW_DATA_JSON__;\nrender(PY_LIVE_DATA);\n</script>\n</body>\n</html>\n'
-
+    EMBEDDED_PITCH_TEMPLATE = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1.0" />\n<title>FPL VORTEX — 4K Gameweek Review</title>\n<style>\n  :root{\n    --W:3840px; --H:2160px;\n    --gold:#ffd33f; --gold2:#f6b800; --gold3:#b87900;\n    --ink:#07111e; --ink2:#0d1f31; --ink3:#132a3f;\n    --white:#f7fbff; --muted:#9fb1c3; --lime:#39e05e; --green:#12b94b;\n    --red:#ff5148; --orange:#ff9f26; --cyan:#48d9ff;\n    --panelShadow: 0 26px 70px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.45);\n  }\n  *{box-sizing:border-box}\n  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02070d;font-family:Inter,Arial,Helvetica,sans-serif;color:var(--white)}\n  body{display:flex;align-items:center;justify-content:center}\n  #scaleShell{width:3840px;height:2160px;transform-origin:center center;position:relative;flex:none}\n  #stage{width:3840px;height:2160px;position:relative;overflow:hidden;background:\n    radial-gradient(circle at 86% 2%,rgba(255,255,255,.82) 0 14px,rgba(182,220,255,.24) 16px 90px,transparent 220px),\n    radial-gradient(circle at 44% 10%,rgba(88,188,255,.20),transparent 20%),\n    linear-gradient(180deg,#071628 0 19%,#0c2234 31%,#153a2c 53%,#06190e 100%);\n  }\n  #stage:before{content:"";position:absolute;inset:0;background:\n    radial-gradient(ellipse at 56% 27%,rgba(124,207,255,.17),transparent 31%),\n    linear-gradient(104deg,transparent 0 9%,rgba(255,255,255,.08) 9.5% 10%,transparent 10.5% 21%,rgba(255,255,255,.06) 21.3% 21.8%,transparent 22.2% 100%);\n    pointer-events:none;mix-blend-mode:screen;opacity:.65}\n  .stadium{position:absolute;left:0;right:0;top:250px;height:900px;overflow:hidden;opacity:.82}\n  .stadium:before{content:"";position:absolute;inset:0;background:\n    repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 7px,transparent 7px 56px),\n    linear-gradient(180deg,rgba(2,9,18,.25),rgba(9,21,31,.62) 18%,rgba(55,73,83,.22) 48%,rgba(4,9,14,.84) 82%,transparent);\n    clip-path:polygon(0 15%,100% 0,100% 74%,0 88%);filter:blur(2px)}\n  .stadium:after{content:"";position:absolute;left:-5%;right:-5%;bottom:30px;height:245px;background:radial-gradient(ellipse at center,rgba(170,220,255,.2),transparent 60%);filter:blur(30px)}\n  .lights{position:absolute;left:0;right:0;top:0;height:320px;background:\n    radial-gradient(circle at 4% 28%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 9% 31%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 14% 34%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 78% 18%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 83% 14%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 88% 11%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 93% 9%,white 0 8px,#b8e6ff 10px 19px,transparent 48px),\n    radial-gradient(circle at 98% 7%,white 0 8px,#b8e6ff 10px 19px,transparent 48px);opacity:.92}\n\n  /* BRAND */\n  .brand{position:absolute;left:58px;top:46px;width:1185px;height:360px;display:flex;align-items:center;gap:44px;z-index:20}\n  .crestmark{width:288px;height:288px;position:relative;filter:drop-shadow(0 12px 18px rgba(0,0,0,.45))}\n  .crestmark .ring{position:absolute;inset:36px;border:17px solid #fff;border-radius:50%;box-shadow:0 0 28px rgba(255,255,255,.14)}\n  .crestmark .ring:before{content:"";position:absolute;width:92px;height:66px;left:36px;top:82px;border:15px solid #fff;border-left-color:transparent;border-bottom-color:transparent;transform:rotate(-20deg);border-radius:8px}\n  .crestmark .crown{position:absolute;left:58px;top:0;width:170px;height:105px;clip-path:polygon(0 78%,8% 11%,34% 42%,50% 0,67% 42%,91% 11%,100% 78%);background:#fff}\n  .crestmark .ball{position:absolute;left:104px;top:128px;width:78px;height:78px;border:13px solid #fff;border-radius:50%;}\n  .brandText{margin-top:-5px}\n  .brandTop{font-weight:1000;font-size:111px;letter-spacing:-5px;line-height:.85;font-style:italic;text-shadow:0 6px 12px rgba(0,0,0,.55)}\n  .brandMain{font-weight:1000;font-size:148px;letter-spacing:-8px;line-height:.94;font-style:italic;background:linear-gradient(180deg,#fff6a3 0,#ffd84b 33%,#e9a900 76%,#8b5300 100%);-webkit-background-clip:text;color:transparent;text-shadow:0 4px 0 rgba(0,0,0,.08);filter:drop-shadow(0 9px 3px rgba(0,0,0,.55))}\n  .brandSub{font-size:30px;font-weight:900;letter-spacing:8px;color:#d9e6f4;margin-top:12px}\n  .slash{display:inline-block;width:108px;height:13px;background:linear-gradient(90deg,#fff4a6,var(--gold));transform:skewX(-42deg) translateY(-22px);margin-left:9px;box-shadow:0 0 18px rgba(255,210,63,.65)}\n\n  /* LEFT PANELS */\n  .left{position:absolute;left:54px;top:428px;width:1202px;height:1642px;z-index:15;display:flex;flex-direction:column;gap:24px}\n  .panel{position:relative;border-radius:21px;overflow:hidden;background:linear-gradient(180deg,#ffe86f 0,#ffd33e 46%,#efaf13 100%);border:2px solid rgba(255,241,164,.9);box-shadow:var(--panelShadow);color:#09111a}\n  .panel:after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,rgba(255,255,255,.32),transparent 23%,transparent 73%,rgba(122,72,0,.08));pointer-events:none}\n  .panelTitle{height:98px;padding:18px 39px 12px;font-size:52px;font-weight:1000;font-style:italic;letter-spacing:1px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(90deg,rgba(255,255,255,.47),rgba(255,255,255,.05));border-bottom:5px solid rgba(68,45,0,.65);text-shadow:0 2px 0 rgba(255,255,255,.5)}\n  .panelTitle .smallTitle{font-size:24px;font-style:normal;letter-spacing:3px;padding:9px 16px;background:#091523;color:#fff;border-radius:999px}\n  .reviewPanel{height:474px}\n  .reviewGrid{height:376px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;background:rgba(20,20,20,.18)}\n  .metric{padding:22px 24px 16px;background:linear-gradient(180deg,rgba(255,248,177,.45),rgba(255,215,61,.10));display:flex;flex-direction:column;justify-content:center}\n  .metricLabel{font-size:27px;font-weight:900;letter-spacing:.8px;opacity:.76}\n  .metricValue{font-size:61px;font-weight:1000;letter-spacing:-3px;line-height:1.08;margin-top:5px}\n  .metricValue.good{color:#086e2d}.metricValue.bad{color:#9d1616}.metricValue.neutral{color:#131c26}\n  .metricSub{font-size:20px;font-weight:850;margin-top:3px;opacity:.7}\n  .chipsPanel{height:272px}\n  .chipRow{height:174px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:13px 17px 16px}\n  .chip{border-radius:16px;border:2px solid rgba(62,35,0,.18);background:linear-gradient(180deg,rgba(255,255,255,.38),rgba(255,231,115,.14));display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative;text-align:center}\n  .chipCode{width:88px;height:61px;border-radius:13px;background:#071522;color:#fff;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:1000;box-shadow:0 5px 12px rgba(0,0,0,.22)}\n  .chipName{font-size:22px;font-weight:1000;margin-top:8px}.chipStatus{font-size:18px;font-weight:900;margin-top:2px;color:#116c31}.chipStatus.used{color:#a11b1b}\n  .chipPlan{position:absolute;right:9px;top:8px;font-size:14px;font-weight:1000;background:rgba(4,18,29,.92);color:#ffe263;padding:5px 7px;border-radius:8px}\n  .fixturesPanel{height:294px}\n  .fixtureRow{height:196px;display:grid;grid-template-columns:repeat(5,1fr);padding:12px 14px 15px;gap:8px}\n  .fx{border-right:2px solid rgba(46,34,4,.26);display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0}.fx:last-child{border-right:none}\n  .fxCrest{width:72px;height:72px;object-fit:contain;filter:drop-shadow(0 3px 3px rgba(0,0,0,.25))}.fxCrest.ph{border-radius:50%;background:#111d2c;color:#fff;font-weight:1000;display:flex;align-items:center;justify-content:center;font-size:22px}\n  .fxOpp{font-size:24px;font-weight:1000;margin-top:5px;white-space:nowrap}\n  .benchPanel{height:408px;flex:1}\n  .benchCards{height:calc(100% - 98px);display:grid;grid-template-columns:repeat(4,1fr);gap:15px;padding:14px 17px 17px}\n  .mini{position:relative;border-radius:15px;background:linear-gradient(180deg,#ffe85f,#dca216);border:2px solid rgba(92,55,0,.28);overflow:hidden;padding-top:39px;text-align:center}\n  .miniPos{position:absolute;left:0;right:0;top:5px;font-size:18px;font-weight:1000;letter-spacing:.7px}\n  .miniPhoto{height:128px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden}.miniPhoto img{height:144px;max-width:100%;object-fit:contain;filter:drop-shadow(0 5px 5px rgba(0,0,0,.25))}.miniAvatar{width:98px;height:98px;border-radius:50%;background:linear-gradient(160deg,#15273a,#07111c);display:flex;align-items:center;justify-content:center;color:#fff;font-size:28px;font-weight:1000;margin-bottom:8px}\n  .miniName{height:45px;background:#07131f;color:#fff;font-size:21px;font-weight:1000;display:flex;align-items:center;justify-content:center;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n  .miniMeta{height:39px;background:#0b1722;color:#fff;font-size:17px;font-weight:850;display:flex;align-items:center;justify-content:center}.miniPts{position:absolute;right:9px;bottom:8px;width:51px;height:37px;border-radius:7px;background:#2ee86c;color:#06120b;font-size:22px;font-weight:1000;display:flex;align-items:center;justify-content:center}\n\n  /* PITCH */\n  .pitchShell{position:absolute;left:1286px;top:105px;width:2512px;height:1978px;z-index:10;filter:drop-shadow(0 30px 40px rgba(0,0,0,.55))}\n  .pitch{position:absolute;inset:0;clip-path:polygon(6.7% 0,91.5% 0,100% 100%,0 100%);background:\n    repeating-linear-gradient(90deg,rgba(255,255,255,.026) 0 18px,rgba(0,0,0,.018) 18px 35px),\n    repeating-linear-gradient(0deg,rgba(22,115,27,.10) 0 125px,rgba(38,150,39,.08) 125px 250px),\n    radial-gradient(ellipse at 50% 25%,rgba(129,238,70,.34),transparent 37%),\n    linear-gradient(180deg,#3a9d28 0,#208425 27%,#197324 60%,#176622 100%);border:7px solid rgba(238,255,228,.8)}\n  .pitch:before{content:"";position:absolute;inset:0;background-image:\n    radial-gradient(circle at 20% 20%,rgba(255,255,255,.09) 0 1px,transparent 1.5px),\n    radial-gradient(circle at 70% 60%,rgba(0,0,0,.07) 0 1px,transparent 1.5px);background-size:12px 12px,15px 15px;opacity:.55}\n  .pitchSvg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}\n  .pitchGlow{position:absolute;inset:-20px;clip-path:polygon(6.7% 0,91.5% 0,100% 100%,0 100%);border:16px solid rgba(172,228,255,.26);filter:blur(7px);pointer-events:none}\n  .pitchHeader{position:absolute;top:24px;left:50%;transform:translateX(-50%);z-index:6;background:rgba(4,17,27,.82);border:2px solid rgba(255,221,77,.75);border-radius:18px;padding:10px 26px;display:flex;gap:17px;align-items:center;backdrop-filter:blur(8px);box-shadow:0 10px 24px rgba(0,0,0,.25)}\n  .pitchHeader .gw{font-size:28px;font-weight:1000;color:#ffe45f}.pitchHeader .team{font-size:23px;font-weight:900}.sourceDot{width:12px;height:12px;border-radius:50%;background:#2ee86c;box-shadow:0 0 16px #2ee86c}\n  .players{position:absolute;inset:0;z-index:8}\n  .playerCard{position:absolute;width:300px;height:350px;transform:translate(-50%,-50%);background:linear-gradient(155deg,#07111b 0,#102638 65%,#02070d 100%);border-radius:25px;border:4px solid rgba(236,249,255,.72);box-shadow:0 20px 35px rgba(0,0,0,.58),inset 0 0 0 2px rgba(255,255,255,.08);overflow:hidden}\n  .playerCard.captain{border-color:#ffdf52;box-shadow:0 20px 35px rgba(0,0,0,.58),0 0 25px rgba(255,217,66,.36),inset 0 0 0 2px rgba(255,255,255,.12)}\n  .playerCard.vice{border-color:#9ddcff}\n  .photoZone{position:absolute;left:0;right:0;top:0;height:226px;display:flex;align-items:flex-end;justify-content:center;background:radial-gradient(circle at 50% 42%,rgba(56,97,128,.6),transparent 62%);overflow:hidden}\n  .photoZone img{height:226px;max-width:255px;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 7px 8px rgba(0,0,0,.55))}\n  .avatarFallback{width:165px;height:165px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:22px;background:linear-gradient(145deg,#274a65,#07131f);font-size:46px;font-weight:1000;color:#dcecff;border:3px solid rgba(255,255,255,.18)}\n  .teamCrest{position:absolute;right:14px;top:13px;width:72px;height:72px;object-fit:contain;filter:drop-shadow(0 4px 3px rgba(0,0,0,.65))}\n  .badge{position:absolute;left:13px;top:14px;min-width:58px;height:54px;padding:0 10px;border-radius:12px;background:#ffda43;color:#06111a;font-size:28px;font-weight:1000;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(0,0,0,.35)}\n  .badge.vc{background:#b8e8ff}.playerName{position:absolute;left:0;right:0;top:221px;height:58px;background:linear-gradient(180deg,#03070b,#0b1117);border-top:3px solid rgba(230,243,255,.58);border-bottom:3px solid rgba(230,243,255,.58);display:flex;align-items:center;justify-content:center;padding:0 8px;font-size:25px;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 2px 2px #000}\n  .playerMeta{position:absolute;left:0;right:0;bottom:0;height:69px;background:#07111a;display:flex;align-items:center;padding:0 84px 0 16px;font-size:23px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.points{position:absolute;right:0;bottom:0;width:81px;height:69px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:1000;color:#04100b;border-left:3px solid rgba(255,255,255,.4)}\n  .points.p0{background:#6f7c87;color:#fff}.points.p1{background:#ef5548;color:#fff}.points.p2{background:#a4ec42}.points.p3{background:#5ee84d}.points.p4{background:#2fdb5b}.points.p5{background:#14be54}.points.p6{background:#06a950;color:#fff}.points.haul{background:linear-gradient(180deg,#ffe96e,#ffb21f);color:#241400}\n  .tinyScore{position:absolute;left:12px;bottom:8px;font-size:13px;font-weight:900;color:#8ca2b5;letter-spacing:1px}\n\n  /* review ribbons on pitch */\n  .analysisRibbon{position:absolute;right:46px;top:44px;width:510px;z-index:11;display:flex;flex-direction:column;gap:12px}\n  .insight{height:82px;border-radius:16px;background:linear-gradient(90deg,rgba(4,16,27,.95),rgba(8,27,42,.88));border:2px solid rgba(255,220,65,.48);box-shadow:0 10px 24px rgba(0,0,0,.28);padding:10px 18px;display:grid;grid-template-columns:134px 1fr;align-items:center;backdrop-filter:blur(7px)}\n  .insightKey{font-size:17px;color:#ffdb55;font-weight:1000;letter-spacing:1.1px}.insightVal{font-size:24px;font-weight:1000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.insightVal.good{color:#5cff80}.insightVal.bad{color:#ff7e72}\n\n  __PL_BUG_CSS__\n  .footer{position:absolute;left:58px;bottom:22px;right:64px;height:47px;display:flex;align-items:center;justify-content:space-between;z-index:30;font-size:24px;font-weight:850;color:#b8c7d4;letter-spacing:1px;text-shadow:0 2px 4px #000}.footer strong{color:#ffe04a}\n  .loading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:60;border-radius:26px;padding:28px 44px;background:rgba(3,13,23,.93);border:2px solid rgba(255,220,72,.6);font-size:29px;font-weight:900;box-shadow:0 20px 50px rgba(0,0,0,.45)}\n  .hide{display:none!important}\n</style>\n\n<style id="gw-review-v2-ui">\n.panel{background:linear-gradient(180deg,#fff2a6 0%,#ffe37a 48%,#f4c94f 100%) !important;border-color:#fff1b7 !important}\n.panel:after{background:linear-gradient(105deg,rgba(255,255,255,.48),transparent 26%,transparent 76%,rgba(110,65,0,.05)) !important}\n.panelTitle{background:linear-gradient(90deg,rgba(255,255,255,.72),rgba(255,244,177,.30)) !important;border-bottom-color:rgba(69,43,0,.52) !important}\n.metric{background:linear-gradient(180deg,rgba(255,255,255,.48),rgba(255,236,139,.22)) !important}\n.metricLabel{opacity:.92 !important;color:#17202a !important}\n.metricSub{opacity:.88 !important;color:#24303a !important;font-size:22px !important;font-weight:900 !important}\n.chip{background:linear-gradient(180deg,#fff7c7 0%,#ffe98c 100%) !important;border-color:rgba(71,43,0,.22) !important}\n.chipCode{width:96px !important;height:66px !important;border-radius:18px !important;font-size:32px !important;letter-spacing:1px !important;color:#fff !important;border:3px solid rgba(255,255,255,.72) !important;box-shadow:0 7px 16px rgba(0,0,0,.24),inset 0 0 0 2px rgba(255,255,255,.12) !important}\n.chip:nth-child(1) .chipCode{background:linear-gradient(135deg,#4b0e8f,#e61792) !important}\n.chip:nth-child(2) .chipCode{background:linear-gradient(135deg,#00c8ff,#5b2cff) !important}\n.chip:nth-child(3) .chipCode{background:linear-gradient(135deg,#29e56f,#08a7d8) !important}\n.chip:nth-child(4) .chipCode{background:linear-gradient(135deg,#ffd447,#ff4f91) !important;color:#151018 !important}\n.chipName{font-size:23px !important}.chipStatus{font-size:19px !important}\n.pitchHeader{top:30px !important;left:70px !important;right:auto !important;transform:none !important;justify-content:flex-start !important;min-width:710px !important;padding:15px 26px !important;border-radius:15px !important;background:rgba(4,17,27,.90) !important}\n.pitchHeader .gw{font-size:48px !important;line-height:1 !important;font-weight:1000 !important;letter-spacing:1.2px !important;color:#ffe681 !important;text-transform:uppercase !important}\n.pitchHeader .team{font-size:25px !important;font-weight:950 !important;color:#fff !important;text-transform:uppercase !important}\n.sourceDot{width:15px !important;height:15px !important}\n.analysisRibbon{display:none !important}\n.playerCard{width:310px !important;height:350px !important}\n.photoZone{height:210px !important}\n.photoZone img{height:210px !important;max-width:270px !important}\n.teamCrest{width:82px !important;height:82px !important;right:12px !important;top:10px !important}\n.playerName{top:206px !important;height:66px !important;background:linear-gradient(180deg,#fff2a3,#f1c64e) !important;color:#07111a !important;border-top:3px solid rgba(255,255,255,.88) !important;border-bottom:3px solid rgba(91,58,0,.32) !important;font-size:30px !important;font-weight:1000 !important;text-shadow:none !important;padding:0 10px !important}\n.playerMeta{height:78px !important;background:linear-gradient(180deg,#fff8cf,#f6df8c) !important;color:#101922 !important;padding:0 102px 0 17px !important;font-size:27px !important;font-weight:1000 !important;letter-spacing:.2px !important}\n.tinyScore{left:17px !important;bottom:7px !important;font-size:16px !important;color:#3b4650 !important;font-weight:1000 !important}\n.points{width:96px !important;height:78px !important;font-size:43px !important;font-weight:1000 !important;border-left:3px solid rgba(55,37,0,.25) !important}\n.mini{background:linear-gradient(180deg,#fff2a6,#f2c84e) !important}\n.miniName{background:#fff0a4 !important;color:#101820 !important;font-size:23px !important;font-weight:1000 !important;border-top:2px solid rgba(86,55,0,.22) !important}\n.miniMeta{background:#fff8ce !important;color:#202b34 !important;font-size:19px !important;font-weight:950 !important}\n.miniPts{font-size:24px !important}\n</style>\n\n<style id="vortex-gw-review-final-polish">\n.brand.brandImage{left:58px!important;top:42px!important;width:1185px!important;height:345px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important}\n.brand.brandImage .vortex-logo{display:block!important;width:auto!important;max-width:1120px!important;height:auto!important;max-height:320px!important;object-fit:contain!important;object-position:left center!important;filter:drop-shadow(0 12px 18px rgba(0,0,0,.42))!important}\n.brand.brandImage .logo-fallback,.brand.brandImage .text-logo{font-size:118px!important;font-weight:1000!important;color:#fff!important}\n#reviewMode{display:none!important}\n.pitchHeader{top:30px!important;left:190px!important;right:auto!important;transform:none!important;min-width:0!important;width:auto!important;max-width:1180px!important;padding:15px 28px!important;justify-content:flex-start!important}\n.pitchHeader .gw{font-size:50px!important;line-height:1!important;font-weight:1000!important;letter-spacing:1.2px!important;white-space:nowrap!important}\n.pitchHeader .team{font-size:27px!important;font-weight:1000!important;white-space:nowrap!important}\n.chipRow{height:174px!important;grid-template-columns:repeat(4,1fr)!important;gap:12px!important;padding:10px 17px 13px!important}\n.chip{border-radius:16px!important;padding:6px 8px 8px!important;justify-content:center!important;background:linear-gradient(180deg,#fff8c8 0%,#f7dd80 100%)!important;border:2px solid rgba(69,43,0,.18)!important}\n.chipPlan{display:none!important}\n.chipIcon{width:58px!important;height:58px!important;object-fit:contain!important;display:block!important;margin:0 auto 2px!important;filter:brightness(.48) saturate(.92) contrast(1.15)!important}\n.chipName{font-size:23px!important;line-height:1.05!important;font-weight:1000!important;margin:1px 0 5px!important;color:#101722!important;text-transform:uppercase!important;white-space:nowrap!important}\n.chipStatus{width:92%!important;min-height:34px!important;padding:5px 8px!important;margin:0 auto!important;border-radius:7px!important;display:flex!important;align-items:center!important;justify-content:center!important;font-size:20px!important;line-height:1!important;font-weight:1000!important;letter-spacing:.7px!important;text-transform:uppercase!important;border:2px solid rgba(0,0,0,.22)!important}\n.chipStatus.available{background:#49e675!important;color:#07130b!important}\n.chipStatus.used{background:#e7353d!important;color:#fff!important;border-color:#a70d14!important}\n.benchCards{height:calc(100% - 98px)!important;gap:14px!important;padding:12px 17px 15px!important}\n.mini{padding-top:28px!important;background:linear-gradient(180deg,#fff4b0 0%,#f1ce62 100%)!important;border-radius:18px!important;overflow:hidden!important}\n.miniPos{top:4px!important;font-size:18px!important;line-height:1.05!important}\n.miniPhoto{height:188px!important;display:flex!important;align-items:flex-end!important;justify-content:center!important;overflow:hidden!important;padding-top:10px!important}\n.miniPhoto img{height:172px!important;max-width:94%!important;object-fit:contain!important;object-position:center bottom!important;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28))!important}\n.miniAvatar{width:142px!important;height:142px!important;font-size:40px!important;margin-bottom:7px!important}\n.miniName{height:62px!important;background:linear-gradient(180deg,#fff2a3,#f1c64e)!important;color:#07111a!important;font-size:30px!important;line-height:1!important;font-weight:1000!important;padding:0 8px!important;border-top:3px solid rgba(255,255,255,.85)!important;border-bottom:3px solid rgba(91,58,0,.28)!important}\n.miniMeta{height:72px!important;background:linear-gradient(180deg,#fff8cf,#f6df8c)!important;color:#101922!important;font-size:27px!important;line-height:1!important;font-weight:1000!important;padding:0 88px 0 10px!important;justify-content:flex-start!important}\n.miniPts{right:0!important;bottom:0!important;width:80px!important;height:72px!important;border-radius:0!important;font-size:40px!important;font-weight:1000!important;border-left:3px solid rgba(55,37,0,.25)!important}\n.miniPts.p0{background:#6f7c87!important;color:#fff!important}.miniPts.p1{background:#ef5548!important;color:#fff!important}.miniPts.p2{background:#a4ec42!important;color:#07120b!important}.miniPts.p3{background:#5ee84d!important;color:#07120b!important}.miniPts.p4{background:#2fdb5b!important;color:#07120b!important}.miniPts.p5{background:#14be54!important;color:#07120b!important}.miniPts.p6{background:#06a950!important;color:#fff!important}.miniPts.haul{background:linear-gradient(180deg,#ffe96e,#ffb21f)!important;color:#241400!important}\n</style>\n\n\n<style id="gw-review-v3-final-request">\n/* Left data stack slightly higher for clean footer clearance */\n.left{top:398px!important;}\n\n/* Review metric typography: black, larger, fully opaque; GW points red */\n.metric{padding:19px 24px 14px!important;}\n.metricLabel{font-size:32px!important;line-height:1!important;font-weight:1000!important;color:#070b0f!important;opacity:1!important;letter-spacing:.5px!important;}\n.metricValue{font-size:68px!important;line-height:1!important;font-weight:1000!important;color:#070b0f!important;opacity:1!important;margin-top:8px!important;}\n.metricValue.good,.metricValue.bad,.metricValue.neutral{color:#070b0f!important;}\n#gwPoints{color:#d71920!important;}\n.metricSub{font-size:25px!important;line-height:1.05!important;font-weight:1000!important;color:#070b0f!important;opacity:1!important;margin-top:8px!important;}\n\n/* Chips: actual reference symbols, enlarged to fit the card, all dark blue */\n.chipRow{height:174px!important;gap:12px!important;padding:7px 17px 10px!important;}\n.chip{padding:3px 7px 7px!important;justify-content:center!important;overflow:hidden!important;}\n.chipIcon{width:82px!important;height:82px!important;max-width:82px!important;max-height:82px!important;object-fit:contain!important;margin:-2px auto 0!important;filter:none!important;}\n.chipName{font-size:22px!important;line-height:1!important;margin:-3px 0 5px!important;color:#071522!important;font-weight:1000!important;}\n.chipStatus{min-height:33px!important;height:33px!important;font-size:19px!important;line-height:1!important;padding:4px 7px!important;}\n\n/* Bench cards: team crest by player\'s head/right, no overlap */\n.miniPhoto{position:relative!important;height:188px!important;padding-top:10px!important;overflow:hidden!important;}\n.miniPlayerImg{height:172px!important;max-width:88%!important;object-fit:contain!important;object-position:center bottom!important;}\n.miniCrest{position:absolute!important;right:8px!important;top:14px!important;width:55px!important;height:55px!important;object-fit:contain!important;z-index:8!important;padding:4px!important;border-radius:50%!important;background:rgba(255,250,218,.92)!important;border:2px solid rgba(7,21,34,.24)!important;box-shadow:0 4px 10px rgba(0,0,0,.24)!important;}\n.miniName{font-size:30px!important;font-weight:1000!important;}\n.miniMeta{font-size:27px!important;font-weight:1000!important;}\n.miniPts{font-size:40px!important;font-weight:1000!important;}\n\n/* Footer social strip: large, centered, clear */\n.footer{left:58px!important;right:58px!important;bottom:10px!important;height:66px!important;font-size:24px!important;font-weight:950!important;color:#eef6ff!important;letter-spacing:.5px!important;text-shadow:0 2px 4px #000!important;display:flex!important;align-items:center!important;justify-content:space-between!important;z-index:50!important;}\n.footerLeft{white-space:nowrap!important;}\n.footerRight{white-space:nowrap!important;font-size:22px!important;color:#cbd8e5!important;}\n.footerSocial{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-50%,-50%)!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:32px!important;white-space:nowrap!important;font-size:29px!important;font-weight:1000!important;color:#ffffff!important;letter-spacing:.5px!important;}\n.socialPair{display:inline-flex!important;align-items:center!important;gap:10px!important;}\n.ytIcon{width:48px!important;height:34px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))!important;}\n.ytIcon svg{width:48px!important;height:34px!important;display:block!important;}\n.xIcon{width:38px!important;height:38px!important;border-radius:9px!important;background:#020406!important;color:#ffffff!important;border:2px solid rgba(255,255,255,.88)!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;font-size:27px!important;line-height:1!important;font-family:Arial,Helvetica,sans-serif!important;font-weight:1000!important;box-shadow:0 2px 4px rgba(0,0,0,.5)!important;}\n</style>\n\n</head>\n<body>\n<div id="scaleShell">\n<div id="stage">\n  <div class="lights"></div><div class="stadium"></div>\n\n  <div class="brand brandImage">__VORTEX_LOGO_HTML__</div>\n\n  <section class="left">\n    <div class="panel reviewPanel">\n      <div class="panelTitle"><span>GAMEWEEK REVIEW</span></div>\n      <div class="reviewGrid">\n        <div class="metric"><div class="metricLabel">GW POINTS</div><div class="metricValue neutral" id="gwPoints">—</div><div class="metricSub" id="vsAvg">vs avg —</div></div>\n        <div class="metric"><div class="metricLabel">OVERALL RANK</div><div class="metricValue neutral" id="overallRank">—</div><div class="metricSub" id="rankDelta">movement —</div></div>\n        <div class="metric"><div class="metricLabel">GW RANK</div><div class="metricValue neutral" id="gwRank">—</div><div class="metricSub" id="gwPercentile">global finish</div></div>\n        <div class="metric"><div class="metricLabel">CAPTAIN RETURN</div><div class="metricValue neutral" id="captainReturn">—</div><div class="metricSub" id="captainName">captain</div></div>\n        <div class="metric"><div class="metricLabel">BENCH POINTS</div><div class="metricValue neutral" id="benchPoints">—</div><div class="metricSub">unused output</div></div>\n        <div class="metric"><div class="metricLabel">TRANSFER COST</div><div class="metricValue neutral" id="hitPoints">0</div><div class="metricSub" id="teamValue">team value —</div></div>\n      </div>\n    </div>\n\n    <div class="panel chipsPanel">\n      <div class="panelTitle"><span>CHIP INTELLIGENCE</span><span class="smallTitle">H1 • USE BY GW19</span></div>\n      <div class="chipRow" id="chipRow"></div>\n    </div>\n\n    <div class="panel fixturesPanel">\n      <div class="panelTitle"><span id="fixtureTitle">GW REVIEW • CAPTAIN</span><span class="smallTitle">FIXTURE</span></div>\n      <div class="fixtureRow" id="fixtureRow"></div>\n    </div>\n\n    <div class="panel benchPanel">\n      <div class="panelTitle"><span>SUBSTITUTES</span><span id="benchSum" class="smallTitle">0 PTS</span></div>\n      <div class="benchCards" id="benchCards"></div>\n    </div>\n  </section>\n\n  <section class="pitchShell">\n    <div class="pitch"></div><div class="pitchGlow"></div>\n    <svg class="pitchSvg" viewBox="0 0 2512 1978" preserveAspectRatio="none" aria-hidden="true">\n      <g fill="none" stroke="rgba(246,255,239,.90)" stroke-width="10">\n        <path d="M171,43 L2290,43 L2473,1870 L38,1870 Z" />\n        <line x1="104" y1="1000" x2="2385" y2="1000" />\n        <ellipse cx="1245" cy="1000" rx="252" ry="165" />\n        <circle cx="1245" cy="1000" r="11" fill="rgba(246,255,239,.9)" />\n        <path d="M672 43 L1811 43 L1848 377 L633 377 Z" />\n        <path d="M979 43 L1507 43 L1523 188 L962 188 Z" />\n        <path d="M466 1870 L2048 1870 L2017 1515 L492 1515 Z" />\n        <path d="M835 1870 L1679 1870 L1665 1688 L849 1688 Z" />\n        <path d="M1035 377 C1105 494 1385 494 1455 377" />\n        <path d="M920 1515 C1015 1375 1465 1375 1560 1515" />\n        <path d="M104 1000 C104 936 161 886 224 886" /><path d="M2385 1000 C2385 936 2328 886 2265 886" />\n        <path d="M38 1870 C38 1802 98 1748 168 1748" /><path d="M2473 1870 C2473 1802 2413 1748 2343 1748" />\n      </g>\n    </svg>\n    <div class="pitchHeader"><span class="sourceDot" id="sourceDot"></span><span class="gw" id="pitchGW">GW — REVIEW</span><span class="team" id="entryName">FPL VORTEX</span></div>\n    <div class="analysisRibbon" id="analysisRibbon"></div>\n    <div class="players" id="players"></div>\n  </section>\n\n  __PL_BUG_HTML__<div class="footer">\n    <span class="footerLeft">FPL VORTEX &nbsp;|&nbsp; <strong id="footerGW">GAMEWEEK REVIEW</strong> &nbsp;|&nbsp; __SEASON_FULL__ SEASON</span>\n    <span class="footerSocial">\n      <span class="socialPair"><span class="ytIcon" aria-label="YouTube"><svg viewBox="0 0 48 34" aria-hidden="true"><rect x="1" y="1" width="46" height="32" rx="9" fill="#ff0000"/><path d="M20 9 L34 17 L20 25 Z" fill="#ffffff"/></svg></span><span>@FPLVORTEX</span></span>\n      <span class="socialPair"><span class="xIcon" aria-label="X">𝕏</span><span>@FPLVORTEXM</span></span>\n    </span>\n    <span id="dataStamp" class="footerRight">PUBLIC FPL DATA • ENTRY 158256</span>\n  </div>\n  <div id="loading" class="loading">Loading FPL review data…</div>\n</div>\n</div>\n<script>\n/* ============================================================\n   FPL VORTEX — GAMEWEEK REVIEW 4K\n   Native canvas: 3840 × 2160 (16:9)\n   Live URL options:\n     fpl_vortex_gw_review_4k.html?team=158256\n     fpl_vortex_gw_review_4k.html?team=158256&gw=3\n   ============================================================ */\nconst CONFIG = { teamId: __TEAM_ID__ };\nconst $ = s => document.querySelector(s);\nconst nf = n => (n==null || Number.isNaN(Number(n))) ? \'—\' : Number(n).toLocaleString(\'en-GB\');\nconst initials = s => (s||\'?\').split(/\\s+/).map(x=>x[0]).join(\'\').slice(0,2).toUpperCase();\nconst safe = s => String(s ?? \'\').replace(/[&<>"]/g, c=>({\'&\':\'&amp;\',\'<\':\'&lt;\',\'>\':\'&gt;\',\'"\':\'&quot;\'}[c]));\nfunction fit(){ const scale=Math.min(innerWidth/3840,innerHeight/2160); $(\'#scaleShell\').style.transform=`scale(${scale})`; }\naddEventListener(\'resize\',fit); fit();\nfunction playerImg(code){ return code ? `https://resources.premierleague.com/premierleague/photos/players/250x250/p${code}.png` : \'\'; }\nfunction crestImg(code){ return code ? `https://resources.premierleague.com/premierleague/badges/70/t${code}.png` : \'\'; }\nfunction pointsClass(p){ p=Number(p||0); if(p>=8) return \'haul\'; if(p<=0)return \'p0\'; if(p===1)return \'p1\'; if(p===2)return \'p2\'; if(p===3)return \'p3\'; if(p===4)return \'p4\'; if(p===5)return \'p5\'; return \'p6\'; }\nfunction posLabel(type){ return ({1:\'GK\',2:\'DEF\',3:\'MID\',4:\'FWD\'})[type]||\'SUB\'; }\nfunction chipPretty(name){ return ({wildcard:[\'WC\',\'WILDCARD\'],freehit:[\'FH\',\'FREE HIT\'],bboost:[\'BB\',\'BENCH BOOST\'],\'3xc\':[\'TC\',\'TRIPLE CAPTAIN\']})[name] || [name.toUpperCase(),name.toUpperCase()]; }\nfunction deltaFmt(d){ if(d==null) return \'movement —\'; if(d>0) return `▲ ${nf(d)} places`; if(d<0) return `▼ ${nf(Math.abs(d))} places`; return \'— no movement\'; }\nfunction setMetric(id,val,mode=\'neutral\'){ const el=$(id); el.textContent=val; el.className=\'metricValue \'+mode; }\nfunction scoreMode(n,good=0,bad=0){ return n>=good?\'good\':n<=bad?\'bad\':\'neutral\'; }\n\nconst CHIP_ICONS={"bboost":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAC4AAAA8CAYAAAAZp4inAAABhklEQVR4nO1ZSxbCIAykfS68i8fxnB7Hu7jTFb4aC2SSIf08ZifFzBCSJtApEXG93d+156/nY2JxzSxDLdHaOVq4PWAV4/W+y+MeD3q9bxbO2HaPDXi7mHG6BBo66sm9BEtoF9CchAouEbPsZBQfIkToNjNs/w32FMzk+vmhNcSsgFbe7+twK9GIzaXGWQ4wCLLNHmGXbaoLEGJ4KRhZAOIYlfAe4eHlonWHKdVDjl3AmsItieOZo+W8aAwxxMj5XdvayNhGuUc/Hm2jGOOtrVp7Hn5Y3jKWa1jTlceo7/FIDOHRKHaHloyv5Yolj2q63JVTIirRIeG9T/r0tnaPqAqPukuxcB/W41NKtlIt/2Pt262tA8XjSFKx3joqjzMJW9BqUXs8IlERDqg77CkePY/OcoBFgMByiD7HpSfLaAuMu3L6xf4aEbvTTOnMn1IkDvfxSoK1AGuCm0s+o5J6bLh6FQ+xd+G0/iP6UwytH9cI2uvF08DAwMDAwPlhPnJtXb4Pe3f4Ae1eCAMNvOM7AAAAAElFTkSuQmCC","3xc":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADYAAAA8CAYAAAAt3km7AAABzElEQVR4nO2ZQW7EMAhF66qL3qXH6TlznNwlu3YVybKCDZ8P7lS85UyC+TbGBLe3RD6/vn9m/1/n0VhjvbMMrViJ0j6jhTZDEqiz3tULXTHPCnhXL0wYI6w8NuihyNwnPdbQpAmLEjSiFegWZhUkOcaycwMLszhiDSOGbbOwSEHMsUJmkllBoOOq0/0uURabvY/mF1AHGCFs8YMmbHSGmf5721pfKJXHODD7TOvtacMyrbr3Yp0st7CIZMEYk7piWWWVhg/Py+PMXefR0K9kpKSaveMShpD14UkXdjvACkt0D8N7jBVSGpAjRD0bo+EnYZ7qAikCZn5Rs6ImbK7zaE/PsY+NkD0mzb61NJLe1RBSeaycsIYsspoqYU+OSM6tNjqSXCSbs9/+fOWB2tySPKJs99D32M4v6B6XMCnGV4f3mBBmCUKqZFYhSk3392Cr5HE7q1kJdI9RWgOe88mCtg6ltQYy2JI8kJ6EBSQiUtpv2f19dfvNalRr04J1fHUoIt1YFsik1qUEc1Cmbcl++sXfkyMMGyN1Vavl312uj7xs+20F4zzz2AitFT2OeScm7aYku3JJq+4j2wZFURRFURR7adE9wV28TCfYyi+STGRoqyIsewAAAABJRU5ErkJggg==","wildcard":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAC8AAAA8CAYAAAD2ZeOZAAABgElEQVR4nO1ZSxaDIBCDvi56lx6n5/Q43sVdu9KnVGFmEkB4ZOkniWHk6x0Zr/fnG7u/zJNnaT1YRM6ljUufkYKSgtUQ2gpw8kiSaCtA5hklgHCYmo1Zt3toy0j1cC7TIaQfIXpIa/pKnMWzInpTI6ZtcgY3nBDa3SFaf8JSMuZIadU9GECMM+pZq78RWI2jPZCVb5knrxqk2KWCaojNlzCu1aLOKktDZL5k6hrNvpOvkbpUu+/kESzz5HO2XNR8zZKRYDPPNrrnQ7jP3l2vPa2kUqGze6xFTdNbH/QfNmaOvYzczJ8Rl1qzxhDz1XQ/T/1h9wgTy9HtZkm+VAkmzdes+5R20zUvMl8jfYlm/8k7VzZ9qZYq+RIfoNHoY9PJSsACvN2nJQrJLKButLKIU2CUWZbDhTMxBkeI/o91QjR5oBaC9RHWnx6aHjC6S4QDntuwtzU0qD7QIKDOKiWm7r4LNzAwMDAwMOCdO85Jro5fpMO65R0rHleTqTscLKTwAxF8+OSxa/oLAAAAAElFTkSuQmCC","freehit":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADQAAAA8CAYAAAApK5mGAAABu0lEQVR4nO2Zy3UDIQxFmTlZuBeX4zpTjnvJzllNDsFgPUlPYuJwlzbogxgkxFaIXK63x6v/v+6fG1Nfj50lSHIGHePFvWJWI6Oi5YqQZ8WjomV2iGFQhFPqsEetLGsLwkIyPuhS/I6Jk7WOjAxiyZEYTtIYoFUeKftpcJSyQ249J0LXr0GoAm9E2vlMvT/HdpYzvd9QmYiNOzpQo1hjgFa2JBNOrJHOWHX0gBzKcMaqq4VWbR9kJeARokOWo9mLJ0ofDANK0TszGh+65ZjHKUovAWtwf0MRR75ngdIueJfr7TG1pyApt6xiVAKv2S0CIg2r5/TmSzLVW067zTSy0yqFg8ikyfq+YIcQZ6xGMQ+LrRQ5yc2KjCX5ihH6C9ushl6cokzrnCKKtcZFJtiXDqF11Yyb6Qi42mb0207xnDLjjjOtOEXJiMwB5FBmj8C7I6iVQku2M6Uoq+0z9LvhatvqlKXEl2SOQOTSmvWWXkB4sz5amUW2Vj79watnQGZb+P89Sba8zaNxyxnavj3MpQ/DkNNd8DwGRdV3NKEZTUQEWrUdcbNdLBaLxWKx4PIWpUhdR057TmHRFsXfD9E72ChremIAAAAASUVORK5CYII="};\nfunction renderChips(chips, gw){\n  const names=[\'bboost\',\'3xc\',\'wildcard\',\'freehit\'];\n  const byName=Object.fromEntries((chips||[]).map(c=>[c.name,c.event]));\n  $(\'#chipRow\').innerHTML=names.map(name=>{\n    const [code,title]=chipPretty(name), used=byName[name];\n    const status=used?`USED GW${used}`:\'AVAILABLE\';\n    const statusClass=used?\'used\':\'available\';\n    const icon=CHIP_ICONS[name]||\'\';\n    return `<div class="chip"><img class="chipIcon" src="${icon}" alt="${safe(title)}"><div class="chipName">${title}</div><div class="chipStatus ${statusClass}">${status}</div></div>`;\n  }).join(\'\');\n}\nfunction renderFixtures(fixtures){\n  $(\'#fixtureRow\').innerHTML=(fixtures||[]).slice(0,5).map(f=>{\n    const crest=f.teamCode?`<img class="fxCrest" src="${crestImg(f.teamCode)}" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'fxCrest ph\',textContent:\'${safe(initials(f.opp))}\'}))">`:`<div class="fxCrest ph">${safe(initials(f.opp))}</div>`;\n    return `<div class="fx">${crest}<div class="fxOpp">${safe(f.opp)} (${safe(f.side)})</div></div>`;\n  }).join(\'\');\n}\nfunction renderBench(bench){\n  const total=bench.reduce((s,p)=>s+Number(p.points||0),0); $(\'#benchSum\').textContent=`${total} PTS`;\n  $(\'#benchCards\').innerHTML=bench.map((p,i)=>{\n    const img=p.photo?`<img class="miniPlayerImg" src="${safe(p.photo)}" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">`:\'\';\n    const crest=p.teamCode?`<img class="miniCrest" src="${crestImg(p.teamCode)}" onerror="this.style.display=\'none\'">`:\'\';\n    return `<div class="mini"><div class="miniPos">${i+1}. ${posLabel(p.type)}</div><div class="miniPhoto">${img}<div class="miniAvatar" style="${p.photo?\'display:none\':\'\'}">${safe(initials(p.name))}</div>${crest}</div><div class="miniName">${safe(p.name)}</div><div class="miniMeta">${safe(p.fixture||\'REVIEW FIXTURE\')}</div><div class="miniPts ${pointsClass(p.points)}">${p.points??0}</div></div>`;\n  }).join(\'\');\n}\nfunction cardHtml(p,x,y){\n  const badge=p.captain?`<div class="badge">C</div>`:p.vice?`<div class="badge vc">VC</div>`:\'\';\n  const photo=p.photo?`<img src="${safe(p.photo)}" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">`:\'\';\n  const crest=p.teamCode?`<img class="teamCrest" src="${crestImg(p.teamCode)}" onerror="this.style.display=\'none\'">`:\'\';\n  const shown=Number.isFinite(Number(p.appliedPoints))?Number(p.appliedPoints):(Number(p.points||0)*Math.max(1,Number(p.multiplier||1)));\n  return `<div class="playerCard ${p.captain?\'captain\':\'\'} ${p.vice?\'vice\':\'\'}" style="left:${x}%;top:${y}%">${badge}<div class="photoZone">${photo}<div class="avatarFallback" style="${p.photo?\'display:none\':\'\'}">${safe(initials(p.name))}</div>${crest}</div><div class="playerName">${safe(p.name)}</div><div class="playerMeta">${safe(p.fixture||p.teamName||\'FIXTURE\')}<span class="tinyScore">${posLabel(p.type)}</span></div><div class="points ${pointsClass(shown)}">${shown}</div></div>`;\n}\nfunction renderPlayers(starters){\n  const groups={1:[],2:[],3:[],4:[]}; starters.forEach(p=>(groups[p.type]||groups[3]).push(p));\n  const ys={1:13.5,2:35.5,3:58.2,4:82.0};\n  const html=[];\n  [1,2,3,4].forEach(type=>{\n    const arr=groups[type]; if(!arr.length)return;\n    const span = type===1 ? 0 : (type===4?47:56);\n    arr.forEach((p,i)=>{\n      const x= arr.length===1 ? 50 : 50-span/2 + (span*(i/(arr.length-1)));\n      html.push(cardHtml(p,x,ys[type]));\n    });\n  });\n  $(\'#players\').innerHTML=html.join(\'\');\n}\nfunction renderInsights(data){\n  const starters=data.players.filter(p=>!p.bench), bench=data.players.filter(p=>p.bench);\n  const top=[...starters].sort((a,b)=>b.points-a.points)[0];\n  const cap=starters.find(p=>p.captain)||starters[0];\n  const benchPts=bench.reduce((s,p)=>s+p.points,0);\n  const diff=Number(data.history.points||0)-Number(data.event.average_entry_score||0);\n  const hit=Number(data.history.event_transfers_cost||0);\n  const rows=[\n    [\'TOP RETURN\',`${top?.name||\'—\'} • ${top?.points||0} pts`,\'good\'],\n    [\'CAPTAIN\',`${cap?.name||\'—\'} • ${cap?.points||0} raw pts`,cap?.points>=6?\'good\':\'\'],\n    [\'VS AVERAGE\',`${diff>=0?\'+\':\'\'}${diff} pts`,diff>=0?\'good\':\'bad\'],\n    [\'BENCH LEAK\',`${benchPts} pts`,benchPts>=10?\'bad\':benchPts<=5?\'good\':\'\'],\n    [\'TRANSFER HIT\',hit?`-${hit} pts`:\'No hit\',hit?\'bad\':\'good\']\n  ];\n  $(\'#analysisRibbon\').innerHTML=rows.map(r=>`<div class="insight"><div class="insightKey">${r[0]}</div><div class="insightVal ${r[2]}">${safe(r[1])}</div></div>`).join(\'\');\n}\nfunction render(data){\n  const h=data.history,e=data.event;\n  $(\'#pitchGW\').textContent=`GAMEWEEK ${e.id} REVIEW`;\n  $(\'#footerGW\').textContent=`GAMEWEEK ${e.id} REVIEW`;\n  $(\'#entryName\').textContent=(data.entry.name||\'FPL VORTEX\').toUpperCase();\n  setMetric(\'#gwPoints\',nf(h.points),scoreMode(Number(h.points)-Number(e.average_entry_score),4,-4));\n  const diff=Number(h.points||0)-Number(e.average_entry_score||0); $(\'#vsAvg\').textContent=`${diff>=0?\'+\':\'\'}${diff} vs avg ${e.average_entry_score??\'—\'}`;\n  setMetric(\'#overallRank\',nf(h.overall_rank),\'neutral\');\n  const rankMove=data.previousRank?Number(data.previousRank)-Number(h.overall_rank):null; $(\'#rankDelta\').textContent=deltaFmt(rankMove);\n  setMetric(\'#gwRank\',nf(h.rank),\'neutral\'); $(\'#gwPercentile\').textContent=e.highest_score?`high score ${e.highest_score}`:\'global finish\';\n  const starters=data.players.filter(p=>!p.bench), cap=starters.find(p=>p.captain)||starters[0];\n  const capMult=cap?.multiplier||2, capReturn=(cap?.points||0)*capMult; setMetric(\'#captainReturn\',capReturn,scoreMode(capReturn,12,4)); $(\'#captainName\').textContent=cap?`${cap.name} ×${capMult}`:\'captain\';\n  const bench=data.players.filter(p=>p.bench), bp=bench.reduce((s,p)=>s+Number(p.points||0),0); setMetric(\'#benchPoints\',bp,scoreMode(-bp,-5,-10));\n  const hit=Number(h.event_transfers_cost||0); setMetric(\'#hitPoints\',hit?`-${hit}`:\'0\',hit?\'bad\':\'good\'); $(\'#teamValue\').textContent=`team £${((h.value??data.entry.last_deadline_value??1000)/10).toFixed(1)}m`;\n  renderChips(data.chips,e.id); renderFixtures(data.fixtures); renderBench(bench); renderPlayers(starters); renderInsights(data);\n  $(\'#dataStamp\').textContent=`LIVE PUBLIC FPL API • ENTRY ${CONFIG.teamId}`;\n  $(\'#loading\').classList.add(\'hide\');\n}\n\nconst PY_LIVE_DATA = __REVIEW_DATA_JSON__;\nrender(PY_LIVE_DATA);\n</script>\n</body>\n</html>\n'
     # Build the final HTML directly; no unused intermediate template file.
     html = EMBEDDED_PITCH_TEMPLATE
     html = html.replace("__VORTEX_LOGO_HTML__", str(vortex_logo_html))
@@ -15199,6 +15777,7 @@ else:
                 "multiplier": int(pk.get("multiplier", 0) or 0),
                 "bench": int(pk.get("position", 99) or 99) > 11,
                 "code": el.get("code"),
+                "photo": resolve_player_photo(el),
                 "teamCode": tm.get("code"),
             })
         _cap = next((p for p in _players if p.get("captain")), None) or next((p for p in _players if not p.get("bench")), None)
