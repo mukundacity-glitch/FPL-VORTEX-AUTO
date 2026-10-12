@@ -47,65 +47,6 @@ class FinalVideoSelectionTests(unittest.TestCase):
             _one_final_video(self.output_root)
 
 
-class TransferDeskPacingTests(unittest.TestCase):
-    def test_unvoiced_card_hold_is_shortened(self) -> None:
-        source = 'sections.append({"silent_card_seconds": 4.0})'
-        updated = runner._patch_transfer_desk_pacing(source)
-        self.assertIn('"silent_card_seconds": 1.35}', updated)
-        self.assertNotIn('"silent_card_seconds": 4.0}', updated)
-
-    def test_pacing_rejects_unrecognized_notebook_source(self) -> None:
-        with self.assertRaises(RuntimeError):
-            runner._patch_transfer_desk_pacing('sections = []')
-
-
-class ReviewOnlyChipTeaserTests(unittest.TestCase):
-    SOURCE = (
-        '    _next_review_gw=int(globals().get("NEXT_GW") or (int(REVIEW_GW)+1))\n'
-        '    segments.append({\n'
-        '        "id":"review_close",\n'
-        '        "text":(\n'
-        '            "The lesson is to judge decisions. "\n'
-        '            + ("Next: elite ownership trends."\n'
-        '               if True\n'
-        '               else f"Next, we turn those lessons into the Gameweek {_next_review_gw} plan.")\n'
-        '        ),\n'
-        '    })\n'
-    )
-
-    def test_chip_teasers_are_after_the_review_closing_words(self) -> None:
-        labels = {
-            "WILDCARD": "Wildcard",
-            "FREE_HIT": "Free Hit",
-            "TRIPLE_CAPTAIN": "Triple Captain",
-            "BENCH_BOOST": "Bench Boost",
-        }
-        for chip, label in labels.items():
-            with self.subTest(chip=chip):
-                with patch.dict(runner.os.environ, {"DAY3_PLAN": "NEITHER", "DAY3_REVIEW_CHIP": chip}):
-                    modified = runner._patch_review_only_teaser(self.SOURCE)
-                self.assertIn(f"I'm playing my {label} in Gameweek", modified)
-                self.assertIn(' + " " + _vx_day3_review_teaser', modified)
-                compile("def render_review():\n" + modified, "<review-only-teaser>", "exec")
-
-    def test_review_only_no_chip_still_mentions_the_next_video(self) -> None:
-        with patch.dict(runner.os.environ, {"DAY3_PLAN": "NEITHER", "DAY3_REVIEW_CHIP": "NONE"}):
-            modified = runner._patch_review_only_teaser(self.SOURCE)
-        self.assertIn("My Gameweek plan will be in my next video.", modified)
-        self.assertNotIn("I'm playing my", modified)
-
-    def test_roll_and_transfer_keep_original_narration(self) -> None:
-        for plan in ("ROLL", "TRANSFER"):
-            with self.subTest(plan=plan):
-                with patch.dict(runner.os.environ, {"DAY3_PLAN": plan, "DAY3_REVIEW_CHIP": "WILDCARD"}):
-                    self.assertEqual(runner._patch_review_only_teaser(self.SOURCE), self.SOURCE)
-
-    def test_invalid_chip_selection_is_rejected(self) -> None:
-        with patch.dict(runner.os.environ, {"DAY3_PLAN": "NEITHER", "DAY3_REVIEW_CHIP": "UNKNOWN"}):
-            with self.assertRaises(ValueError):
-                runner._patch_review_only_teaser(self.SOURCE)
-
-
 class NotebookPreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -121,15 +62,10 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_tts_profile",
             "_patch_player_card_sample",
             "_patch_narration_tone",
-            "_patch_review_only_teaser",
             "_patch_pitch_card_entrance",
             "_patch_pitch_player_names",
             "_patch_shared_card_scene_checks",
-            "_patch_transfer_desk_pacing",
             "_patch_defcon_card_motion",
-            "_patch_scene_polish",
-            "_patch_desk_closing_audio",
-            "_patch_transition_title_bounds",
         ):
             self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda source: source))
 
