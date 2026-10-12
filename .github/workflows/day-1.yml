@@ -149,73 +149,53 @@ jobs:
           import importlib
           import os
           from pathlib import Path
-
           import edge_tts
 
           constants = importlib.import_module("edge_tts.constants")
           communicate = importlib.import_module("edge_tts.communicate")
-
-          # 7.2.8 hard-codes Edge 143. Check it first, preserving the known
-          # working behavior whenever Microsoft's service still accepts it.
-          # The other options update only the Edge connection fingerprint,
-          # NEVER the Ryan voice, pitch, rate, volume, or audio output format.
-          candidates = (
-              constants.CHROMIUM_FULL_VERSION,
-              "155.0.4283.45",  # Official Microsoft Edge Stable, 8 October 2026.
-              "154.0.4258.62",  # Earlier Edge Stable version.
+          original_host = str(communicate.WSS_URL)
+          current_host = (
+              "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+              f"?Ocp-Apim-Subscription-Key={constants.TRUSTED_CLIENT_TOKEN}"
           )
-
-          def configure_protocol(browser_version):
-              major = browser_version.partition(".")[0]
-              communicate.SEC_MS_GEC_VERSION = "1-" + browser_version
-              user_agent = (
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  f"Chrome/{major}.0.0.0 Safari/537.36 Edg/{major}.0.0.0"
-              )
-              communicate.WSS_HEADERS["User-Agent"] = user_agent
-              constants.BASE_HEADERS["User-Agent"] = user_agent
-              constants.VOICE_HEADERS["User-Agent"] = user_agent
-              constants.VOICE_HEADERS["Sec-CH-UA"] = (
-                  f'" Not;A Brand";v="99", "Microsoft Edge";v="{major}", '
-                  f'"Chromium";v="{major}"'
-              )
 
           async def check_ryan():
               audio = False
-              boundaries = False
-              stream = edge_tts.Communicate(
+              words = False
+              tts = edge_tts.Communicate(
                   "FPL Vortex Ryan speech connection check.",
                   voice="en-GB-RyanNeural",
                   boundary="WordBoundary",
               )
-              async for item in stream.stream():
-                  audio = audio or (item["type"] == "audio" and bool(item["data"]))
-                  boundaries = boundaries or item["type"] == "WordBoundary"
-              if not (audio and boundaries):
-                  raise RuntimeError("Ryan speech audio or word timings missing")
+              async for item in tts.stream():
+                  audio |= item.get("type") == "audio" and bool(item.get("data"))
+                  words |= item.get("type") == "WordBoundary"
+              if not (audio and words):
+                  raise RuntimeError("Ryan speech audio or WordBoundary data missing")
 
           accepted = None
-          for version in dict.fromkeys(candidates):
-              configure_protocol(version)
+          for name, url in (("original", original_host), ("current", current_host)):
+              # Change only the speech network host, never narration settings.
+              communicate.WSS_URL = url
               try:
-                  asyncio.run(asyncio.wait_for(check_ryan(), timeout=25))
-              except Exception as error:
-                  # Do not print exception URLs containing Microsoft's shared token.
-                  print(f"Edge Ryan connection rejected protocol {version}: "
-                        f"{type(error).__name__} (status={getattr(error, 'status', 'n/a')})")
+                  asyncio.run(asyncio.wait_for(check_ryan(), timeout=30))
+              except Exception as exc:
+                  code = getattr(exc, "status", None)
+                  if code != 403:
+                      raise RuntimeError(
+                          f"Edge Ryan {name} test failed with {type(exc).__name__}, "
+                          f"HTTP status {code!r}"
+                      ) from exc
+                  print(f"Edge Ryan {name} host returned HTTP 403")
               else:
-                  accepted = version
-                  print(f"Edge Ryan accepted: protocol {version}; real audio + word timings")
+                  accepted = name
+                  print(f"Edge Ryan {name} host: real audio + word timings verified")
                   break
 
           if accepted is None:
-              raise SystemExit(
-                  "Microsoft Edge TTS rejected all tested connections. "
-                  "Day 1 stopped before rendering; original voice settings were not altered."
-              )
+              raise SystemExit("Both Microsoft Edge Ryan speech hosts returned HTTP 403")
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env:
-              env.write(f"DAY1_EDGE_PROTOCOL_VERSION={accepted}\n")
+              env.write(f"DAY1_EDGE_HOST={accepted}\n")
           PY
 
       - name: Install Chromium runtime
@@ -475,23 +455,20 @@ jobs:
               )
 
           source = source_bytes.decode("utf-8")
-          # Carry forward only the Edge protocol accepted by the preflight.
-          # Source SHA and the saved Ryan narration settings remain unchanged.
+          # Preserve the exact Day 1 source and Ryan voice settings.
+          # Carry forward only the Microsoft Edge host confirmed in preflight.
           import importlib
-          browser_version = os.environ.get("DAY1_EDGE_PROTOCOL_VERSION", "").strip()
-          if not browser_version:
-              raise SystemExit("Ryan speech preflight result is missing")
-          edge_constants = importlib.import_module("edge_tts.constants")
-          if browser_version != edge_constants.CHROMIUM_FULL_VERSION:
+          host_choice = os.environ.get("DAY1_EDGE_HOST", "").strip()
+          if host_choice not in {"original", "current"}:
+              raise SystemExit(f"Unexpected Day 1 Edge host choice: {host_choice!r}")
+          if host_choice == "current":
+              edge_constants = importlib.import_module("edge_tts.constants")
               edge_comm = importlib.import_module("edge_tts.communicate")
-              major = browser_version.partition(".")[0]
-              edge_comm.SEC_MS_GEC_VERSION = "1-" + browser_version
-              edge_comm.WSS_HEADERS["User-Agent"] = (
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  f"Chrome/{major}.0.0.0 Safari/537.36 Edg/{major}.0.0.0"
+              edge_comm.WSS_URL = (
+                  "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+                  f"?Ocp-Apim-Subscription-Key={edge_constants.TRUSTED_CLIENT_TOKEN}"
               )
-              print(f"Day 1 Edge protocol: {browser_version}; Ryan settings unchanged")
+          print(f"Day 1 Edge Ryan host: {host_choice}; narration profile unchanged")
 
           marker = re.compile(
               r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
