@@ -290,6 +290,11 @@ jobs:
           done
           echo "Restored opening and audio assets by confirmed Drive folder ID"
 
+          mkdir -p /content/drive/MyDrive/elements
+          rclone backend copyid vortex-drive: \
+            1Lxt7hDn5VAVj3njo9n6H2ymXY_gd2vP8 \
+            /content/drive/MyDrive/elements/logo.png
+
       - name: Reset previous Day 1 outputs locally
         shell: bash
         run: |
