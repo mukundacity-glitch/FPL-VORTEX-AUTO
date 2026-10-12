@@ -101,6 +101,16 @@ def _patch_control_cell(source: str) -> str:
             f"got {transfer_mode!r}"
         )
 
+    if plan == "NEITHER":
+        chip = os.environ.get("DAY3_PLANNED_CHIP", "Wildcard").strip()
+        if chip not in {"Triple Captain", "Wildcard", "Free Hit", "Bench Boost"}:
+            raise ValueError(f"Unsupported planned chip: {chip!r}")
+        source = _replace_once(
+            source, r'^PLANNED_CHIP\s*=\s*"[^"]+"\s*# @param .*$',
+            f'PLANNED_CHIP = "{chip}"  # @param ["Triple Captain", "Wildcard", "Free Hit", "Bench Boost"]',
+            "planned chip",
+        )
+
     # Production workflow is intentionally fixed to FINAL + FULL_VIDEO.
     source = _replace_once(
         source,
@@ -814,3 +824,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

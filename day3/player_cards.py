@@ -35,8 +35,9 @@ CARD .pc-stat-rows{
   grid-template-rows:none!important;grid-auto-rows:auto!important;gap:clamp(6px,1cqw,14px)!important;
 }
 CARD .pc-stat-row{
+  height:auto!important;min-height:min-content!important;align-content:start!important;
   grid-template-columns:clamp(24px,3cqw,38px) minmax(0,1fr)!important;
-  grid-template-rows:auto auto!important;min-height:0!important;
+  grid-template-rows:auto auto!important;
   column-gap:6px!important;row-gap:4px!important;padding:clamp(6px,1cqw,14px)!important;
 }
 CARD .pc-stat-icon{width:auto!important;height:auto!important;font-size:clamp(24px,3cqw,38px)!important}
@@ -193,3 +194,4 @@ def readable_player_cards(css: str, js: str, team_metadata: dict) -> tuple[str, 
         if count != 1:
             raise RuntimeError(f'Shared player-card {name}: expected one function, found {count}')
     return css + READABLE_CARD_CSS, js + _READY_JS
+
