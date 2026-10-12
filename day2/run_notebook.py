@@ -20,7 +20,7 @@ from IPython.core.interactiveshell import InteractiveShell
 
 from .common import read_json
 from .visuals import install_visual_polish
-from .player_images import install_player_images
+from .player_images import install_player_images, patch_player_images
 
 
 DAY2_OUTPUT_ROOT = "/content/drive/MyDrive/FPL_VORTEX/Day_2"
@@ -1119,6 +1119,7 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
         _sync_repaired_notebook(payload, notebook_path)
     _patch_quality(payload, quality, notebook_path)
     _patch_brand_asset(payload)
+    patch_player_images(payload)
 
     # The execution copy is ephemeral. Only the Python 3.11 source repair above
     # is synced back to Drive; workflow-only quality/path overrides stay local.
@@ -1181,4 +1182,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
