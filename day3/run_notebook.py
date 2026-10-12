@@ -31,99 +31,6 @@ SCENE_ANIMATION_CELL_INDEX = 33
 TTS_PROFILE_CELL_INDEX = 10
 PLAYER_CARD_DESIGN_CELL_INDEX = 23
 FULL_WORD_NARRATION_CELL_INDEX = 28
-REVIEW_NARRATION_CELL_INDEX = 29
-SHARED_NARRATION_CELL_INDEX = 32
-FINAL_ASSEMBLY_CELL_INDEX = 35
-
-
-def _replace_exact(source: str, old: str, new: str, label: str) -> str:
-    count = source.count(old)
-    if count != 1:
-        raise RuntimeError(f"{label}: expected exactly one match, found {count}")
-    return source.replace(old, new, 1)
-
-
-def _patch_scene_polish(source: str) -> str:
-    # Leave the recap unmanaged so it is fully visible even at seek(0).
-    # The right agenda retains its existing narration-synchronised entrances.
-    source = _replace_exact(
-        source,
-        '                {"sel":".leftAgendaHeader","at":left_header_at,"dur":0.55,"stagger":0,"fx":"rise"},\n                *left_events,\n',
-        '                # Left recap header and cards persist from frame zero.\n',
-        "intro recap at frame zero",
-    )
-    return _replace_exact(
-        source,
-        '            close_at = float(cues["closing_at"])',
-        '            close_at = max(float(cues["closing_at"]), float(windows[-1]["settle"]))',
-        "desk closing visual after final cards",
-    )
-
-
-def _patch_desk_closing_audio(source: str) -> str:
-    # Play the unchanged closing speech over the two unspoken SELL popups.
-    # BUY/HOLD timing and all player explanations remain unchanged.
-    source = _replace_exact(
-        source,
-        '                if action == "CLOSE":\n                    closing_at = offset\n                    continue',
-        '''                if action == "CLOSE":
-                    closing_at = offset
-                    final_section = plan["sections"][-1]
-                    cards = final_section["silent_cards"]
-                    seconds = min(float(final_section["silent_card_seconds"]), (end-offset)/len(cards))
-                    if not math.isfinite(seconds) or seconds <= 0:
-                        raise RuntimeError("Transfer Desk closing-card duration is invalid")
-                    for index, player in enumerate(cards):
-                        start = offset + index * seconds
-                        settle = start + seconds
-                        windows.append(dict(player, action="SELL", start=start, settle=settle,
-                                            exit_at=settle-min(.34, seconds*.2), narrated=False))
-                    continue''',
-        "desk closing speech over final sell cards",
-    )
-    source = _replace_exact(
-        source,
-        '                seconds = float(section["silent_card_seconds"])',
-        '''                if action == "SELL":
-                    # CLOSE supplies the soundtrack and measured windows for these cards.
-                    continue
-                seconds = float(section["silent_card_seconds"])''',
-        "remove final sell silence",
-    )
-    source = _replace_exact(
-        source,
-        'len(silent_intervals) != 6',
-        'len(silent_intervals) != 4 or any(interval["end"] - interval["start"] > 1.50 for interval in silent_intervals)',
-        "desk silence count and maximum pause",
-    )
-    return _replace_exact(
-        source,
-        "                padded_frames = max(frame_count, math.ceil(last_word_end * sample_rate))\n                output.writeframesraw(frames)\n                if padded_frames > frame_count:\n                    output.writeframesraw(b\"\\x00\\x00\" * (padded_frames - frame_count))\n                sample_cursor += padded_frames",
-        "                # Edge-TTS can append long silence after the last spoken word.\n                # Retain a natural 0.30-second hand-off without clipping WordBoundary audio.\n                if last_word_end > frame_count / sample_rate + 0.5:\n                    raise RuntimeError(f\"Transfer Desk {action} words exceed decoded audio\")\n                spoken_frames = math.ceil((last_word_end + 0.30) * sample_rate)\n                output.writeframesraw(frames[:min(frame_count, spoken_frames) * 2])\n                if spoken_frames > frame_count:\n                    output.writeframesraw(b\"\\x00\\x00\" * (spoken_frames - frame_count))\n                sample_cursor += spoken_frames",
-        "trim Transfer Desk TTS tails",
-    )
-
-
-def _patch_transfer_desk_pacing(source: str) -> str:
-    """Reduce non-narrated card holds without shifting spoken-player cues."""
-    return _replace_exact(
-        source,
-        '"silent_card_seconds": 4.0})',
-        '"silent_card_seconds": 1.35})',
-        "Transfer Desk unspoken card duration",
-    )
-
-
-def _patch_transition_title_bounds(source: str) -> str:
-    # Pillow's textbbox includes a font-dependent origin offset. Compensate
-    # before drawing into the measured mask so the lower glyphs are retained.
-    return _replace_exact(
-        source,
-        '            md.text((stroke*2,yy), line, font=chosen_font, fill=255, stroke_width=stroke, stroke_fill=255)',
-        '''            b=draw.textbbox((0,0), line, font=chosen_font, stroke_width=stroke)
-            md.text((stroke*2-b[0],yy-b[1]), line, font=chosen_font, fill=255, stroke_width=stroke, stroke_fill=255)''',
-        "transition title glyph bounds",
-    )
 
 
 def _replace_once(source: str, pattern: str, replacement: str, label: str) -> str:
@@ -478,57 +385,6 @@ def _patch_narration_tone(source: str) -> str:
         source = source.replace(old, new, 1)
     print("✅ GitHub runner narration polish: creator-style transitions + full-word speech retained")
     return source
-
-
-REVIEW_CHIP_NAMES = {
-    "NONE": None,
-    "WILDCARD": "Wildcard",
-    "FREE_HIT": "Free Hit",
-    "TRIPLE_CAPTAIN": "Triple Captain",
-    "BENCH_BOOST": "Bench Boost",
-}
-
-
-def _patch_review_only_teaser(source: str) -> str:
-    """Speak a next-video teaser only after a Review Only GW review closes.
-
-    The separate Gameweek Plan notebook remains entirely independent.
-    Reuse review_close, so Ryan's existing TTS timing and animation stay aligned.
-    """
-    plan = str(os.environ.get("DAY3_PLAN", "NEITHER")).strip().upper()
-    chip = str(os.environ.get("DAY3_REVIEW_CHIP", "NONE")).strip().upper()
-    if chip not in REVIEW_CHIP_NAMES:
-        raise ValueError(f"Unsupported review-only chip announcement: {chip!r}")
-    if plan != "NEITHER":
-        return source
-
-    intro = (
-        "    _next_review_gw=int(globals().get(\"NEXT_GW\") or (int(REVIEW_GW)+1))\n"
-        "    segments.append({"
-    )
-    teaser = (
-        "    _vx_day3_review_teaser = "
-        "\"My Gameweek plan will be in my next video.\"\n"
-    )
-    if chip != "NONE":
-        teaser += (
-            "    _vx_day3_review_teaser += "
-            + repr(" I'm playing my " + REVIEW_CHIP_NAMES[chip] + " in Gameweek ")
-            + " + str(_next_review_gw) + "
-            + repr(". I'll share the full reasoning there.")
-            + "\n"
-        )
-    source = _replace_exact(
-        source, intro, intro.replace("    segments.append({", teaser + "    segments.append({"),
-        "review-only teaser after completed review metrics",
-    )
-    return _replace_exact(
-        source,
-        '               else f"Next, we turn those lessons into the Gameweek {_next_review_gw} plan.")',
-        '               else f"Next, we turn those lessons into the Gameweek {_next_review_gw} plan.")\n'
-        '             + " " + _vx_day3_review_teaser',
-        "review-only closing narration after review summary",
-    )
 
 
 def _patch_player_card_sample(source: str) -> str:
@@ -898,8 +754,6 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_player_card_sample(source)
         if cell_index == FULL_WORD_NARRATION_CELL_INDEX:
             source = _patch_narration_tone(source)
-        if cell_index == REVIEW_NARRATION_CELL_INDEX:
-            source = _patch_review_only_teaser(source)
         if cell_index == PITCH_SOURCE_CELL_INDEX:
             source = _patch_pitch_player_names(source)
         if cell_index == INTRO_OUTRO_SOURCE_CELL_INDEX:
@@ -908,14 +762,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_pitch_card_entrance(source)
         if cell_index == SCENE_DESIGN_CELL_INDEX:
             source = _patch_shared_card_scene_checks(source)
-            source = _patch_transfer_desk_pacing(source)
         if cell_index == SCENE_ANIMATION_CELL_INDEX:
             source = _patch_defcon_card_motion(source)
-            source = _patch_scene_polish(source)
-        if cell_index == SHARED_NARRATION_CELL_INDEX:
-            source = _patch_desk_closing_audio(source)
-        if cell_index == FINAL_ASSEMBLY_CELL_INDEX:
-            source = _patch_transition_title_bounds(source)
         if PREVIEW_CELL_MARKER in source:
             print(f"⏭️ Skipping Colab-only live preview cell {cell_index}.")
             continue
