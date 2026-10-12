@@ -215,7 +215,7 @@ jobs:
                   "Day 1 stopped before rendering; original voice settings were not altered."
               )
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env:
-              env.write(f"DAY1_EDGE_PROTOCOL_VERSION={accepted}\\n")
+              env.write(f"DAY1_EDGE_PROTOCOL_VERSION={accepted}\n")
           PY
 
       - name: Install Chromium runtime
