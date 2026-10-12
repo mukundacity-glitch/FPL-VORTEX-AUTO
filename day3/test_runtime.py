@@ -82,6 +82,42 @@ class DefconGameweekTests(unittest.TestCase):
                 runner._resolve_defcon_history_gameweek([invalid], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5], 7)
 
 
+class Top10kTemplateNameTests(unittest.TestCase):
+    def test_changing_bench_positions_do_not_become_player_names(self) -> None:
+        for labels in (
+            "GKP1. MID2. FWD3. MID",
+            "GKP 1. DEF 2. MID 3. MID",
+            "GKP 1. DEF 2. MID 3. FWD",
+            "GK 1. FWD 2. DEF 3. MID",
+            "GKP\n1.\nMID\n2.\nFWD\n3.\nMID",
+        ):
+            with self.subTest(labels=labels):
+                self.assertEqual(runner._clean_top10k_template_name(f"{labels} Raya"), "Raya")
+
+    def test_player_kit_labels_are_removed_before_bench_positions(self) -> None:
+        self.assertEqual(
+            runner._clean_top10k_template_name("Player Kit GKP1. MID2. FWD3. MID Player Kit João Pedro"),
+            "João Pedro",
+        )
+
+    def test_real_names_preserve_accents_punctuation_and_multiple_words(self) -> None:
+        for name in ("João Pedro", "Groß", "Calvert-Lewin", "B.Fernandes", "De Cuyper", "van Hecke", "Midtsjø", "Fwderson"):
+            with self.subTest(name=name):
+                self.assertEqual(runner._clean_top10k_template_name(name), name)
+
+    def test_split_percentage_text_nodes_are_rejoined(self) -> None:
+        self.assertEqual(
+            runner._normalize_top10k_visible_text("Raya\r\nLEE (H)\n43\n%\n\nPalmer\n19.89 %"),
+            "Raya\nLEE (H)\n43%\nPalmer\n19.89%",
+        )
+
+    def test_normalizer_preserves_captain_section_line_boundaries(self) -> None:
+        self.assertEqual(
+            runner._normalize_top10k_visible_text("Top 10k Captains\n João   Pedro \n17.4%\nGW6 Chip Usage"),
+            "Top 10k Captains\nJoão Pedro\n17.4%\nGW6 Chip Usage",
+        )
+
+
 class NotebookPreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -101,6 +137,7 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_shared_card_scene_checks",
             "_patch_defcon_gameweek_contract",
             "_patch_defcon_card_motion",
+            "_patch_elite_template_parser",
         ):
             self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda source: source))
 

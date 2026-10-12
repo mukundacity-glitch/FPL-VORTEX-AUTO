@@ -28,6 +28,7 @@ PITCH_SOURCE_CELL_INDEX = 21
 INTRO_OUTRO_SOURCE_CELL_INDEX = 22
 SCENE_DESIGN_CELL_INDEX = 24
 SCENE_ANIMATION_CELL_INDEX = 33
+ELITE_TOP10K_CELL_INDEX = 26
 TTS_PROFILE_CELL_INDEX = 10
 PLAYER_CARD_DESIGN_CELL_INDEX = 23
 FULL_WORD_NARRATION_CELL_INDEX = 28
@@ -369,6 +370,57 @@ def _patch_shared_card_scene_checks(source: str) -> str:
         source = source.replace(old, new, 1)
     print("✅ Scene card QA checks visible rows in their actual layout order")
     return source
+
+
+def _normalize_top10k_visible_text(value: str) -> str:
+    lines = [
+        re.sub(r"\s+", " ", line).strip()
+        for line in str(value or "").replace("\r", "\n").split("\n")
+    ]
+    text = "\n".join(line for line in lines if line)
+    # HTML can put a percentage's number and percent sign in separate text nodes.
+    return re.sub(r"(?<=\d)\s+%", "%", text).strip()
+
+
+def _clean_top10k_template_name(value: str) -> str:
+    name = re.sub(r"\bPlayer\s+Kit\b", " ", str(value or ""), flags=re.IGNORECASE)
+    name = re.sub(r"\s+", " ", name).strip(" •|-—\n\t")
+    # Bench labels reflect the current squad; their positions and spacing can change.
+    name = re.sub(
+        r"^\s*(?:(?:GKP|GK|DEF|MID|FWD)(?=\s|\d|$)\s*|[1-3]\.\s*)+",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    )
+    return name.strip(" •|-—\n\t")
+
+
+def _patch_elite_template_parser(source: str) -> str:
+    import_marker = "import requests as _e1k_requests\n"
+    if source.count(import_marker) != 1:
+        raise RuntimeError("Top-10K parser: expected exactly one import marker.")
+    source = source.replace(
+        import_marker,
+        import_marker + "from day3.run_notebook import _clean_top10k_template_name, _normalize_top10k_visible_text\n",
+        1,
+    )
+    source = _replace_once(
+        source,
+        r"^def _e1k_normalize_visible_text\(value\):\n[\s\S]*?(?=^def _e1k_visible_text_from_html\(raw_html\):)",
+        "def _e1k_normalize_visible_text(value):\n    return _normalize_top10k_visible_text(value)\n\n\n",
+        "Top-10K visible text normalizer",
+    )
+    old_cleanup = r'''        raw_name = _e1k_re.sub(
+            r"\bGKP\s*1\.\s*DEF\s*2\.\s*MID\s*3\.\s*MID\b",
+            " ",
+            raw_name,
+            flags=_e1k_re.I,
+        )
+        raw_name = _e1k_re.sub(r"\bPlayer\s+Kit\b", " ", raw_name, flags=_e1k_re.I)
+        raw_name = _e1k_re.sub(r"\s+", " ", raw_name).strip(" •|-—\n\t")'''
+    if source.count(old_cleanup) != 1:
+        raise RuntimeError("Top-10K parser: expected exactly one template-name cleanup block.")
+    return source.replace(old_cleanup, "        raw_name = _clean_top10k_template_name(raw_name)", 1)
 
 
 def _patch_defcon_card_motion(source: str) -> str:
@@ -808,6 +860,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_shared_card_scene_checks(source)
         if cell_index == SCENE_ANIMATION_CELL_INDEX:
             source = _patch_defcon_card_motion(source)
+        if cell_index == ELITE_TOP10K_CELL_INDEX:
+            source = _patch_elite_template_parser(source)
         if PREVIEW_CELL_MARKER in source:
             print(f"⏭️ Skipping Colab-only live preview cell {cell_index}.")
             continue
