@@ -1036,6 +1036,39 @@ def _install_colab_compat() -> None:
     })
 
 
+def _patch_edge_ryan_retry(payload: dict) -> None:
+    """Retry short Edge-TTS service interruptions, retaining original Ryan settings.
+
+    Runs only against the temporary Day 2 execution copy. It does not alter
+    voice, pitch, rate, volume, audio encoding, or WordBoundary metadata.
+    A persistent upstream 403 still fails visibly instead of changing voice.
+    """
+    cells = payload.get("cells") or []
+    if len(cells) <= 4 or cells[4].get("cell_type") != "code":
+        raise RuntimeError("Day 2 Ryan narration cell 4 missing")
+    source = _cell_source(cells[4])
+    signature = "async def vx_edge_tts_stream(text, profile, attempts=3):"
+    original = (
+        '                print(f"⚠️ Ryan TTS retry {attempt}/{attempts - 1}: {type(exc).__name__}")\n'
+        '                await asyncio.sleep(1.5 * attempt)'
+    )
+    replacement = (
+        '                status_403 = ("403" in str(exc) and "WSServerHandshakeError" in type(exc).__name__)\n'
+        '                delay = (15.0 * attempt if status_403 else 1.5 * attempt)\n'
+        '                print(f"⚠️ Ryan TTS retry {attempt}/{attempts - 1}: "\n'
+        '                      f"{type(exc).__name__}, retrying in {delay:.1f}s")\n'
+        '                await asyncio.sleep(delay)'
+    )
+    if source.count(signature) != 1 or source.count(original) != 1:
+        raise RuntimeError("Day 2 Edge Ryan retry code changed; refusing unsafe patch")
+    source = source.replace(signature,
+                            "async def vx_edge_tts_stream(text, profile, attempts=5):", 1)
+    source = source.replace(original, replacement, 1)
+    compile(source, "DAY2_FINAL.ipynb::cell-4", "exec")
+    _set_cell_source(cells[4], source)
+    print("[DAY 2] Edge Ryan unchanged; bounded 403 cooldown enabled")
+
+
 def execute_notebook(notebook_path: Path, quality: str) -> None:
     notebook_path = notebook_path.resolve()
     if not notebook_path.is_file():
@@ -1048,6 +1081,7 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
     if repaired or replaced:
         _sync_repaired_notebook(payload, notebook_path)
     _patch_quality(payload, quality, notebook_path)
+    _patch_edge_ryan_retry(payload)
 
     # The execution copy is ephemeral. Only the Python 3.11 source repair above
     # is synced back to Drive; workflow-only quality/path overrides stay local.
