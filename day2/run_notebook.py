@@ -1036,115 +1036,6 @@ def _install_colab_compat() -> None:
     })
 
 
-def _azure_ryan_synthesize_sync(text: str, profile: dict) -> tuple[bytes, list[dict]]:
-    """Official, authenticated Ryan voice with genuine word boundaries.
-
-    Invoked by the ephemeral Day 2 notebook only when Azure Speech credentials
-    are present. No synthesized/guessed timestamps or substitute voice.
-    """
-    import azure.cognitiveservices.speech as speechsdk
-    from xml.sax.saxutils import escape, quoteattr
-
-    key = (os.environ.get("AZURE_SPEECH_KEY") or "").strip()
-    region = (os.environ.get("AZURE_SPEECH_REGION") or "").strip()
-    if not key or not region:
-        raise RuntimeError("Azure Ryan Speech requires both AZURE_SPEECH_KEY and AZURE_SPEECH_REGION")
-
-    speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
-    speech_config.set_speech_synthesis_output_format(
-        speechsdk.SpeechSynthesisOutputFormat.Audio24Khz160KBitRateMonoMp3
-    )
-    synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
-    words: list[dict] = []
-
-    def on_boundary(event) -> None:
-        token = str(event.text or "").strip()
-        if not any(character.isalnum() for character in token):
-            return
-        raw_duration = event.duration
-        duration = (
-            raw_duration.total_seconds()
-            if hasattr(raw_duration, "total_seconds")
-            else float(raw_duration) / 10_000_000
-        )
-        words.append({
-            "text": token,
-            "start": float(event.audio_offset) / 10_000_000,
-            "duration": max(0.0, float(duration)),
-        })
-
-    synthesizer.synthesis_word_boundary.connect(on_boundary)
-    ssml = (
-        '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
-        'xml:lang="en-GB"><voice name="en-GB-RyanNeural"><prosody '
-        f'rate={quoteattr(str(profile["rate"]))} '
-        f'pitch={quoteattr(str(profile["pitch"]))} '
-        f'volume={quoteattr(str(profile["volume"]))}>'
-        f'{escape(str(text))}</prosody></voice></speak>'
-    )
-    result = synthesizer.speak_ssml_async(ssml).get()
-    if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
-        details = getattr(result, "cancellation_details", None)
-        raise RuntimeError(
-            "Azure Ryan Speech synthesis failed: "
-            + str(getattr(details, "reason", "unavailable"))
-            + " / "
-            + str(getattr(details, "error_details", "no details"))
-        )
-    audio = bytes(result.audio_data or b"")
-    if not audio or not words:
-        raise RuntimeError(
-            f"Azure Ryan Speech produced incomplete results: audio={len(audio)} "
-            f"bytes; word boundaries={len(words)}"
-        )
-    return audio, words
-
-
-def _patch_ryan_tts_provider(payload: dict) -> None:
-    """Add an optional official Ryan provider without editing the Drive notebook."""
-    cells = payload.get("cells") or []
-    if len(cells) <= 4 or cells[4].get("cell_type") != "code":
-        raise RuntimeError("Day 2 Ryan TTS source cell 4 is missing")
-    source = _cell_source(cells[4])
-    anchor = (
-        '    """Return MP3 bytes plus real Ryan WordBoundary events, with bounded retries."""\n'
-        '    module = vx_load_edge_tts()\n'
-    )
-    if source.count(anchor) != 1:
-        raise RuntimeError("Day 2 Ryan TTS provider insertion point has changed")
-    replacement = (
-        '    """Return MP3 bytes plus real Ryan WordBoundary events, with bounded retries."""\n'
-        '    azure_key = (os.environ.get("AZURE_SPEECH_KEY") or "").strip()\n'
-        '    azure_region = (os.environ.get("AZURE_SPEECH_REGION") or "").strip()\n'
-        '    if bool(azure_key) != bool(azure_region):\n'
-        '        raise RuntimeError("Configure both AZURE_SPEECH_KEY and AZURE_SPEECH_REGION")\n'
-        '    if azure_key and azure_region:\n'
-        '        from day2.run_notebook import _azure_ryan_synthesize_sync\n'
-        '        return await asyncio.to_thread(_azure_ryan_synthesize_sync, text, profile)\n'
-        '    module = vx_load_edge_tts()\n'
-    )
-    source = source.replace(anchor, replacement, 1)
-    final_error = (
-        '    raise RuntimeError(\n'
-        '        "Ryan TTS failed after package-compatible setup and retries: "\n'
-        '        + " | ".join(failures)\n'
-        '    )'
-    )
-    if source.count(final_error) != 1:
-        raise RuntimeError("Day 2 Ryan failure reporting has changed")
-    new_error = (
-        '    if any("WSServerHandshakeError: 403" in item for item in failures):\n'
-        '        raise RuntimeError("Microsoft Edge Ryan TTS rejected GitHub Actions (HTTP 403). "\n'
-        '            "Configure the AZURE_SPEECH_KEY and AZURE_SPEECH_REGION GitHub secrets "\n'
-        '            "to use the official Ryan voice. No replacement voice was used.")\n'
-        + final_error
-    )
-    source = source.replace(final_error, new_error, 1)
-    compile(source, "DAY2_FINAL.ipynb::cell-4", "exec")
-    _set_cell_source(cells[4], source)
-    print("[DAY 2] Ryan provider: official Azure Speech if configured, Edge otherwise")
-
-
 def execute_notebook(notebook_path: Path, quality: str) -> None:
     notebook_path = notebook_path.resolve()
     if not notebook_path.is_file():
@@ -1157,7 +1048,6 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
     if repaired or replaced:
         _sync_repaired_notebook(payload, notebook_path)
     _patch_quality(payload, quality, notebook_path)
-    _patch_ryan_tts_provider(payload)
 
     # The execution copy is ephemeral. Only the Python 3.11 source repair above
     # is synced back to Drive; workflow-only quality/path overrides stay local.
