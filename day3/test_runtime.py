@@ -47,6 +47,41 @@ class FinalVideoSelectionTests(unittest.TestCase):
             _one_final_video(self.output_root)
 
 
+class DefconGameweekTests(unittest.TestCase):
+    def test_partial_review_uses_latest_completed_gameweek(self) -> None:
+        self.assertEqual(
+            runner._resolve_defcon_history_gameweek([5, 5.0], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5], 7),
+            (5, [1, 2, 3, 4, 5]),
+        )
+
+    def test_final_review_advances_completed_cutoff(self) -> None:
+        self.assertEqual(
+            runner._resolve_defcon_history_gameweek([6, 6], [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6], 7),
+            (6, [1, 2, 3, 4, 5, 6]),
+        )
+
+    def test_stale_player_features_are_rejected(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "latest completed GW 6"):
+            runner._resolve_defcon_history_gameweek([5, 5], [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6], 7)
+
+    def test_mixed_player_cutoffs_cannot_hide_behind_maximum(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "player feature Gameweeks"):
+            runner._resolve_defcon_history_gameweek([4, 5], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5], 7)
+
+    def test_missing_model_gameweek_is_rejected_even_with_current_cutoff(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "model history"):
+            runner._resolve_defcon_history_gameweek([5], [1, 2, 3, 4, 5], [1, 3, 4, 5], 7)
+
+    def test_no_completed_history_is_rejected(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "no completed"):
+            runner._resolve_defcon_history_gameweek([], [], [], 1)
+
+    def test_invalid_gameweek_evidence_is_rejected(self) -> None:
+        for invalid in (None, float("nan"), 5.5, True, "unknown", 39):
+            with self.subTest(value=invalid), self.assertRaisesRegex(RuntimeError, "invalid Gameweek"):
+                runner._resolve_defcon_history_gameweek([invalid], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5], 7)
+
+
 class NotebookPreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -64,6 +99,7 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_pitch_card_entrance",
             "_patch_pitch_player_names",
             "_patch_shared_card_scene_checks",
+            "_patch_defcon_gameweek_contract",
             "_patch_defcon_card_motion",
         ):
             self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda source: source))

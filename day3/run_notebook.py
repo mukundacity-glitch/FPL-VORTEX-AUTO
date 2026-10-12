@@ -268,6 +268,84 @@ def _patch_outro_social_icon(source: str) -> str:
     return source
 
 
+def _defcon_gameweeks(values: Iterable[object], label: str) -> list[int]:
+    gameweeks: set[int] = set()
+    for value in values:
+        try:
+            gameweek = int(value)
+            numeric_value = float(value)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise RuntimeError(f"DEFCON {label} contains an invalid Gameweek: {value!r}") from error
+        if isinstance(value, bool) or numeric_value != gameweek or not 1 <= gameweek <= 38:
+            raise RuntimeError(f"DEFCON {label} contains an invalid Gameweek: {value!r}")
+        gameweeks.add(gameweek)
+    return sorted(gameweeks)
+
+
+def _resolve_defcon_history_gameweek(
+    feature_gameweeks: Iterable[object],
+    completed_gameweeks: Iterable[object],
+    model_gameweeks: Iterable[object],
+    next_gameweek: int,
+) -> tuple[int, list[int]]:
+    completed = [
+        gameweek for gameweek in _defcon_gameweeks(completed_gameweeks, "canonical history")
+        if gameweek < next_gameweek
+    ]
+    if not completed:
+        raise RuntimeError("Day 3 DEFCON has no completed current-season Gameweek evidence.")
+    model_history = _defcon_gameweeks(model_gameweeks, "model history")
+    if model_history != completed:
+        raise RuntimeError(
+            f"Day 3 DEFCON model history {model_history} differs from canonical completed "
+            f"Gameweeks {completed}; rerun Cell 13D."
+        )
+    expected_gameweek = completed[-1]
+    feature_history = _defcon_gameweeks(feature_gameweeks, "player features")
+    if feature_history != [expected_gameweek]:
+        raise RuntimeError(
+            f"Day 3 DEFCON expected latest completed GW {expected_gameweek}, "
+            f"got player feature Gameweeks {feature_history}; rerun Cell 13D."
+        )
+    return expected_gameweek, completed
+
+
+def _patch_defcon_gameweek_contract(source: str) -> str:
+    old_guard = '''_d3_prev_gw_values = pd.to_numeric(_d3_def_features["defcon_previous_gw"], errors="coerce").dropna().astype(int).unique().tolist()
+if not _d3_prev_gw_values:
+    raise RuntimeError("Day 3 DEFCON could not resolve the previous completed Gameweek.")
+_d3_prev_gw = int(max(_d3_prev_gw_values))
+if _d3_prev_gw != int(NEXT_GW) - 1:
+    raise RuntimeError(f"Day 3 DEFCON expected previous GW {int(NEXT_GW)-1}, got GW{_d3_prev_gw}.")'''
+    new_guard = '''from day3.run_notebook import _resolve_defcon_history_gameweek
+_d3_prev_gw, _d3_completed_history_gws = _resolve_defcon_history_gameweek(
+    _d3_def_features["defcon_previous_gw"],
+    data["review_ready_gws"],
+    _phase10_review_gws,
+    int(NEXT_GW),
+)
+print(f"✅ DEFCON history through completed GW{_d3_prev_gw}; forecast GW{int(NEXT_GW)}")'''
+    replacements = {
+        old_guard: new_guard,
+        'pd.to_numeric(fixtures["event"], errors="coerce").between(1, int(NEXT_GW) - 1)':
+            'pd.to_numeric(fixtures["event"], errors="coerce").isin(_d3_completed_history_gws)',
+        '''if int(_d3_prev_gw) != int(NEXT_GW) - 1:
+    raise RuntimeError(f"DEFCON QA: previous GW {_d3_prev_gw} does not equal NEXT_GW-1 ({int(NEXT_GW)-1}).")''':
+            '''if int(_d3_prev_gw) != max(_d3_completed_history_gws):
+    raise RuntimeError(f"DEFCON QA: GW{_d3_prev_gw} is not the latest canonical completed Gameweek.")''',
+        "'label': 'LAST GW DEFCON'": "'label': f'GW{_d3_prev_gw} DEFCON'",
+        'GW{_d3_prev_gw} ACTUAL': 'GW{_d3_prev_gw} COMPLETE',
+        'SEASON DC RANK · SMALL = DC/GAME': 'DC THROUGH GW{_d3_prev_gw} · SMALL = DC/GAME',
+    }
+    # A live/partial review can be newer than the completed history used by the model.
+    for old, new in replacements.items():
+        count = source.count(old)
+        if count != 1:
+            raise RuntimeError(f"DEFCON Gameweek contract: expected one match, found {count}")
+        source = source.replace(old, new, 1)
+    return source
+
+
 def _patch_shared_card_scene_checks(source: str) -> str:
     old = "const lanes=[...body.children];"
     new = "const lanes=[...body.children].filter(el=>el.getClientRects().length && el.clientWidth>0 && el.clientHeight>0).sort((left,right)=>left.getBoundingClientRect().top-right.getBoundingClientRect().top);"
@@ -726,6 +804,7 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
         if cell_index == PITCH_ANIMATION_CELL_INDEX:
             source = _patch_pitch_card_entrance(source)
         if cell_index == SCENE_DESIGN_CELL_INDEX:
+            source = _patch_defcon_gameweek_contract(source)
             source = _patch_shared_card_scene_checks(source)
         if cell_index == SCENE_ANIMATION_CELL_INDEX:
             source = _patch_defcon_card_motion(source)
