@@ -268,49 +268,6 @@ def _patch_outro_social_icon(source: str) -> str:
     return source
 
 
-def _patch_official_player_portraits(source: str) -> str:
-    """Embed verified official portraits so capture does not depend on browser CDN access."""
-    helper = r'''
-_VX_OFFICIAL_PORTRAIT_URIS = {}
-
-def _vx_official_portrait_uri(url):
-    import base64
-    from io import BytesIO
-    from PIL import Image
-
-    if url in _VX_OFFICIAL_PORTRAIT_URIS:
-        return _VX_OFFICIAL_PORTRAIT_URIS[url]
-    uri = ""
-    try:
-        response = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0 FPL-VORTEX/2.0"})
-        response.raise_for_status()
-        payload = response.content
-        with Image.open(BytesIO(payload)) as image:
-            mime = Image.MIME.get(image.format)
-            image.verify()
-        if mime in {"image/png", "image/jpeg", "image/webp"}:
-            uri = f"data:{mime};base64," + base64.b64encode(payload).decode("ascii")
-    except Exception:
-        # The resolver continues its existing real-photo/official-shirt fallback chain.
-        pass
-    _VX_OFFICIAL_PORTRAIT_URIS[url] = uri
-    return uri
-
-'''
-    replacements = {
-        "def resolve_player_photo(fpl_player, prefer_cutout=True):": helper + "def resolve_player_photo(fpl_player, prefer_cutout=True):",
-        "        return official\n": "        embedded = _vx_official_portrait_uri(official)\n        if embedded:\n            return embedded\n",
-        "        return core_photo\n": "        embedded = _vx_official_portrait_uri(core_photo)\n        if embedded:\n            return embedded\n",
-    }
-    for old, new in replacements.items():
-        count = source.count(old)
-        if count != 1:
-            raise RuntimeError(f"Official portrait embedding: expected one match, found {count}")
-        source = source.replace(old, new, 1)
-    print("✅ Official player portraits are verified and embedded before browser capture")
-    return source
-
-
 def _patch_shared_card_scene_checks(source: str) -> str:
     old = "const lanes=[...body.children];"
     new = "const lanes=[...body.children].filter(el=>el.getClientRects().length && el.clientWidth>0 && el.clientHeight>0).sort((left,right)=>left.getBoundingClientRect().top-right.getBoundingClientRect().top);"
@@ -756,8 +713,6 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
     for cell_index, source in cells:
         if cell_index == NOTEBOOK_CONTROL_CELL_INDEX:
             source = _patch_control_cell(source)
-        if cell_index == VISUAL_ENRICHMENT_CELL_INDEX:
-            source = _patch_official_player_portraits(source)
         if cell_index == TTS_PROFILE_CELL_INDEX:
             source = _patch_tts_profile(source)
         if cell_index == PLAYER_CARD_DESIGN_CELL_INDEX:
@@ -824,4 +779,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
