@@ -51,7 +51,9 @@ jobs:
             vortex/day1_media.py \
             vortex/youtube_private_upload.py \
             vortex/youtube_studio_package.py; do
-            [[ "$(git rev-parse HEAD:${file})" == "$(git rev-parse origin/main:${file})" ]] || {
+            head_sha="$(git rev-parse -q --verify "HEAD:${file}" || true)"
+            main_sha="$(git rev-parse -q --verify "origin/main:${file}" || true)"
+            [[ "${head_sha}" == "${main_sha}" ]] || {
               echo "Protected Day 1 file changed: ${file}" >&2; exit 1;
             }
           done
