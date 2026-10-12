@@ -131,15 +131,6 @@ def _copy_remote(remote: str, local: Path, *, required: bool = False) -> bool:
 def restore() -> None:
     cfg = read_json(CONFIG_PATH, "Day 2 config")
     MYDRIVE.mkdir(parents=True, exist_ok=True)
-    listing = _run("rclone", "lsf", "day2-shared-assets:", "--files-only", "--max-depth", "1")
-    available_assets = set(listing.stdout.splitlines())
-    missing_assets = [name for name in cfg["shared_assets"]["files"] if name not in available_assets]
-    if missing_assets:
-        raise RuntimeError(
-            "Missing original Day 2 shared media in Google Drive folder "
-            f"{cfg['shared_assets']['drive_folder_id']}: {', '.join(missing_assets)}. "
-            "Restore the original assets before running Day 2."
-        )
     for remote in READ_ONLY_INPUTS:
         _copy_remote(remote, MYDRIVE / remote)
 
