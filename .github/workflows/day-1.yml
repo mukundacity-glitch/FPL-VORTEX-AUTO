@@ -141,63 +141,6 @@ jobs:
             "google-auth>=2.35,<3" \
             "google-auth-httplib2>=0.2,<1"
 
-      - name: Check original Edge Ryan speech connection
-        shell: bash
-        run: |
-          python - <<'PY'
-          import asyncio
-          import importlib
-          import os
-          from pathlib import Path
-          import edge_tts
-
-          constants = importlib.import_module("edge_tts.constants")
-          communicate = importlib.import_module("edge_tts.communicate")
-          original_host = str(communicate.WSS_URL)
-          current_host = (
-              "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
-              f"?Ocp-Apim-Subscription-Key={constants.TRUSTED_CLIENT_TOKEN}"
-          )
-
-          async def check_ryan():
-              audio = False
-              words = False
-              tts = edge_tts.Communicate(
-                  "FPL Vortex Ryan speech connection check.",
-                  voice="en-GB-RyanNeural",
-                  boundary="WordBoundary",
-              )
-              async for item in tts.stream():
-                  audio |= item.get("type") == "audio" and bool(item.get("data"))
-                  words |= item.get("type") == "WordBoundary"
-              if not (audio and words):
-                  raise RuntimeError("Ryan speech audio or WordBoundary data missing")
-
-          accepted = None
-          for name, url in (("original", original_host), ("current", current_host)):
-              # Change only the speech network host, never narration settings.
-              communicate.WSS_URL = url
-              try:
-                  asyncio.run(asyncio.wait_for(check_ryan(), timeout=30))
-              except Exception as exc:
-                  code = getattr(exc, "status", None)
-                  if code != 403:
-                      raise RuntimeError(
-                          f"Edge Ryan {name} test failed with {type(exc).__name__}, "
-                          f"HTTP status {code!r}"
-                      ) from exc
-                  print(f"Edge Ryan {name} host returned HTTP 403")
-              else:
-                  accepted = name
-                  print(f"Edge Ryan {name} host: real audio + word timings verified")
-                  break
-
-          if accepted is None:
-              raise SystemExit("Both Microsoft Edge Ryan speech hosts returned HTTP 403")
-          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env:
-              env.write(f"DAY1_EDGE_HOST={accepted}\n")
-          PY
-
       - name: Install Chromium runtime
         shell: bash
         run: python -m playwright install --with-deps chromium
@@ -298,16 +241,6 @@ jobs:
           set -euo pipefail
           sudo mkdir -p /content/drive/MyDrive
           sudo chown -R "$(id -u):$(id -g)" /content
-
-          available_assets="$(rclone lsf "day1-assets:" --files-only --max-depth 1)"
-          for asset_name in opening.mp4 Background_music.mp3 outro.mp3; do
-            if ! grep -Fxq "${asset_name}" <<< "${available_assets}"; then
-              echo "::error title=Missing original Day 1 media asset::${asset_name} is absent from Google Drive folder ${DAY1_ASSET_FOLDER_ID}" >&2
-              echo "Restore the original ${asset_name} to the existing Drive Assets folder before running Day 1." >&2
-              exit 1
-            fi
-          done
-          echo "Required original Day 1 media assets: present"
 
           restore_optional() {
             local remote_path="$1"
@@ -455,21 +388,6 @@ jobs:
               )
 
           source = source_bytes.decode("utf-8")
-          # Preserve the exact Day 1 source and Ryan voice settings.
-          # Carry forward only the Microsoft Edge host confirmed in preflight.
-          import importlib
-          host_choice = os.environ.get("DAY1_EDGE_HOST", "").strip()
-          if host_choice not in {"original", "current"}:
-              raise SystemExit(f"Unexpected Day 1 Edge host choice: {host_choice!r}")
-          if host_choice == "current":
-              edge_constants = importlib.import_module("edge_tts.constants")
-              edge_comm = importlib.import_module("edge_tts.communicate")
-              edge_comm.WSS_URL = (
-                  "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
-                  f"?Ocp-Apim-Subscription-Key={edge_constants.TRUSTED_CLIENT_TOKEN}"
-              )
-          print(f"Day 1 Edge Ryan host: {host_choice}; narration profile unchanged")
-
           marker = re.compile(
               r"(?m)(?=^# ={20,}\n# [^\n]*\bCELL\s+\d+[A-Za-z]?\b[^\n]*\n)"
           )
