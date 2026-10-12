@@ -1070,10 +1070,11 @@ def _patch_edge_ryan_retry(payload: dict) -> None:
 
 
 def _preflight_edge_ryan() -> None:
-    """Try the original Edge Ryan connection, then current Edge handshakes on 403.
+    """Keep identical Edge Ryan speech and word timings, fail over on obsolete host.
 
-    Preserve the Drive notebook and its voice, rate, pitch, volume, word timing,
-    and output encoding. The accepted handshake persists in this Python process.
+    Microsoft's Edge Read Aloud service moved to a new WebSocket host in
+    October 2026; the old one can return HTTP 403. The edge-tts 7.2.8
+    synthesis/voice/prosody/WordBoundary implementation is NOT changed.
     """
     import asyncio
     import importlib
@@ -1081,62 +1082,53 @@ def _preflight_edge_ryan() -> None:
 
     constants = importlib.import_module("edge_tts.constants")
     communicate = importlib.import_module("edge_tts.communicate")
-    original = str(constants.CHROMIUM_FULL_VERSION)
-    candidates = tuple(dict.fromkeys((
-        original, "155.0.4283.45", "154.0.4258.62", "152.0.4191.122",
-    )))
-
-    def set_browser_handshake(version: str) -> None:
-        major = version.partition(".")[0]
-        user_agent = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            f"Chrome/{major}.0.0.0 Safari/537.36 Edg/{major}.0.0.0"
-        )
-        # communicate.py imports the version by value. Both need updating.
-        communicate.SEC_MS_GEC_VERSION = f"1-{version}"
-        communicate.WSS_HEADERS["User-Agent"] = user_agent
-        constants.BASE_HEADERS["User-Agent"] = user_agent
-        constants.VOICE_HEADERS["User-Agent"] = user_agent
-        constants.VOICE_HEADERS["Sec-CH-UA"] = (
-            f'" Not;A Brand";v="99", "Microsoft Edge";v="{major}", '
-            f'"Chromium";v="{major}"'
-        )
+    legacy_url = str(communicate.WSS_URL)
+    modern_url = (
+        "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+        f"?Ocp-Apim-Subscription-Key={constants.TRUSTED_CLIENT_TOKEN}"
+    )
 
     async def probe() -> None:
-        got_audio = False
-        got_words = False
-        request = edge_tts.Communicate(
-            "FPL Vortex narrator check.", voice="en-GB-RyanNeural",
-            rate="+17%", pitch="-4Hz", volume="+0%", boundary="WordBoundary",
+        has_audio = False
+        has_word_timing = False
+        tts = edge_tts.Communicate(
+            "FPL Vortex Ryan connection check.",
+            voice="en-GB-RyanNeural",
+            boundary="WordBoundary",
         )
-        async for item in request.stream():
-            got_audio |= item.get("type") == "audio" and bool(item.get("data"))
-            got_words |= item.get("type") == "WordBoundary"
-        if not (got_audio and got_words):
+        async for part in tts.stream():
+            if part.get("type") == "audio" and part.get("data"):
+                has_audio = True
+            if part.get("type") == "WordBoundary":
+                has_word_timing = True
+        if not (has_audio and has_word_timing):
             raise RuntimeError("Edge Ryan returned incomplete audio or word boundaries")
 
-    for version in candidates:
-        set_browser_handshake(version)
+    for label, url in (("original", legacy_url), ("current", modern_url)):
+        # This changes the network endpoint only; never the TTS voice or settings.
+        communicate.WSS_URL = url
         try:
-            asyncio.run(asyncio.wait_for(probe(), timeout=25))
+            asyncio.run(asyncio.wait_for(probe(), timeout=30))
         except Exception as exc:
             status = getattr(exc, "status", None)
-            # A newer browser handshake is useful only for an HTTP 403.
-            if status != 403 and "403" not in str(exc):
+            if status != 403:
+                # Avoid logging exception text containing a URL with token.
                 raise RuntimeError(
-                    f"Edge Ryan probe failed for a reason other than 403: {type(exc).__name__}"
+                    f"Edge Ryan {label} endpoint test failed: "
+                    f"{type(exc).__name__}, HTTP status {status!r}"
                 ) from exc
-            # Do not log the full exception: its URL includes a shared token.
-            print(f"[DAY 2] Edge speech rejected browser protocol {version} (HTTP 403)")
+            print(f"[DAY 2] Edge Ryan {label} endpoint returned HTTP 403")
         else:
-            print(f"[DAY 2] Edge Ryan speech verified with browser version {version}; "
-                  "real audio + WordBoundary timing; voice/pitch/rate unchanged")
+            print(
+                f"[DAY 2] Edge Ryan {label} endpoint passed: real Ryan audio + "
+                "WordBoundary; production voice, pitch, rate, volume and MP3 unchanged"
+            )
+            # communicate.WSS_URL persists for every notebook narration segment.
             return
 
     raise RuntimeError(
-        "Microsoft Edge Ryan rejected all browser handshakes (HTTP 403). "
-        "No audio provider or narration settings were changed."
+        "Both Edge Ryan speech endpoints rejected the connection (HTTP 403). "
+        "Production voice and audio settings were not changed."
     )
 
 
