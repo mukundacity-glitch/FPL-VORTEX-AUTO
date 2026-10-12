@@ -513,7 +513,7 @@ def _patch_review_only_teaser(source: str) -> str:
     if chip != "NONE":
         teaser += (
             "    _vx_day3_review_teaser += "
-            + repr(" I'm planning to play my " + REVIEW_CHIP_NAMES[chip] + " in Gameweek ")
+            + repr(" I'm playing my " + REVIEW_CHIP_NAMES[chip] + " in Gameweek ")
             + " + str(_next_review_gw) + "
             + repr(". I'll share the full reasoning there.")
             + "\n"
