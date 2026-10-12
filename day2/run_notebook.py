@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import ast
 import collections
 import hashlib
@@ -12,6 +13,9 @@ import sys
 import types
 from pathlib import Path
 
+import edge_tts
+import edge_tts.communicate as edge_communicate
+from edge_tts import constants as edge_constants
 from IPython.core.interactiveshell import InteractiveShell
 
 from .common import read_json
@@ -22,6 +26,52 @@ CONFIG_PATH = Path(__file__).with_name("config.json")
 QUALITY_PATTERN = re.compile(
     r'(?m)^MP4_QUALITY\s*=\s*["\'](?:DRAFT|FINAL)["\'](?P<suffix>[^\n]*)$'
 )
+
+
+def _configure_edge_transport() -> None:
+    if edge_tts.__version__ != "7.2.8":
+        raise RuntimeError("Day 2 Edge transport requires the tested edge-tts 7.2.8")
+
+    # Edge's Bing endpoint rejects synthesis; keep its speech engine on the working Edge endpoint.
+    endpoint = (
+        "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+        f"?Ocp-Apim-Subscription-Key={edge_constants.TRUSTED_CLIENT_TOKEN}"
+    )
+    edge_constants.WSS_URL = endpoint
+    edge_communicate.WSS_URL = endpoint
+    edge_constants.WSS_HEADERS["Sec-WebSocket-Protocol"] = "synthesize"
+    edge_communicate.WSS_HEADERS["Sec-WebSocket-Protocol"] = "synthesize"
+    print("[DAY 2] Edge speech transport: api.msedgeservices.com; Ryan profiles unchanged")
+
+
+async def _verify_edge_ryan() -> None:
+    audio_bytes = 0
+    word_count = 0
+    previous_offset = -1
+    try:
+        async for chunk in edge_tts.Communicate(
+            "Welcome to FPL Vortex. Read the game early.",
+            "en-GB-RyanNeural",
+            boundary="WordBoundary",
+            connect_timeout=10,
+            receive_timeout=20,
+        ).stream():
+            if chunk["type"] == "audio":
+                audio_bytes += len(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                offset = int(chunk["offset"])
+                if offset < 0 or offset < previous_offset or int(chunk["duration"]) <= 0:
+                    raise RuntimeError("Invalid Ryan word-boundary timing")
+                previous_offset = offset
+                word_count += 1
+    except Exception as error:
+        raise RuntimeError(
+            f"Day 2 Edge Ryan preflight failed: {type(error).__name__}; "
+            "no narration or provider fallback was used"
+        ) from error
+    if audio_bytes <= 0 or word_count <= 0:
+        raise RuntimeError("Day 2 Edge Ryan preflight returned no audio or word timing")
+    print(f"[DAY 2] Edge Ryan preflight: PASS ({audio_bytes} audio bytes, {word_count} words)")
 
 
 def _cell_source(cell: dict) -> str:
@@ -1041,6 +1091,8 @@ def execute_notebook(notebook_path: Path, quality: str) -> None:
     if not notebook_path.is_file():
         raise FileNotFoundError(f"Day 2 notebook is missing: {notebook_path}")
 
+    _configure_edge_transport()
+    asyncio.run(_verify_edge_ryan())
     payload = json.loads(notebook_path.read_text(encoding="utf-8"))
     repaired = _repair_python311_fstrings(payload)
     replaced = _replace_last_data_slide(payload)
