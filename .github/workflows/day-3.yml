@@ -14,18 +14,7 @@ on:
           - "ROLL"
           - "TRANSFER — AUTO"
           - "TRANSFER — MANUAL"
-          - "Review Only (No My Plan)"
-      chip_announcement:
-        description: "Review Only: chip to mention after the GW review (ignored for Roll/Transfer)"
-        required: true
-        default: "NONE"
-        type: choice
-        options:
-          - "NONE"
-          - "WILDCARD"
-          - "FREE HIT"
-          - "TRIPLE CAPTAIN"
-          - "BENCH BOOST"
+          - "NEITHER"
       player_out_1:
         description: "Manual Transfer only — Player OUT 1"
         required: true
@@ -2918,7 +2907,6 @@ env:
   PYTHONUNBUFFERED: "1"
   FPL_ENTRY_ID: "145784"
   DAY3_PLAN_SELECTION: ${{ inputs.plan || 'ROLL' }}
-  DAY3_CHIP_SELECTION: ${{ inputs.chip_announcement || 'NONE' }}
   DAY3_OUT_1: ${{ inputs.player_out_1 }}
   DAY3_IN_1: ${{ inputs.player_in_1 }}
   DAY3_OUT_2: ${{ inputs.player_out_2 }}
@@ -2974,25 +2962,12 @@ jobs:
               "ROLL": ("ROLL", "AUTO"),
               "TRANSFER — AUTO": ("TRANSFER", "AUTO"),
               "TRANSFER — MANUAL": ("TRANSFER", "MANUAL"),
-              "REVIEW ONLY (NO MY PLAN)": ("NEITHER", "AUTO"),
-              "NEITHER": ("NEITHER", "AUTO"),  # Legacy dispatch compatibility
+              "NEITHER": ("NEITHER", "AUTO"),
           }
           if selection not in mapping:
               raise SystemExit(f"Invalid Day 3 plan: {selection!r}")
 
           plan, transfer_mode = mapping[selection]
-          chip_selection = os.environ.get("DAY3_CHIP_SELECTION", "NONE").strip().upper()
-          chip_choices = {
-              "NONE": "NONE",
-              "WILDCARD": "WILDCARD",
-              "FREE HIT": "FREE_HIT",
-              "TRIPLE CAPTAIN": "TRIPLE_CAPTAIN",
-              "BENCH BOOST": "BENCH_BOOST",
-          }
-          if chip_selection not in chip_choices:
-              raise SystemExit(f"Invalid Day 3 chip announcement: {chip_selection!r}")
-          # The optional chip selector must never affect Roll or Transfer plans.
-          review_chip = chip_choices[chip_selection] if plan == "NEITHER" else "NONE"
           selected_pairs = []
           found_gap = False
 
@@ -3026,13 +3001,8 @@ jobs:
           with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
               env_file.write(f"DAY3_PLAN={plan}\n")
               env_file.write(f"DAY3_TRANSFER_MODE={transfer_mode}\n")
-              env_file.write(f"DAY3_REVIEW_CHIP={review_chip}\n")
 
           print(f"Day 3 plan: {selection}")
-          if plan == "NEITHER":
-              print(f"Review-only narration: next-video teaser; announced chip={review_chip}")
-          elif chip_selection != "NONE":
-              print("Chip announcement ignored: existing Roll/Transfer selection takes precedence.")
           if transfer_mode == "MANUAL":
               print(f"Manual transfer pairs selected: {len(selected_pairs)}")
               for index, (out_value, in_value) in enumerate(selected_pairs, 1):
