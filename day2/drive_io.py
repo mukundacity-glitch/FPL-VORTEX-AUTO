@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -128,12 +129,41 @@ def _copy_remote(remote: str, local: Path, *, required: bool = False) -> bool:
     return True
 
 
+def _restore_notebook(notebook: dict[str, str]) -> Path:
+    file_id = str(notebook.get("drive_file_id") or "").strip()
+    if not file_id:
+        raise RuntimeError("Day 2 config is missing the notebook Drive file ID")
+    notebook_local = Path(notebook["local_path"])
+    notebook_local.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=notebook_local.parent, suffix=".ipynb", delete=False
+    ) as handle:
+        temporary = Path(handle.name)
+    try:
+        # Drive IDs survive filename changes and avoid downloading a duplicate notebook.
+        _run("rclone", "backend", "copyid", "vortex-drive:", file_id, str(temporary))
+        payload = json.loads(temporary.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or not isinstance(payload.get("cells"), list):
+            raise RuntimeError("Downloaded Day 2 file is not a notebook")
+        temporary.replace(notebook_local)
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(
+            f"Cannot download Day 2 notebook Drive ID {file_id} "
+            f"(rclone exit {error.returncode}); verify access to this exact file"
+        ) from error
+    finally:
+        temporary.unlink(missing_ok=True)
+    print(f"[DAY 2] Notebook restored by Drive ID: {file_id}")
+    return notebook_local
+
+
 def restore() -> None:
     cfg = read_json(CONFIG_PATH, "Day 2 config")
     MYDRIVE.mkdir(parents=True, exist_ok=True)
     for remote in READ_ONLY_INPUTS:
         _copy_remote(remote, MYDRIVE / remote)
 
+    notebook_local = _restore_notebook(cfg["notebook"])
     output_root = Path(cfg["output"]["local_root"]).resolve()
     expected = (MYDRIVE / "FPL_VORTEX/Day_2").resolve()
     if output_root != expected:
@@ -141,13 +171,6 @@ def restore() -> None:
     shutil.rmtree(output_root, ignore_errors=True)
     for name in ("MP3", "Data", "MP4", "slide"):
         (output_root / name).mkdir(parents=True, exist_ok=True)
-
-    notebook = cfg["notebook"]
-    notebook_local = Path(notebook["local_path"])
-    notebook_local.parent.mkdir(parents=True, exist_ok=True)
-    _run("rclone", "copyto", f"vortex-drive:{notebook['drive_path']}", str(notebook_local))
-    if not notebook_local.is_file() or notebook_local.stat().st_size <= 0:
-        raise RuntimeError("Day 2 notebook download failed")
 
     asset_dir = Path(os.environ.get("DAY2_ASSET_DIR", Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "day2-assets"))
     asset_dir.mkdir(parents=True, exist_ok=True)
