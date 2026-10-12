@@ -16242,7 +16242,7 @@ print("✅ Unknown abbreviations fail closed before Ryan TTS")
 # ============================================================
 
 from pathlib import Path
-import json, subprocess, sys, re, unicodedata
+import json, subprocess, sys, re, unicodedata, math
 
 ROOT   = Path(globals().get("PROJECT_ROOT", "/content/drive/MyDrive/FPL_VORTEX"))
 AUDIO  = Path(globals().get("AUDIO_WORK_DIR", "/content/FPL_VORTEX_FIRST_DAY_WORK/audio")) / "review_segments"
@@ -16504,484 +16504,401 @@ gw_points=int(current_hist.get("points",0) or 0)
 gw_rank=current_hist.get("rank")
 transfer_cost=int(current_hist.get("event_transfers_cost",0) or 0)
 
-_REVIEW_CHIP_NAMES={
-    "freehit":"Free Hit",
-    "wildcard":"Wildcard",
-    "bboost":"Bench Boost",
-    "3xc":"Triple Captain",
-}
-_review_chip_codes={
-    str(row.get("name") or "").strip()
-    for row in hist.get("chips",[])
-    if int(row.get("event") or 0)==REVIEW_GW and str(row.get("name") or "").strip()
-}
-_review_active_chip=str(picks.get("active_chip") or "").strip()
-if _review_active_chip:
-    _review_chip_codes.add(_review_active_chip)
-if len(_review_chip_codes)>1:
-    raise RuntimeError(
-        f"Conflicting official chip signals for GW{REVIEW_GW}: {sorted(_review_chip_codes)}"
+from typing import Any
+
+
+def vx_review_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def vx_review_price(value: float) -> str:
+    names = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
+    whole, fraction = divmod(int(round(float(value) * 10)), 10)
+    return f"{names[whole]} point {names[fraction]} million" if 0 <= whole < len(names) else f"{value:.1f} million"
+
+
+def vx_review_join(items: list[str]) -> str:
+    return " and ".join(items) if len(items) < 3 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def vx_review_full_name(player: dict[str, Any]) -> str:
+    return str(player.get("full_name") or " ".join(str(player.get(key) or "").strip() for key in ("first_name", "second_name")).strip() or player["name"])
+
+
+def vx_review_context(player: dict[str, Any]) -> dict[str, Any]:
+    identity = int(player["id"])
+    element = review_elements[identity]
+    stats = review_live_map.get(identity, {})
+    code = vx_review_number(element.get("code"))
+    by_gameweek = {}
+    for row in _review_history_records:
+        if vx_review_number(row.get("player_code")) != code:
+            continue
+        if _review_history_season and str(row.get("season_label") or "") != _review_history_season:
+            continue
+        event = vx_review_number(row.get("gameweek", row.get("gw", row.get("round"))))
+        if event is not None and max(1, REVIEW_GW - 2) <= event <= REVIEW_GW:
+            by_gameweek[int(event)] = dict(row)
+    if stats:
+        by_gameweek[int(REVIEW_GW)] = dict(stats)
+    last_three = {"gameweeks": sorted(by_gameweek)}
+    for field in ("total_points", "minutes", "starts", "goals_scored", "assists", "clean_sheets", "saves", "bonus", "defensive_contribution"):
+        numbers = [vx_review_number(row.get(field)) for row in by_gameweek.values()]
+        last_three[field] = sum(numbers) if numbers and all(number is not None for number in numbers) else None
+    last_three["complete"] = set(by_gameweek) == set(range(max(1, REVIEW_GW - 2), REVIEW_GW + 1))
+    last_three["average_points"] = last_three["total_points"] / len(by_gameweek) if last_three["total_points"] is not None and by_gameweek else None
+    return_fields = ["goals_scored", "assists", "bonus", "defensive_contribution_points"]
+    if player["pos"] in {"GK", "DEF"}:
+        return_fields.append("clean_sheets")
+    last_three["return_count"] = sum(
+        any((vx_review_number(row.get(field)) or 0) > 0 for field in return_fields)
+        or player["pos"] == "GK" and (vx_review_number(row.get("saves")) or 0) >= 3
+        for row in by_gameweek.values()
     )
-review_chip_code=next(iter(_review_chip_codes),"")
-review_chip_name=_REVIEW_CHIP_NAMES.get(
-    review_chip_code,
-    review_chip_code.replace("_"," ").title() if review_chip_code else ""
-)
-
-
-def vx_review_join(items):
-    items=[str(item).strip() for item in items if str(item).strip()]
-    if not items:
-        return ""
-    if len(items)==1:
-        return items[0]
-    if len(items)==2:
-        return " and ".join(items)
-    return ", ".join(items[:-1])+", and "+items[-1]
-
-
-def vx_review_points_phrase(points):
-    points=int(points)
-    return f"{points} point" if points==1 else f"{points} points"
-
-
-def vx_review_matchup(p):
-    fixture=p.get("fixture") or {}
-    raw_opp=fixture.get("opp")
-    if raw_opp in (None,"","—"):
-        return "an opponent still to be confirmed"
-    opponent=vx_narration_team(raw_opp)
-    location=str(fixture.get("ha") or "").upper()
-    if location=="H":
-        return f"{opponent} at home"
-    if location=="A":
-        return f"{opponent} away"
-    return str(opponent)
-
-
-def vx_review_action(p):
-    """Use the existing player model and current-squad decision; do not recalculate it."""
-    model=p.get("model_projection") or {}
-    exp_min=float(model.get("expected_minutes_next_gw",0) or 0)
-    p_start=float(model.get("p_start_next_gw",0) or 0)
-    pid=int(p["id"])
-    if exp_min and (exp_min<45 or p_start<0.55):
-        return "watch"
-    if pid in _review_lineup_ids:
-        return "start"
-    if pid in _review_bench_ids:
-        return "bench"
-    return "hold"
-
-
-def vx_review_signal(p, position_index=0):
-    """One compact, position-aware explanation of the reviewed return."""
-    minutes=int(p.get("minutes",0) or 0)
-    goals=int(p.get("goals",0) or 0)
-    assists=int(p.get("assists",0) or 0)
-    bonus=int(p.get("bonus",0) or 0)
-    clean=int(p.get("clean_sheets",0) or 0)
-    saves=int(p.get("saves",0) or 0)
-    xgi=float(p.get("gw_xgi",0) or 0)
-
-    if p["pos"]=="GK":
-        if clean and saves>=3:
-            return f"Locking down a clean sheet and {saves} saves powered his return"
-        if clean:
-            return "The clean sheet was the main driver behind his score"
-        if saves>=3:
-            return f"Racking up {saves} saves salvaged his score despite conceding"
-        if minutes<60:
-            return f"Getting pulled at {minutes} minutes makes his availability a major concern"
-        return "Without a clean sheet, there was no foundation for a bigger return"
-
-    if p["pos"]=="DEF":
-        routes=[]
-        if goals:
-            routes.append(f"{goals} goal" if goals==1 else f"{goals} goals")
-        if assists:
-            routes.append(f"{assists} assist" if assists==1 else f"{assists} assists")
-        if clean:
-            routes.append("a clean sheet")
-        if bonus:
-            routes.append(f"{bonus} bonus point" if bonus==1 else f"{bonus} bonus points")
-
-        if routes:
-            return_prefixes = [
-                "He brought home the points thanks to ",
-                "His haul was built on ",
-                "He rewarded our patience with ",
-                "The final score was driven by ",
-                "He saved his gameweek by locking in "
-            ]
-            prefix = return_prefixes[position_index % len(return_prefixes)]
-            return prefix + vx_review_join(routes)
-
-        if minutes<60:
-            return f"Getting pulled at {minutes} minutes is a massive red flag for his spot"
-        if xgi>=0.20:
-            return f"Even with the blank, {xgi:.2f} expected goal involvement shows real attacking threat"
-        return "He played secure minutes, but it was a total wipeout at both ends"
-
-    routes=[]
-    if goals:
-        routes.append(f"{goals} goal" if goals==1 else f"{goals} goals")
-    if assists:
-        routes.append(f"{assists} assist" if assists==1 else f"{assists} assists")
-    if bonus:
-        routes.append(f"{bonus} bonus point" if bonus==1 else f"{bonus} bonus points")
-    if routes:
-        return_prefixes = [
-            "The output was driven by ",
-            "He got on the scoresheet thanks to ",
-            "His points came courtesy of ",
-            "He produced the goods with ",
-            "The attacking return was built on "
-        ]
-        prefix = return_prefixes[position_index % len(return_prefixes)]
-        return prefix + vx_review_join(routes)
-
-    if minutes<60:
-        return f"Playing just {minutes} minutes, his tactical role outweighs the blank"
-    if xgi>=0.25:
-        return f"The blank masks {xgi:.2f} expected goal involvement; the process beat the score"
-    if xgi>0:
-        return f"He registered {xgi:.2f} expected goal involvement, though actual threat remained marginal"
-    return "While his minutes are totally secure, the offensive data was non-existent"
-
-
-def vx_review_decision_sentence(p, position_index):
-    action=vx_review_action(p)
-    templates={
-        "start":[
-            "He is absolutely locked into my starting eleven.",
-            "His metrics make him an easy keep for the squad.",
-            "I am definitely rolling him out from the start again.",
-            "There is zero chance he drops out of my lineup.",
-            "He keeps his starting spot without a second thought.",
-        ],
-        "bench":[
-            "He stays right where he belongs on the bench.",
-            "I am strictly using him as an emergency backup.",
-            "He provides solid squad depth, but nothing more yet.",
-            "Leaving him on the bench is the obvious play.",
-            "He remains a pure rotation piece for this team.",
-        ],
-        "watch":[
-            "I am keeping a very close eye on his minutes.",
-            "We really need to monitor his exact tactical role.",
-            "He is officially on my watchlist after this performance.",
-            "I need press conference news before making a final call.",
-            "His rotation risk is becoming a genuine headache.",
-        ],
-        "hold":[
-            "Rolling the transfer and just holding is the smart play.",
-            "Selling him now feels like an unnecessary sideways move.",
-            "I am happy to hold my nerve and keep him.",
-            "There is way too much upside to consider a transfer.",
-            "He is a comfortable hold while we fix bigger fires.",
-        ],
-    }.get(action,[f"My final verdict on him is a firm {action}."])
-    return templates[position_index % len(templates)]
-
-
-# ------------------------------------------------------------
-# NATURAL GW REVIEW PAUSE CONTROL
-# ------------------------------------------------------------
-# Keep Ryan's approved voice/rate. Join related player-review thoughts with
-# conversational clause breaks instead of repeated hard sentence stops.
-def vx_review_clause_flow(*parts):
-    clauses = []
-    for part in parts:
-        clause = re.sub(r"\s+", " ", str(part or "")).strip()
-        clause = re.sub(r"[.!?]+$", "", clause).strip()
-        if clause:
-            clauses.append(clause)
-    return ("; ".join(clauses) + ".") if clauses else ""
-
-
-def vx_review_player_text(p, position_index=0, bench=False):
-    name=str(p["name"])
-    team=vx_narration_team(p.get("team_name") or p.get("team"))
-    matchup=vx_review_matchup(p)
-    points=vx_review_points_phrase(p.get("points",0))
-    review_state=str(p.get("review_state") or "FINAL").upper()
-
-    decision=vx_review_decision_sentence(p, position_index)
-    if review_state=="PENDING":
-        text=(
-            f"{team}'s {name} is still waiting to face {matchup}, so there is "
-            f"no final Gameweek {REVIEW_GW} points verdict yet. {decision}"
-        )
-        return re.sub(r"\s+"," ",text).strip()
-    if review_state=="LIVE":
-        text=(
-            f"{team}'s {name} is currently facing {matchup} and has {points} "
-            f"provisionally. His match and points remain live. {decision}"
-        )
-        return re.sub(r"\s+"," ",text).strip()
-
-    signal=vx_review_signal(p, position_index)
-
-    if bench:
-        openers=[
-            f"Checking the bench, {team}'s {name} faced {matchup}, walking away with {points}.",
-            f"Our next rotational piece, {name} from {team}, drew {matchup} and yielded {points}.",
-            f"Occupying the third depth slot, {name} out of {team} banked {points} against {matchup}.",
-            f"Rounding out the reserves, {name} for {team} encountered {matchup}, logging {points}.",
-        ]
-        return vx_review_clause_flow(
-            openers[position_index % len(openers)],
-            signal,
-            decision,
-        )
-
-    if p["pos"]=="GK":
-        opener=(
-            f"Anchoring the lineup in goal, {team}'s {name} went up against {matchup}, "
-            f"locking in {points}."
-        )
-    elif p["pos"]=="DEF":
-        openers=[
-            f"Opening our defensive structure, {name} from {team} took on {matchup}, yielding {points}.",
-            f"Operating alongside him, {team}'s {name} clashed with {matchup} to secure {points}.",
-            f"Filling the third backline spot, {name} representing {team} banked {points} against {matchup}.",
-            f"Providing further rearguard coverage, {name} out of {team} delivered {points} against {matchup}.",
-            f"Rounding out the defense, {name} playing for {team} squared off against {matchup}, finalizing {points}.",
-        ]
-        opener=openers[position_index % len(openers)]
-    elif p["pos"]=="MID":
-        openers=[
-            f"Moving into the engine room, {team}'s {name} confronted {matchup}, generating {points}.",
-            f"Continuing through the midfield, {name} of {team} navigated {matchup} to register {points}.",
-            f"Our third middle asset, {name} from {team}, battled {matchup} and accumulated {points}.",
-            f"Occupying the fourth midfield slot, {name} out of {team} brought home {points} against {matchup}.",
-            f"Closing out the midfield picks, {name} playing for {team} logged {points} against {matchup}.",
-        ]
-        opener=openers[position_index % len(openers)]
-    else:
-        openers=[
-            f"Leading the line up top, {team}'s {name} took on {matchup}, bagging {points}.",
-            f"Our next striker, {name} from {team}, tested that {matchup} defense to yield {points}.",
-            f"Rounding out the attack, {name} representing {team} went to battle with {matchup}, netting {points}.",
-        ]
-        opener=openers[position_index % len(openers)]
-
-    review_tail = ""
-    if p.get("captain"):
-        review_tail = "I also handed him the captain's armband."
-    elif p.get("vice"):
-        review_tail = "He held the vice-captaincy just in case."
-    return vx_review_clause_flow(opener, signal, decision, review_tail)
-
-
-# ------------------------------------------------------------
-# BUILD THE ONE GW-REVIEW SCRIPT
-# ------------------------------------------------------------
-
-segments=[{
-    "id":"headline",
-    "text":(
-        (
-            f"Gameweek {REVIEW_GW} live review. "
-            "The first result is in, so let's check the squad while the Gameweek continues."
-        )
-        if GW_REVIEW_PARTIAL else
-        (
-            f"Gameweek {REVIEW_GW} review. "
-            "Let's audit the squad, player by player."
-        )
-    )
-}]
-
-_position_seen={"GK":0,"DEF":0,"MID":0,"FWD":0}
-for p in review_starters:
-    idx=_position_seen.get(p["pos"],0)
-    _position_seen[p["pos"]]=idx+1
-    segments.append({
-        "id":f'player_{p["id"]}',
-        "player_id":p["id"],
-        "name":p["name"],
-        "kind":"starter",
-        "text":vx_review_player_text(p,idx,bench=False),
-    })
-
-segments.append({
-    "id":"bench_intro",
-    "text":(
-        "Let's check the bench, separating completed returns from players whose fixtures are still pending."
-        if GW_REVIEW_PARTIAL else
-        "Let's pivot to the bench: assessing game time, points scored, and the reliability of our backup assets."
-    )
-})
-
-for idx,p in enumerate(review_bench):
-    segments.append({
-        "id":f'player_{p["id"]}',
-        "player_id":p["id"],
-        "name":p["name"],
-        "kind":"bench",
-        "text":vx_review_player_text(p,idx,bench=True),
-    })
-
-
-# ------------------------------------------------------------
-# SHORT DATA-BOARD REVIEW — WHOLE BOARD APPEARS TOGETHER
-# ------------------------------------------------------------
-
-captain_player=next(
-    (p for p in review_players if p.get("captain")),
-    review_starters[0] if review_starters else review_players[0]
-)
-captain_return=int(captain_player["points"])*int(captain_player.get("multiplier",1) or 1)
-highest_player=max(review_players,key=lambda p:(int(p["points"]),int(p["minutes"])))
-
-_defenders=[p for p in review_starters if p["pos"] in ("GK","DEF")]
-def_clean_returns=sum(int(p.get("clean_sheets",0) or 0) for p in _defenders)
-bench_points=sum(int(p["points"]) for p in review_bench)
-
-_transfer_rows=[
-    row for row in list(_review_decisions.get("transfer_shortlist") or [])
-    if float(row.get("xpts_gain_5gw",0) or 0)>0
-]
-if _transfer_rows:
-    _best_transfer=max(_transfer_rows,key=lambda row:float(row.get("xpts_gain_5gw",0) or 0))
-    transfer_priority=(
-        f"the model's best five-Gameweek move is "
-        f"{_best_transfer.get('out_name')} to {_best_transfer.get('in_name')}"
-    )
-else:
-    transfer_priority="the model shows no positive five-Gameweek transfer worth forcing"
-
-_risk_candidates=[
-    p for p in review_players
-    if (p.get("model_projection") or {}).get("expected_minutes_next_gw") is not None
-]
-if _risk_candidates:
-    risk_player=min(
-        _risk_candidates,
-        key=lambda p:(
-            float((p.get("model_projection") or {}).get("p_start_next_gw",1) or 0),
-            float((p.get("model_projection") or {}).get("expected_minutes_next_gw",90) or 0),
-        )
-    )
-    risk_text=f"the team news around {risk_player['name']}"
-else:
-    risk_text="the late team news before the deadline"
-
-if bench_points>=10:
-    lesson="I left meaningful points on the bench, so the selection call needs reviewing"
-elif captain_return<=4 and highest_player["id"]!=captain_player["id"]:
-    lesson="captaincy limited the ceiling, but the process matters more than hindsight"
-elif sum(1 for p in review_starters if int(p["minutes"])<60)>=2:
-    lesson="minutes security must be solved before chasing fixture upside"
-elif def_clean_returns==0:
-    lesson="the defence needs the upcoming fixtures to justify the current structure"
-else:
-    lesson="secure minutes and repeatable involvement remain the strongest signals"
-
-segments += [
-    {
-        "id":"metrics_intro",
-        "text":(
-            "Here is the live Gameweek Review table; every unfinished return remains provisional."
-            if GW_REVIEW_PARTIAL else
-            "With all fifteen players reviewed, here is the complete Gameweek Review table."
-        )
-    },
-]
-
-if review_chip_name:
-    segments.append({
-        "id":"metric_chip",
-        "text":f"I played my {review_chip_name} in Gameweek {REVIEW_GW}."
-    })
-
-segments += [
-    {
-        "id":"metric_points",
-        "text":(
-            f"The team currently has {gw_points} provisional points in Gameweek {REVIEW_GW}."
-            if GW_REVIEW_PARTIAL else
-            f"The team scored {gw_points} points in Gameweek {REVIEW_GW}."
-        )
-    },
-]
-
-if GW_REVIEW_PARTIAL:
-    rank_text=(
-        f"The provisional overall rank is {cur_rank:,}, but it can still change as fixtures finish."
-        if cur_rank else
-        "The overall rank is still updating, so I will wait for the final number."
-    )
-elif cur_rank:
-    if rank_dir=="up":
-        rank_text=f"Overall rank improved to {cur_rank:,}, giving me a green arrow."
-    elif rank_dir=="down":
-        rank_text=f"Overall rank moved to {cur_rank:,}, producing a red arrow without changing the process."
-    else:
-        rank_text=f"Overall rank stayed at {cur_rank:,}, so there was no meaningful movement."
-else:
-    rank_text="The overall rank is still updating, so I will wait for the final number."
-
-segments += [
-    {"id":"metric_orank","text":rank_text},
-    {
-        "id":"metric_gwrank",
-        "text":(
-            (
-                f"My provisional Gameweek rank is {gw_rank:,}; it is not final while fixtures remain."
-                if GW_REVIEW_PARTIAL else
-                f"My Gameweek rank was {gw_rank:,}; useful context, but not a transfer signal on its own."
-            )
-            if gw_rank else
-            "The Gameweek rank is still updating, so I will not use an incomplete number."
-        )
-    },
-    {
-        "id":"metric_captain",
-        "text":(
-            (
-                f"Captain {captain_player['name']} currently has {captain_return} provisional points after the multiplier."
-                if GW_REVIEW_PARTIAL else
-                f"Captain {captain_player['name']} contributed {captain_return} points after the multiplier."
-            )
-        )
-    },
-    {
-        "id":"metric_bench",
-        "text":(
-            f"The bench currently has {bench_points} provisional points while fixtures continue."
-            if GW_REVIEW_PARTIAL else
-            f"The bench held {bench_points} points, which measures both squad depth and selection efficiency."
-        )
-    },
-    {
-        "id":"metric_hit",
-        "text":(
-            f"The score came without a transfer hit, with {bank:.1f} million in the bank "
-            f"and a squad value of {value:.1f} million."
-            if transfer_cost==0 else
-            f"The final score included a {transfer_cost}-point transfer cost, with {bank:.1f} million "
-            f"in the bank and a squad value of {value:.1f} million."
-        )
+    future = sorted(
+        [fixture for fixture in all_review_fixtures if int(fixture.get("event") or 0) > REVIEW_GW and element["team"] in (fixture.get("team_h"), fixture.get("team_a"))],
+        key=lambda fixture: (int(fixture["event"]), str(fixture.get("kickoff_time") or ""), int(fixture.get("id") or 0)),
+    )[:3]
+    fixtures = []
+    for fixture in future:
+        home = fixture["team_h"] == element["team"]
+        opponent_id = fixture["team_a"] if home else fixture["team_h"]
+        opponent = str((review_teams.get(opponent_id) or {}).get("name") or "")
+        if opponent:
+            fixtures.append({"opponent": opponent, "home": home, "gw": fixture["event"], "fdr": vx_review_number(fixture.get("fdr"))})
+    points = {}
+    live_element = next((row for row in live.get("elements", []) if int(row.get("id") or 0) == identity), {})
+    for fixture in live_element.get("explain", []):
+        for item in fixture.get("stats", []):
+            value = vx_review_number(item.get("points"))
+            if value is not None:
+                key = str(item.get("identifier") or "")
+                points[key] = points.get(key, 0) + value
+    if (points.get("defensive_contribution") or 0) > 0 and not any((vx_review_number(stats.get(field)) or 0) > 0 for field in return_fields) and not (player["pos"] == "GK" and (vx_review_number(stats.get("saves")) or 0) >= 3):
+        last_three["return_count"] += 1
+    pick = next((row for row in picks["picks"] if int(row["element"]) == identity), {})
+    current_price = vx_review_number(element.get("now_cost"))
+    purchase_price = vx_review_number(pick.get("purchase_price"))
+    selling_price = vx_review_number(pick.get("selling_price"))
+    return {
+        "full_name": vx_review_full_name(player), "position": player["pos"],
+        "club": str(review_teams[element["team"]]["name"]), "stats": dict(stats),
+        "last_three": last_three, "next_three": fixtures, "point_breakdown": points,
+        "status": str(element.get("status") or ""), "news": str(element.get("news") or "").strip(),
+        "current_price": current_price / 10 if current_price is not None else None,
+        "purchase_price": purchase_price / 10 if purchase_price is not None else None,
+        "selling_price": selling_price / 10 if selling_price is not None else None,
+        "price_change": vx_review_number(element.get("cost_change_event")),
+        "captain": bool(pick.get("is_captain")), "vice": bool(pick.get("is_vice_captain")),
+        "selected_starter": not player["bench"],
     }
-]
 
-segments.append({
-    "id":"review_close",
-    "text":(
-        (
-            f"This live review is still developing. For the next deadline, {transfer_priority}, "
-            f"and I am monitoring {risk_text}. We will finalize the lesson after every fixture finishes."
-        )
-        if GW_REVIEW_PARTIAL else
-        (
-            f"The main lesson is clear: {lesson}. For the next deadline, {transfer_priority}, "
-            f"and I am monitoring {risk_text}. That is the review; now we move to the fixtures."
-        )
+
+def vx_review_recent_phrase(context: dict[str, Any]) -> str:
+    recent = context["last_three"]
+    if recent["complete"] and len(recent["gameweeks"]) == 3 and recent["total_points"] is not None:
+        return f"{int(recent['total_points'])} across the last three"
+    minutes = vx_review_number(context["stats"].get("minutes"))
+    return f"{int(minutes)} minutes this week" if minutes is not None else ""
+
+
+def vx_review_schedule(context: dict[str, Any], named: bool = False) -> str:
+    fixtures = context["next_three"]
+    if not fixtures:
+        return ""
+    if named:
+        return "Next come " + vx_review_join([fixture["opponent"] for fixture in fixtures]) + "."
+    difficulties = [fixture["fdr"] for fixture in fixtures]
+    if len(difficulties) == 3 and all(value is not None for value in difficulties):
+        average = sum(difficulties) / 3
+        return "an encouraging fixture run" if average <= 2.5 else "a difficult fixture run" if average >= 3.5 else "a mixed fixture run"
+    return "the next fixture run"
+
+
+def vx_review_return_reason(player: dict[str, Any]) -> str:
+    context = _review_narration_context[int(player["id"])]
+    stats = context["stats"]
+    details = []
+    goals, assists = vx_review_number(stats.get("goals_scored")), vx_review_number(stats.get("assists"))
+    if goals and goals > 0:
+        details.append("a goal" if goals == 1 else f"{int(goals)} goals")
+    if assists and assists > 0:
+        details.append("an assist" if assists == 1 else f"{int(assists)} assists")
+    if player["pos"] in {"GK", "DEF", "MID"} and (vx_review_number(stats.get("clean_sheets")) or 0) > 0:
+        details.append("a clean sheet")
+    if player["pos"] == "GK" and (vx_review_number(stats.get("saves")) or 0) >= 3:
+        details.append(f"{int(stats['saves'])} saves")
+    if (vx_review_number(stats.get("bonus")) or 0) > 0:
+        details.append("bonus")
+    if (context["point_breakdown"].get("defensive_contribution") or 0) > 0:
+        details.append("defensive-contribution points")
+    return vx_review_join(details[:2])
+
+
+def vx_review_creator_player_text(player: dict[str, Any], index: int, bench: bool = False) -> str:
+    context = _review_narration_context[int(player["id"])]
+    name = context["full_name"]
+    points = vx_review_number(context["stats"].get("total_points"))
+    minutes = vx_review_number(context["stats"].get("minutes"))
+    prefix = ("For the reserves, " if index == 0 else "Elsewhere, " if index % 2 else "Alongside him, ") if bench else (
+        {"GK": "In goal, ", "DEF": "At the back, ", "MID": "In midfield, ", "FWD": "Up front, "}[player["pos"]] if index == 0 else "Elsewhere, " if index % 2 else "Alongside him, "
     )
-})
+    reason = vx_review_return_reason(player)
+    if points is None:
+        return prefix + name + " has no confirmed return yet."
+    points = int(points)
+    point_word = "point" if points == 1 else "points"
+    story_index = int(player.get("squad_position") or index) % 4
+    if minutes == 0 and bench:
+        return prefix + name + (" has not featured yet, so the result is still open." if GW_REVIEW_PARTIAL else " did not feature, so there is no new performance to judge.")
+    if player["pos"] == "GK" and not bench:
+        text = prefix + name + f" returned {points} {point_word}" + (f" through {reason}." if reason else ".")
+        recent = vx_review_recent_phrase(context)
+        schedule = vx_review_schedule(context, named=True)
+        if recent and schedule and len((text + " That is " + recent + ". " + schedule).split()) <= 32:
+            text += " That is " + recent + "; " + schedule[:1].lower() + schedule[1:]
+        elif recent:
+            text += " The wider picture is " + recent + "."
+            if context["next_three"]:
+                text += " The next fixtures are the opportunity to respond."
+        elif schedule and len((text + " " + schedule).split()) <= 32:
+            text += " " + schedule
+        price = context["current_price"]
+        if price is not None and len(text.split()) <= 28:
+            text += " The current price is " + vx_review_price(price) + "."
+        return text
+    if points <= 2:
+        quiet_lines = (
+            f" managed only {points} {point_word}.",
+            f" had a quiet {points}-point week.",
+            f" finished with {points}, without much reward.",
+            f" returned just {points} this time.",
+        )
+        text = prefix + name + quiet_lines[story_index]
+        recent, schedule = vx_review_recent_phrase(context), vx_review_schedule(context)
+        if recent and schedule:
+            context_lines = (
+                f" With {recent}, {schedule} matters more than one result.",
+                f" There is {recent} to weigh against {schedule}.",
+                f" The recent picture is {recent}; {schedule} is the next test.",
+                f" That leaves {recent}, with {schedule} still ahead.",
+            )
+            text += context_lines[story_index]
+        elif recent:
+            text += f" The wider picture is {recent}."
+        elif schedule:
+            text += " The upcoming fixtures give the result more context."
+    elif points <= 5:
+        if reason:
+            text = prefix + name + f" added {points} through {reason}."
+        elif minutes is not None and minutes < 60:
+            text = prefix + name + f" managed {points} from {int(minutes)} minutes."
+        elif context["current_price"] is not None and context["current_price"] >= (8 if player["pos"] in {"MID", "FWD"} else 6):
+            text = prefix + name + f" returned {points}; at {vx_review_price(context['current_price'])}, that was modest."
+        else:
+            text = prefix + name + f" finished with {points} points."
+    else:
+        text = prefix + name + f" delivered {points}" + (f" through {reason}." if reason else " points.")
+    return text
+
+
+def vx_review_clean_text(text: str) -> str:
+    for abbreviation, expansion in (("xPts", "expected points"), ("xG", "expected goals"), ("xA", "expected assists"), ("FPL", "Fantasy Premier League"), ("GW", "Gameweek")):
+        text = re.sub(r"\b" + abbreviation + r"\b", expansion, text, flags=re.I)
+    text = text.replace(": ", ", ")
+    protected = {}
+    for index, context in enumerate(sorted(_review_narration_context.values(), key=lambda row: len(row["full_name"]), reverse=True)):
+        name = context["full_name"]
+        token = f"zzreviewspokenname{index}zz"
+        if name in text:
+            text = text.replace(name, token)
+            protected[token] = name
+    text = vx_full_word_narration(text, context="creator Gameweek review")
+    for token, name in protected.items():
+        text = text.replace(token, name)
+    text = re.sub(r"£?(\d+(?:\.\d+)?)\s*m\b", lambda match: vx_review_price(float(match[1])), text, flags=re.I)
+    text = re.sub(r"(\d+(?:\.\d+)?)%", r"\1 percent", text)
+    text = re.sub(r"[\[\]{}|•:()]", " ", text)
+    text = re.sub(r"[^\w\s.,'’!?;\-]", " ", text)
+    text = re.sub(r"\.{2,}", ".", text)
+    text = re.sub(r",\s*,+", ",", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def vx_review_validate_creator_script(narration: dict[str, Any], script_segments: list[dict[str, Any]]) -> None:
+    player_segments = [segment for segment in script_segments if segment.get("player_id")]
+    expected = [int(player["id"]) for player in review_starters + review_bench]
+    if [int(segment["player_id"]) for segment in player_segments] != expected or len(set(expected)) != 15:
+        raise RuntimeError("Creator review must account for all fifteen players once in the existing visual order")
+    positions = [player["pos"] for player in review_starters]
+    if positions.count("GK") != 1 or not 3 <= positions.count("DEF") <= 5 or not 2 <= positions.count("MID") <= 5 or not 1 <= positions.count("FWD") <= 3 or len(positions) != 11:
+        raise RuntimeError("Selected starting XI does not have a valid formation")
+    text = narration["tts_text"]
+    if re.search(r"\b(?:sell|hold|monitor|remove|transfer|nailed|guaranteed)\b|secure and firm|must buy|must sell", text, flags=re.I):
+        raise RuntimeError("Gameweek review contains a direct instruction or unsupported certainty")
+    if re.search(r"\b(?:xG|xA|xPts|GW|FPL)\b|\b[A-Z]\.\s*[A-Z]", text):
+        raise RuntimeError("Gameweek review contains narration shorthand")
+    for team in review_teams.values():
+        short = str(team.get("short_name") or "")
+        if short and re.search(r"\b" + re.escape(short) + r"\b", text):
+            raise RuntimeError("Gameweek review contains a club abbreviation")
+    if text.lower().count("he scored") > 2:
+        raise RuntimeError("Gameweek review repeats points-table language")
+    captain = next((player for player in review_players if player.get("captain")), None)
+    if captain and _review_final_available and int(captain["id"]) not in _review_final_ids and vx_review_number(_review_narration_context[int(captain["id"])]["stats"].get("minutes")) != 0:
+        raise RuntimeError("Captain is outside the final XI without a confirmed non-playing exception")
+
+
+_review_history_frame = globals().get("phase10_player_gw_all")
+_review_history_records = _review_history_frame.to_dict("records") if hasattr(_review_history_frame, "to_dict") else []
+_review_history_season = str(globals().get("_phase10_current_label") or globals().get("CURRENT_SEASON") or "")
+_review_narration_context = {int(player["id"]): vx_review_context(player) for player in review_players}
+_review_data_warnings = []
+for _player_id, _context in _review_narration_context.items():
+    if not _context["last_three"]["complete"]:
+        _review_data_warnings.append(f"{_context['full_name']}: incomplete last-three Gameweek data; missing values omitted")
+    if not _context["next_three"]:
+        _review_data_warnings.append(f"{_context['full_name']}: next-three fixtures unavailable")
+
+_review_selected_ids = {int(player["id"]) for player in review_starters}
+_review_final_ids = set(_review_selected_ids)
+_review_final_available = not GW_REVIEW_PARTIAL and "automatic_subs" in picks
+if _review_final_available:
+    _counted = {int(row["element"]) for row in picks["picks"] if int(row.get("multiplier") or 0) > 0}
+    if len(_counted) == 11:
+        _review_final_ids = _counted
+    else:
+        for _substitution in picks.get("automatic_subs") or []:
+            _review_final_ids.discard(int(_substitution["element_out"]))
+            _review_final_ids.add(int(_substitution["element_in"]))
+_review_final_players = [player for player in review_players if int(player["id"]) in _review_final_ids]
+_review_formation_counts = {position: sum(player["pos"] == position for player in _review_final_players) for position in ("GK", "DEF", "MID", "FWD")}
+if len(_review_final_players) != 11 or _review_formation_counts["GK"] != 1 or not 3 <= _review_formation_counts["DEF"] <= 5 or not 2 <= _review_formation_counts["MID"] <= 5 or not 1 <= _review_formation_counts["FWD"] <= 3:
+    _review_final_players = list(review_starters)
+    _review_final_ids = set(_review_selected_ids)
+    _review_final_available = False
+    _review_data_warnings.append("Final XI unavailable or invalid; selected XI formation used")
+    _review_formation_counts = {position: sum(player["pos"] == position for player in review_starters) for position in ("GK", "DEF", "MID", "FWD")}
+formation = "-".join(str(_review_formation_counts[position]) for position in ("DEF", "MID", "FWD"))
+
+_review_points_available = vx_review_number(current_hist.get("points")) is not None
+_review_score_text = f" and {gw_points} points" if _review_points_available else ""
+_review_opening = f"Let's review Gameweek {REVIEW_GW}: a {formation}{_review_score_text}."
+if _review_final_ids != _review_selected_ids and _review_final_available:
+    _review_opening = f"Gameweek {REVIEW_GW}: the final {formation}{_review_score_text}."
+if not _review_points_available:
+    _review_data_warnings.append("Team Gameweek points missing; score omitted from narration")
+_review_narration = {
+    "formation": formation, "gameweek_summary": _review_opening,
+    "goalkeeper_review": "", "defender_review": "", "midfielder_review": "", "forward_review": "",
+    "bench_review": "", "captain_review": "", "gameweek_hero": "", "quietest_return": "",
+    "availability_alerts": "", "outro": "", "tts_text": "", "data_warnings": _review_data_warnings,
+    "final_active_xi": _review_final_available, "player_context": _review_narration_context,
+}
+segments = [{"id": "headline", "text": _review_opening}]
+_review_section_names = {"GK": "goalkeeper_review", "DEF": "defender_review", "MID": "midfielder_review", "FWD": "forward_review"}
+_position_seen = {"GK": 0, "DEF": 0, "MID": 0, "FWD": 0}
+for _player in review_starters:
+    _position_index = _position_seen[_player["pos"]]
+    _position_seen[_player["pos"]] += 1
+    _spoken = vx_review_creator_player_text(_player, _position_index)
+    if _review_final_available and int(_player["id"]) not in _review_final_ids:
+        _spoken += " His place was covered by an automatic substitution."
+    _review_narration[_review_section_names[_player["pos"]]] += _spoken + " "
+    segments.append({"id": f"player_{_player['id']}", "player_id": _player["id"], "name": _player["name"], "spoken_name": vx_review_full_name(_player), "kind": "starter", "text": _spoken})
+segments.append({"id": "bench_intro", "text": "There is also a story in the squad depth."})
+for _index, _player in enumerate(review_bench):
+    _spoken = vx_review_creator_player_text(_player, _index, bench=True)
+    if _review_final_available and int(_player["id"]) in _review_final_ids and int(_player["id"]) not in _review_selected_ids:
+        _spoken += " His points counted after an automatic substitution."
+    _review_narration["bench_review"] += _spoken + " "
+    segments.append({"id": f"player_{_player['id']}", "player_id": _player["id"], "name": _player["name"], "spoken_name": vx_review_full_name(_player), "kind": "bench", "text": _spoken})
+
+captain_player = next((player for player in review_players if player.get("captain")), None)
+captain_return = 0
+_captain_text = ""
+if captain_player:
+    _captain_stats = _review_narration_context[int(captain_player["id"])]["stats"]
+    _captain_raw = vx_review_number(_captain_stats.get("total_points"))
+    _captain_minutes = vx_review_number(_captain_stats.get("minutes"))
+    _captain_name = vx_review_full_name(captain_player)
+    _captain_multiplier = int(captain_player.get("multiplier") or 0)
+    if _captain_minutes == 0:
+        _captain_text = f"Captain {_captain_name} did not play."
+        _vice_player = next((player for player in review_players if player.get("vice") and int(player.get("multiplier") or 0) > 1), None)
+        if _vice_player:
+            _vice_raw = vx_review_number(_review_narration_context[int(_vice_player["id"])]["stats"].get("total_points"))
+            if _vice_raw is not None:
+                _captain_text += f" The armband passed to {vx_review_full_name(_vice_player)}, contributing {int(_vice_raw) * int(_vice_player['multiplier'])} points."
+    elif _captain_raw is not None:
+        captain_return = int(_captain_raw) * _captain_multiplier
+        _other_returns = [vx_review_number(_review_narration_context[int(player["id"])]["stats"].get("total_points")) for player in _review_final_players if int(player["id"]) != int(captain_player["id"])]
+        _other_returns = [value for value in _other_returns if value is not None]
+        _captain_average = sum(_other_returns) / len(_other_returns) if _other_returns else None
+        _captain_verdict = "above the other starters' average" if _captain_average is not None and _captain_raw > _captain_average else "below the other starters' average" if _captain_average is not None and _captain_raw < _captain_average else "level with the other starters' average" if _captain_average is not None else "the captain result this week"
+        _multiplier_word = "doubled" if _captain_multiplier == 2 else "tripled" if _captain_multiplier == 3 else "counted"
+        _captain_text = f"Captain {_captain_name} returned {int(_captain_raw)}, {_multiplier_word} to {captain_return}; that was {_captain_verdict}."
+else:
+    _review_data_warnings.append("Captain flag missing; captain result omitted")
+if not _captain_text:
+    _captain_text = "The captain result is not available in this snapshot."
+_review_narration["captain_review"] = _captain_text
+
+_review_known_active = [player for player in _review_final_players if vx_review_number(_review_narration_context[int(player["id"])]["stats"].get("total_points")) is not None]
+if _review_known_active:
+    highest_player = max(_review_known_active, key=lambda player: (player["points"], bool(player.get("captain") or int(player.get("multiplier") or 0) > 1), player.get("bonus", 0), player.get("goals", 0) + player.get("assists", 0), player.get("minutes", 0)))
+    _quietest_player = min(_review_known_active, key=lambda player: (player["points"], player.get("minutes", 0), _review_narration_context[int(player["id"])]["last_three"]["total_points"] if _review_narration_context[int(player["id"])]["last_three"]["complete"] and _review_narration_context[int(player["id"])]["last_three"]["total_points"] is not None else math.inf))
+    _hero_reason = vx_review_return_reason(highest_player)
+    _review_narration["gameweek_hero"] = f"The Gameweek hero was {vx_review_full_name(highest_player)} with {highest_player['points']}" + (f", helped by {_hero_reason}." if _hero_reason else " points.")
+    _review_narration["quietest_return"] = f"The quietest return came from {vx_review_full_name(_quietest_player)} with {_quietest_player['points']}; one week does not tell the whole story."
+
+_review_alerts = []
+for _player in review_players:
+    _context = _review_narration_context[int(_player["id"])]
+    _status, _news = _context["status"], _context["news"]
+    if _status == "s":
+        _review_alerts.append(f"{_context['full_name']} is unavailable through suspension.")
+    elif _status not in {"", "a"}:
+        _summary = re.split(r"[.;]", _news, maxsplit=1)[0].strip()
+        if _summary and len(_summary.split()) <= 14 and not re.search(r"\b[A-Z]{2,}[A-Z0-9]*\b|\b[A-Z]\.\s*[A-Z]", _summary):
+            _review_alerts.append(f"Availability is the main concern for {_context['full_name']}; the official update says {_summary}.")
+        else:
+            _review_alerts.append(f"{_context['full_name']} has an official availability flag before the next deadline.")
+if not _review_alerts:
+    _limited = [vx_review_full_name(player) for player in _review_final_players if vx_review_number(_review_narration_context[int(player["id"])]["stats"].get("minutes")) is not None and int(player.get("minutes") or 0) < 30]
+    if _limited:
+        _review_alerts.append("Limited minutes for " + vx_review_join(_limited) + " change the short-term picture.")
+_review_narration["availability_alerts"] = " ".join(_review_alerts)
+_review_price_pressure = [
+    context["full_name"] for context in _review_narration_context.values()
+    if context["price_change"] is not None and context["price_change"] <= -2
+]
+if _review_price_pressure:
+    _review_narration["availability_alerts"] += " A price drop adds value pressure around " + vx_review_join(_review_price_pressure) + "."
+_clean_availability = all(context["status"] == "a" and not context["news"] for context in _review_narration_context.values())
+_review_narration["outro"] = (
+    ("There are no official availability flags in this squad. " if _clean_availability else "")
+    + ("This is still a provisional review. " if GW_REVIEW_PARTIAL else "")
+    + "That is the review. Recent minutes and the next fixtures will show whether the quieter returns are a dip or a trend."
+)
+segments.append({"id": "metrics_intro", "text": "The armband is the next part of the story."})
+for _segment_id, _section in (("metric_captain", "captain_review"), ("hero_review", "gameweek_hero"), ("quietest_review", "quietest_return"), ("availability_review", "availability_alerts"), ("review_close", "outro")):
+    if _review_narration[_section]:
+        segments.append({"id": _segment_id, "text": _review_narration[_section]})
+for _segment in segments:
+    _segment["text"] = vx_review_clean_text(_segment["text"])
+for _section in ("gameweek_summary", "goalkeeper_review", "defender_review", "midfielder_review", "forward_review", "bench_review", "captain_review", "gameweek_hero", "quietest_return", "availability_alerts", "outro"):
+    _review_narration[_section] = vx_review_clean_text(_review_narration[_section].strip())
+tts_text = " ".join(segment["text"] for segment in segments)
+_review_narration["tts_text"] = tts_text
+if len(tts_text.split()) > 235:
+    _review_data_warnings.append("The complete fifteen-player review may exceed the preferred short duration at the requested neutral Ryan rate")
+vx_review_validate_creator_script(_review_narration, segments)
+
 
 # Hard brevity gates: all players remain explained, but the review cannot drift
 # back into a long, repetitive monologue.
@@ -17024,7 +16941,7 @@ if _segment_ids != _expected_ids:
     )
 
 for s in _player_segments:
-    if str(s["name"]).lower() not in str(s["text"]).lower():
+    if str(s.get("spoken_name") or s["name"]).lower() not in str(s["text"]).lower():
         raise RuntimeError(f"Player name missing from narration segment: {s['id']}")
 
 _review_norm=[re.sub(r"\s+"," ",str(s["text"]).strip().lower()) for s in segments]
@@ -17079,20 +16996,14 @@ async def make_segment(seg):
     words=[]
 
     mood = review_tts_mood(seg)
-    profile = vx_tts_profile(mood)
+    profile = {"rate": "+0%", "pitch": "+0Hz", "volume": "+0%"}
     seg["tts_mood"] = mood
     seg["tts_profile"] = profile
 
     # CELL 22 is the final authority: no shorthand reaches Ryan or the
     # narration-facing display/package text.
-    seg["text"] = vx_full_word_narration(
-        seg["text"],
-        context=f"GW Review segment {seg['id']}",
-    )
-    seg["display_text"] = vx_full_word_display(
-        seg["text"],
-        context=f"GW Review display {seg['id']}",
-    )
+    seg["text"] = vx_review_clean_text(seg["text"])
+    seg["display_text"] = seg["text"]
 
     audio_bytes, words = await vx_edge_tts_stream(seg["text"], profile)
     audio.extend(audio_bytes)
@@ -17112,7 +17023,7 @@ async def make_segment(seg):
     seg["name_time"]=None
 
     if seg.get("name"):
-        canonical_name = vx_narration_player(
+        canonical_name = seg.get("spoken_name") or vx_narration_player(
             seg.get("player_id") if seg.get("player_id") is not None else seg["name"]
         )
         canonical_name = str(canonical_name or seg["name"]).strip()
@@ -17203,9 +17114,7 @@ if not math.isfinite(_headline_budget) or _headline_budget <= 0:
 
 if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
     _headline_segment["text"] = (
-        f"Gameweek {REVIEW_GW} live review. Let's check the squad."
-        if GW_REVIEW_PARTIAL else
-        f"Gameweek {REVIEW_GW} review. Let's audit the squad."
+        f"Gameweek {REVIEW_GW}: {formation}{_review_score_text}."
     )
     await make_segment(_headline_segment)
     print(
@@ -17217,9 +17126,7 @@ if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
 # voice up: use a shorter natural line and leave Cell 16's hard overlap guard.
 if float(_headline_segment.get("duration") or 0.0) > _headline_budget:
     _headline_segment["text"] = (
-        f"Gameweek {REVIEW_GW} live review."
-        if GW_REVIEW_PARTIAL else
-        f"Gameweek {REVIEW_GW} review."
+        f"Gameweek {REVIEW_GW}, {formation}{_review_score_text}."
     )
     await make_segment(_headline_segment)
 
@@ -17235,6 +17142,11 @@ GW_REVIEW_NARRATION_WORDS = sum(
     len(re.findall(r"\b[\w'-]+\b", str(segment.get("text", ""))))
     for segment in segments
 )
+
+tts_text = " ".join(segment["text"] for segment in segments)
+_review_narration["gameweek_summary"] = _headline_segment["text"]
+_review_narration["tts_text"] = tts_text
+vx_review_validate_creator_script(_review_narration, segments)
 
 # ------------------------------------------------------------
 # SAVE REVIEW PACKAGE
@@ -17257,7 +17169,9 @@ review_package={
         "rank_dir":rank_dir,
         "transfer_cost":transfer_cost
     },
-    "segments":segments
+    "segments":segments,
+    "narration":_review_narration,
+    "tts_text":tts_text
 }
 
 # Canonical in-memory handoff for downstream review cells.
@@ -17277,7 +17191,7 @@ print(f"✅ Starting XI: {len(review_starters)}")
 print(f"✅ Bench: {len(review_bench)}")
 print(f"✅ Ryan narration segments: {len(segments)}")
 print(f"✅ Concise narration length: {GW_REVIEW_NARRATION_WORDS} words")
-print("✅ Ryan TTS moods: shared VOICE + MOODS profile")
+print("✅ Review Ryan profile: +0% rate / +0Hz pitch / +0% volume")
 print(f"✅ Rank direction: {rank_dir.upper()}")
 print("✅ Saved:",OUT)
 
@@ -27882,3 +27796,4 @@ if OUTRO_SELECTED:
     display(IPImage(filename=str(OUTRO_TAIL_PREVIEW), width=1200))
 
 display(Video(str(FINAL_MP4), embed=False, width=1200))
+
