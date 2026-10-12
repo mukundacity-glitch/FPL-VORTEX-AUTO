@@ -31,6 +31,7 @@ SCENE_ANIMATION_CELL_INDEX = 33
 TTS_PROFILE_CELL_INDEX = 10
 PLAYER_CARD_DESIGN_CELL_INDEX = 23
 FULL_WORD_NARRATION_CELL_INDEX = 28
+REVIEW_NARRATION_CELL_INDEX = 29
 SHARED_NARRATION_CELL_INDEX = 32
 FINAL_ASSEMBLY_CELL_INDEX = 35
 
@@ -479,6 +480,57 @@ def _patch_narration_tone(source: str) -> str:
     return source
 
 
+REVIEW_CHIP_NAMES = {
+    "NONE": None,
+    "WILDCARD": "Wildcard",
+    "FREE_HIT": "Free Hit",
+    "TRIPLE_CAPTAIN": "Triple Captain",
+    "BENCH_BOOST": "Bench Boost",
+}
+
+
+def _patch_review_only_teaser(source: str) -> str:
+    """Speak a next-video teaser only after a Review Only GW review closes.
+
+    The separate Gameweek Plan notebook remains entirely independent.
+    Reuse review_close, so Ryan's existing TTS timing and animation stay aligned.
+    """
+    plan = str(os.environ.get("DAY3_PLAN", "NEITHER")).strip().upper()
+    chip = str(os.environ.get("DAY3_REVIEW_CHIP", "NONE")).strip().upper()
+    if chip not in REVIEW_CHIP_NAMES:
+        raise ValueError(f"Unsupported review-only chip announcement: {chip!r}")
+    if plan != "NEITHER":
+        return source
+
+    intro = (
+        "    _next_review_gw=int(globals().get(\"NEXT_GW\") or (int(REVIEW_GW)+1))\n"
+        "    segments.append({"
+    )
+    teaser = (
+        "    _vx_day3_review_teaser = "
+        "\"My Gameweek plan will be in my next video.\"\n"
+    )
+    if chip != "NONE":
+        teaser += (
+            "    _vx_day3_review_teaser += "
+            + repr(" I'm planning to play my " + REVIEW_CHIP_NAMES[chip] + " in Gameweek ")
+            + " + str(_next_review_gw) + "
+            + repr(". I'll share the full reasoning there.")
+            + "\n"
+        )
+    source = _replace_exact(
+        source, intro, intro.replace("    segments.append({", teaser + "    segments.append({"),
+        "review-only teaser after completed review metrics",
+    )
+    return _replace_exact(
+        source,
+        '               else f"Next, we turn those lessons into the Gameweek {_next_review_gw} plan.")',
+        '               else f"Next, we turn those lessons into the Gameweek {_next_review_gw} plan.")\n'
+        '             + " " + _vx_day3_review_teaser',
+        "review-only closing narration after review summary",
+    )
+
+
 def _patch_player_card_sample(source: str) -> str:
     """Restyle the shared card to the supplied blue sample and use Assets/4.png."""
     if "VX_GITHUB_SAMPLE_CARD_V6" in source:
@@ -846,6 +898,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_player_card_sample(source)
         if cell_index == FULL_WORD_NARRATION_CELL_INDEX:
             source = _patch_narration_tone(source)
+        if cell_index == REVIEW_NARRATION_CELL_INDEX:
+            source = _patch_review_only_teaser(source)
         if cell_index == PITCH_SOURCE_CELL_INDEX:
             source = _patch_pitch_player_names(source)
         if cell_index == INTRO_OUTRO_SOURCE_CELL_INDEX:
