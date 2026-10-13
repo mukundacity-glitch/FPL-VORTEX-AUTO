@@ -82,6 +82,19 @@ class TransferDeskSelectionTests(unittest.TestCase):
         self.assertNotIn(11, self.ids(first["BUY"]))
         self.assertEqual(second["BUY"][0]["player_id"], 11)
 
+    def test_retained_recent_blanks_fill_a_thin_strict_pool(self):
+        for player_id in range(11, 19):
+            self.players.loc[self.players.id.eq(player_id),
+                             ["transfers_in_event", "transfers_out_event"]] = [200000, 200000]
+        self.players.loc[self.players.id.eq(18),
+                         ["transfers_in_event", "transfers_out_event"]] = [1_000_000, 1_000_000]
+
+        result = self.select()
+        self.assertEqual(self.ids(result["HOLD"]), [20, 19, 17, 16, 15])
+        self.assertTrue(all(row["recent_average_points"] <= 3 for row in result["HOLD"]))
+        self.assertTrue(all(row["retained_percent_estimate"] >= 80 for row in result["HOLD"]))
+        self.assertNotIn(18, self.ids(result["HOLD"]))
+
     def test_thin_evidence_never_fills_with_unrelated_model_picks(self):
         self.evidence = {}
         with self.assertRaisesRegex(RuntimeError, "HOLD=0.*no unrelated fallback"):

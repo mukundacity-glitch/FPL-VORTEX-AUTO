@@ -10,7 +10,8 @@ import pandas as pd
 # of distinct managers. These gates apply only to the presentation's HOLD list.
 HOLD_MAX_RECENT_POINTS = 3.0
 HOLD_MIN_OWNERSHIP = 8.0
-HOLD_MIN_RETAINED_PERCENT = 95.0
+HOLD_MIN_RETAINED_PERCENT = 80.0
+HOLD_PREFERRED_RETAINED_PERCENT = 95.0
 
 
 def select_transfer_desk(players, *, total_managers, recent_performance,
@@ -76,13 +77,19 @@ def select_transfer_desk(players, *, total_managers, recent_performance,
         ["transfers_out_event", "net_transfers", "player_id"], ascending=[False, True, True]
     ).head(count)
     used = set(buy.player_id) | set(sell.player_id)
-    hold = frame.loc[
+    hold_candidates = frame.loc[
         ~frame.player_id.isin(used)
         & frame.ownership_score.ge(HOLD_MIN_OWNERSHIP)
         & frame.recent_average_points.le(HOLD_MAX_RECENT_POINTS)
         & frame.retained_percent_estimate.ge(HOLD_MIN_RETAINED_PERCENT)
-    ].sort_values(
-        ["ownership_score", "retained_percent_estimate", "player_id"], ascending=[False, False, True]
+    ].copy()
+    # Prefer strongly retained blanks, then rank qualified near-misses by ownership.
+    hold_candidates["preferred_retention"] = hold_candidates.retained_percent_estimate.ge(
+        HOLD_PREFERRED_RETAINED_PERCENT
+    )
+    hold = hold_candidates.sort_values(
+        ["preferred_retention", "ownership_score", "retained_percent_estimate", "player_id"],
+        ascending=[False, False, False, True],
     ).head(count)
     groups = {"BUY": buy, "HOLD": hold, "SELL": sell}
     if any(len(group) != count for group in groups.values()):
@@ -163,7 +170,7 @@ DAY3_TRANSFER_DESK_SEQUENCE = []
     source = source[:rules_start] + '''    "rules": {
         "buy": "Largest event transfers in among positive net-transfer players",
         "sell": "Largest event transfers out among negative net-transfer players",
-        "hold": "Highest deadline-safe Top-10K EO (official ownership fallback); recent average <=3 points; ownership >=8%; estimated retention >=95%; exclude BUY/SELL leaders",
+        "hold": "Highest deadline-safe Top-10K EO (official ownership fallback); recent average <=3 points; ownership >=8%; prefer retention >=95%, accept >=80% for thin pools; exclude BUY/SELL leaders",
     },
 ''' + source[rules_end:]
     reason_start = source.index("def _d3_desk_short_reason(r):")
@@ -173,7 +180,7 @@ DAY3_TRANSFER_DESK_SEQUENCE = []
         return f'{r["transfers_in"]:,.0f} TRANSFERS IN'
     if r["action"] == "SELL":
         return f'{r["transfers_out"]:,.0f} TRANSFERS OUT'
-    return f'{r["recent_average_points"]:.1f} RECENT AVG PTS • LOW SELLING'
+    return f'{r["recent_average_points"]:.1f} RECENT AVG PTS • {r["retained_percent_estimate"]:.0f}% KEPT'
 
 
 ''' + source[reason_end:]

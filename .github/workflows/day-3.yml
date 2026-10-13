@@ -1,8 +1,14 @@
 name: Day 3
 
-run-name: Day 3 • ${{ inputs.plan || 'ROLL' }}
+run-name: Day 3 • ${{ github.event_name == 'push' && 'NEITHER' || inputs.plan || 'ROLL' }}
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'day3/transfer_desk.py'
+      - 'day3/test_transfer_desk.py'
+      - '.github/workflows/day-3.yml'
   workflow_dispatch:
     inputs:
       plan:
@@ -2916,7 +2922,7 @@ concurrency:
 env:
   PYTHONUNBUFFERED: "1"
   FPL_ENTRY_ID: "145784"
-  DAY3_PLAN_SELECTION: ${{ inputs.plan || 'ROLL' }}
+  DAY3_PLAN_SELECTION: ${{ github.event_name == 'push' && 'NEITHER' || inputs.plan || 'ROLL' }}
   DAY3_PLANNED_CHIP: ${{ inputs.planned_chip || 'Wildcard' }}
   DAY3_OUT_1: ${{ inputs.player_out_1 }}
   DAY3_IN_1: ${{ inputs.player_in_1 }}
@@ -2945,6 +2951,8 @@ env:
 
 jobs:
   run-day-3:
+    # Explicit marker avoids publishing a private draft on routine pushes.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[run-day3]') }}
     name: Run final Day 3
     runs-on: ubuntu-24.04
     timeout-minutes: 360
