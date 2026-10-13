@@ -112,16 +112,13 @@ def _thumbnail_source(output_root: Path, plan: str) -> Path:
         "ROLL": (
             "my_plan_5a_roll_scene_4k.png",
             "transfer_decision_desk_scene_4k.png",
-            "final_shortlists_scene_4k.png",
         ),
         "TRANSFER": (
             "my_plan_5b_transfer_scene_4k.png",
             "transfer_decision_desk_scene_4k.png",
-            "final_shortlists_scene_4k.png",
         ),
         "NEITHER": (
             "transfer_decision_desk_scene_4k.png",
-            "final_shortlists_scene_4k.png",
             "projected_goals_scene_4k.png",
         ),
     }
@@ -133,6 +130,7 @@ def _thumbnail_source(output_root: Path, plan: str) -> Path:
     generic = sorted(
         path for path in slide_dir.glob("*.png")
         if path.is_file() and path.stat().st_size > 0
+        and not path.name.startswith("final_shortlists")
     )
     if not generic:
         raise FileNotFoundError("No rendered Day 3 slide is available for the YouTube thumbnail.")
@@ -192,7 +190,7 @@ def _metadata(preview_gw: int, review_gw: int | None, plan: str, transfer_mode: 
             "",
             "Covered in this video:",
             "• Projected goals and clean-sheet outlook",
-            "• DEFCON and final player shortlists",
+            "• Defensive contribution (DEFCON)",
             "• Transfer Decision Desk",
             "• Gameweek review and elite ownership trends",
             "• Final benching and captaincy decisions",

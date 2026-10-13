@@ -12,6 +12,7 @@ from playwright.sync_api import sync_playwright
 from PIL import Image
 
 from day3.run_notebook import PLAYER_CARD_DESIGN_CELL_INDEX, SCENE_DESIGN_CELL_INDEX, _patch_player_card_sample
+from day3.remove_shortlists import remove_shortlist_cell
 
 
 # Deliberately fictional artwork/data; no external requests or production model execution.
@@ -40,13 +41,14 @@ def check_cards(notebook_path: Path, browser_channel: str | None = None) -> None
             else:
                 os.environ['DAY1_ASSET_DIR'] = previous_assets
     scene_source = ''.join(notebook['cells'][SCENE_DESIGN_CELL_INDEX]['source'])
+    scene_source = remove_shortlist_cell(SCENE_DESIGN_CELL_INDEX, scene_source)
     scene_css = []
-    expected = {'_D3_DEFCON_PRODUCTION_CSS', '_D3_DESK_SHARED_CSS', '_D3_SHORT_SHARED_CARD_CSS'}
+    expected = {'_D3_DEFCON_PRODUCTION_CSS', '_D3_DESK_SHARED_CSS'}
     for node in ast.parse(scene_source).body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in expected for t in node.targets):
             scene_css.append(ast.literal_eval(node.value))
     if len(scene_css) != len(expected):
-        raise RuntimeError('Expected all three production scene card styles for layout checks')
+        raise RuntimeError('Expected both active production scene card styles for layout checks')
 
     premium_source = ''.join(notebook['cells'][10]['source'])
     premium_js = next(ast.literal_eval(node.value) for node in ast.walk(ast.parse(premium_source))
@@ -93,7 +95,7 @@ def check_cards(notebook_path: Path, browser_channel: str | None = None) -> None
         page = browser.new_page(viewport={'width': 3840, 'height': 2160})
         try:
             for width, height in ((1202, 1642), (1500, 1594), (1090, 1460), (800, 1100), (700, 1000)):
-                for host in ('d3DefHeroHost', 'd3DeskHeroHost', 'd3ShortHeroHost', 'review'):
+                for host in ('d3DefHeroHost', 'd3DeskHeroHost', 'review'):
                     for variant in variants:
                         page.set_content('<html><head>' + namespace['PLAYER_CARD_CSS'] + ''.join(scene_css)
                             + '<style>:root{--vx-dense:Arial}.vx-player-card{font-family:Arial!important}</style></head><body class="vxPremium"><div id="host" class="' + host

@@ -386,8 +386,9 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_defcon_card_motion",
             "_patch_elite_template_parser",
             "patch_transfer_desk_source",
+            "remove_shortlist_cell",
         ):
-            self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda source: source))
+            self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda *args: args[-1]))
 
     def write_notebook(self, overrides: dict[int, str]) -> None:
         cells = [

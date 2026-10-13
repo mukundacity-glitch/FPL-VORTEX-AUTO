@@ -17,6 +17,7 @@ if not __package__:
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.inputtransformer2 import TransformerManager
 from day3.transfer_desk import patch_transfer_desk_source
+from day3.remove_shortlists import purge_shortlist_artifacts, remove_shortlist_cell
 
 
 PLAN_VALUES = {"NEITHER", "ROLL", "TRANSFER"}
@@ -134,7 +135,6 @@ def _patch_control_cell(source: str) -> str:
         "INTRO",
         "PROJECTED_GOALS",
         "DEFENSIVE_CONTRIBUTION",
-        "FDR_PLAYER_RECOMMENDATIONS",
         "TRANSFER_DECISION",
         "GAMEWEEK_REVIEW",
         "ELITE_OWNERSHIP_TRENDS",
@@ -943,6 +943,7 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_defcon_card_motion(source)
         if cell_index == ELITE_TOP10K_CELL_INDEX:
             source = _patch_elite_template_parser(source)
+        source = remove_shortlist_cell(cell_index, source)
         if PREVIEW_CELL_MARKER in source:
             print(f"⏭️ Skipping Colab-only live preview cell {cell_index}.")
             continue
@@ -971,6 +972,8 @@ def run_notebook(notebook_path: Path) -> None:
         error = result.error_before_exec or result.error_in_exec
         if error is not None:
             raise RuntimeError(f"Day 3 notebook cell {cell_index} failed") from error
+        if cell_index == NOTEBOOK_CONTROL_CELL_INDEX:
+            purge_shortlist_artifacts(shell.user_ns["OUTPUT_ROOT"], shell.user_ns["WORK_ROOT"])
 
     print("✅ Final Day 3 notebook execution completed.")
 
