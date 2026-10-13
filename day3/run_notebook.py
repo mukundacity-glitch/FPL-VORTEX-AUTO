@@ -21,6 +21,7 @@ from IPython.core.inputtransformer2 import TransformerManager
 PLAN_VALUES = {"NEITHER", "ROLL", "TRANSFER"}
 TRANSFER_MODE_VALUES = {"AUTO", "MANUAL"}
 NOTEBOOK_CONTROL_CELL_INDEX = 1
+NARRATION_EXPORT_CELL_INDEX = 2
 VISUAL_ENRICHMENT_CELL_INDEX = 5
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
 PITCH_ANIMATION_CELL_INDEX = 30
@@ -227,6 +228,33 @@ print("✅ GitHub Manual Transfer selection loaded: "
         # scenes; Roll keeps only 5A.
         transfer_mode = "AUTO"
 
+    return source
+
+
+def _patch_narration_exports(source: str) -> str:
+    source = _replace_once(
+        source,
+        r"^ '05b_my_plan_transfer': \('05B_Transfer_Plan', 'my_plan_5b_transfer_scene_4k'\),$",
+        " '05b_my_plan_transfer': ('05B_Transfer_Plan', 'my_plan_5b_transfer_scene_4k'),\n"
+        " '05c_my_plan_chip': ('05C_My_Plan_Chip', 'my_plan_chip_scene_4k'),",
+        "planned chip export registration",
+    )
+    source = _replace_once(
+        source,
+        r"^                '05b_my_plan_transfer': 'my_plan_5b_transfer_package.json'}$",
+        "                '05b_my_plan_transfer': 'my_plan_5b_transfer_package.json',\n"
+        "                '05c_my_plan_chip': 'my_plan_chip_render.json'}",
+        "planned chip narration source",
+    )
+    # The chip renderer records the exact TTS text without the pitch scenes' segments.
+    source = _replace_once(
+        source,
+        r"^                segments = package\.get\('segments', \[\]\)$",
+        "                if key == '05c_my_plan_chip':\n"
+        "                    text = package.get('text')\n"
+        "                segments = package.get('segments', [])",
+        "planned chip narration text",
+    )
     return source
 
 
@@ -843,6 +871,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
     for cell_index, source in cells:
         if cell_index == NOTEBOOK_CONTROL_CELL_INDEX:
             source = _patch_control_cell(source)
+        if cell_index == NARRATION_EXPORT_CELL_INDEX:
+            source = _patch_narration_exports(source)
         if cell_index == TTS_PROFILE_CELL_INDEX:
             source = _patch_tts_profile(source)
         if cell_index == PLAYER_CARD_DESIGN_CELL_INDEX:
