@@ -25,6 +25,7 @@ NARRATION_EXPORT_CELL_INDEX = 2
 VISUAL_ENRICHMENT_CELL_INDEX = 5
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
 PITCH_ANIMATION_CELL_INDEX = 30
+PITCH_RENDER_CELL_INDEX = 31
 PITCH_SOURCE_CELL_INDEX = 21
 INTRO_OUTRO_SOURCE_CELL_INDEX = 22
 SCENE_DESIGN_CELL_INDEX = 24
@@ -280,6 +281,31 @@ def _patch_pitch_card_entrance(source: str) -> str:
     source = source.replace(old, new, 1)
     print("✅ Pitch card entrance preserves readable text throughout the animation")
     return source
+
+
+def _expected_pitch_player_count(segments: Iterable[dict], time: float, entrance: float) -> int:
+    # Cell 16 uses cubic ease-out, and the DOM audit counts opacity strictly > .5.
+    # A linear halfway cutoff disagrees during the preceding player's entrance.
+    count = 0
+    for segment in segments:
+        if segment.get("kind") != "starter" or not segment.get("player_id"):
+            continue
+        progress = max(0.0, min(1.0, (time - float(segment["hero_off"])) / entrance))
+        if 1.0 - (1.0 - progress) ** 3 > 0.5:
+            count += 1
+    return count
+
+
+def _patch_pitch_reveal_audit(source: str) -> str:
+    old = '            expected = sum(s.get("kind")=="starter" and card_t >= float(s["hero_off"])+float(_vx17_timeline.get("entrance_duration") or .42)*.5 for s in player_segments)'
+    if source.count(old) != 1:
+        raise RuntimeError("Pitch reveal audit: expected exactly one linear cutoff")
+    return source.replace(
+        old,
+        '            from day3.run_notebook import _expected_pitch_player_count\n'
+        '            expected = _expected_pitch_player_count(player_segments, card_t, float(_vx17_timeline.get("entrance_duration") or .42))',
+        1,
+    )
 
 
 def _patch_outro_social_icon(source: str) -> str:
@@ -885,6 +911,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_outro_social_icon(source)
         if cell_index == PITCH_ANIMATION_CELL_INDEX:
             source = _patch_pitch_card_entrance(source)
+        if cell_index == PITCH_RENDER_CELL_INDEX:
+            source = _patch_pitch_reveal_audit(source)
         if cell_index == SCENE_DESIGN_CELL_INDEX:
             source = _patch_defcon_gameweek_contract(source)
             source = _patch_shared_card_scene_checks(source)

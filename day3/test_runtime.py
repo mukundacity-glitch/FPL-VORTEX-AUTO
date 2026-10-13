@@ -282,6 +282,36 @@ def vx_finish_clean_exports():
             runner._patch_narration_exports(source)
 
 
+class PitchRevealTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.segments = [
+            {"player_id": 1, "kind": "starter", "hero_off": 10.0},
+            {"player_id": 229, "kind": "starter", "hero_off": 20.0},
+            {"player_id": 2, "kind": "bench", "hero_off": 5.0},
+        ]
+
+    def test_pitch_stays_empty_through_first_hero_exit(self) -> None:
+        for time in (0.0, 9.9, 10.0):
+            self.assertEqual(runner._expected_pitch_player_count(self.segments, time, .42), 0)
+
+    def test_cubic_entrance_is_visible_before_linear_halfway_cutoff(self) -> None:
+        # At 25% elapsed, ease-out opacity is .578125, already above the DOM's .5.
+        self.assertEqual(runner._expected_pitch_player_count(self.segments, 10.105, .42), 1)
+
+    def test_dom_visibility_threshold_is_strict(self) -> None:
+        self.assertEqual(runner._expected_pitch_player_count(self.segments, 10.08, .42), 0)
+        self.assertEqual(runner._expected_pitch_player_count(self.segments, 10.09, .42), 1)
+
+    def test_later_starter_and_bench_do_not_reveal_early(self) -> None:
+        self.assertEqual(runner._expected_pitch_player_count(self.segments, 20.0, .42), 1)
+        self.assertEqual(runner._expected_pitch_player_count(self.segments, 20.105, .42), 2)
+        self.assertEqual(runner._expected_pitch_player_count(self.segments, 100.0, .42), 2)
+
+    def test_changed_renderer_fails_preflight(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Pitch reveal audit"):
+            runner._patch_pitch_reveal_audit("expected = 0")
+
+
 class NotebookPreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -298,6 +328,7 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_player_card_sample",
             "_patch_narration_tone",
             "_patch_pitch_card_entrance",
+            "_patch_pitch_reveal_audit",
             "_patch_pitch_player_names",
             "_patch_shared_card_scene_checks",
             "_patch_defcon_gameweek_contract",
