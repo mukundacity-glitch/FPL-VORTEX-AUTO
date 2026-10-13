@@ -385,6 +385,7 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_defcon_gameweek_contract",
             "_patch_defcon_card_motion",
             "_patch_elite_template_parser",
+            "patch_transfer_desk_source",
         ):
             self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda source: source))
 

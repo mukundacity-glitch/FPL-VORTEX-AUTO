@@ -16,6 +16,7 @@ if not __package__:
 
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.inputtransformer2 import TransformerManager
+from day3.transfer_desk import patch_transfer_desk_source
 
 
 PLAN_VALUES = {"NEITHER", "ROLL", "TRANSFER"}
@@ -937,6 +938,7 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
         if cell_index == SCENE_DESIGN_CELL_INDEX:
             source = _patch_defcon_gameweek_contract(source)
             source = _patch_shared_card_scene_checks(source)
+            source = patch_transfer_desk_source(source)
         if cell_index == SCENE_ANIMATION_CELL_INDEX:
             source = _patch_defcon_card_motion(source)
         if cell_index == ELITE_TOP10K_CELL_INDEX:

@@ -71,6 +71,13 @@ def check_cards(notebook_path: Path, browser_channel: str | None = None) -> None
             ['P', 'POSITION', 'MID', ''], ['C', 'CLUB', 'Brighton and Hove Albion', ''], ['£', 'PRICE', '£15.5m', '']]},
         {'first_name': 'Jan Paul', 'surname': 'van Hecke', 'fixtures': [None, *fixtures[:4]]},
         {'first_name': 'Player', 'surname': 'With A Very Long Surname'},
+        {'first_name': 'Transfer', 'surname': 'Desk Readability', 'info_rows': [
+            ['P', 'POSITION', 'MID', ''], ['£', 'PRICE', '£15.5m', ''],
+            ['O', 'TOP 10K EO', '150.0%', ''], ['M', 'EXPECTED MINUTES', '—', ''],
+            ['D', 'TRANSFER CALL', 'HOLD', '']],
+         'display_stats': [{'label': label, 'value': value} for label, value in [
+            ('NEXT GW xPTS', '—'), ('START PROBABILITY', '—'), ('NEXT 5 xPTS', '—'),
+            ('TRANSFERS OUT', '999,999'), ('RECENT AVG PTS', '2.3')]]},
     ]
     payload = {
         'id': 1, 'position': 'FWD', 'club': 'Test Club Alpha', 'club_badge': _BADGE,
