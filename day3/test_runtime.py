@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -312,6 +313,55 @@ class PitchRevealTests(unittest.TestCase):
             runner._patch_pitch_reveal_audit("expected = 0")
 
 
+class BenchingNarrationTests(unittest.TestCase):
+    # Production's three factual sentence templates, with explicit test inputs.
+    source = '''
+def narrate(name, team, defender=True, multiple=False):
+    lead = f"{name} from {team} leads the group."
+    matchup, fdr, xpts = "Arsenal at home", 3.5, 4.2
+    line = f"{lead} {matchup} is rated {fdr:.1f}, with a {xpts:.1f}-point projection."
+    per_fixture = " per fixture" if multiple else ""
+    if defender:
+        cs = 43.0
+        line += f" {team} have a {cs:.0f} percent clean-sheet chance{per_fixture}."
+    else:
+        goals = 1.7
+        horizon = " across those fixtures" if multiple else ""
+        line += f" {team} are expected to score {goals:.1f} goals{horizon}."
+    return line
+'''
+
+    def setUp(self) -> None:
+        namespace = {}
+        exec(runner._patch_benching_narration(self.source), namespace)
+        self.narrate = namespace["narrate"]
+
+    def assert_no_duplicate_sentences(self, text: str) -> None:
+        sentences = [part.strip().casefold() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+        self.assertEqual(len(sentences), len(set(sentences)))
+
+    def test_clubmate_defenders_keep_equal_probabilities_without_duplicate_prose(self) -> None:
+        text = self.narrate("Senesi", "Bournemouth") + " " + self.narrate("Truffert", "Bournemouth")
+        self.assert_no_duplicate_sentences(text)
+        self.assertEqual(text.count("43 percent clean-sheet chance"), 2)
+        for name in ("Senesi", "Truffert"):
+            self.assertEqual(text.count(f"{name} from Bournemouth"), 1)
+            self.assertIn(f"For {name}, Bournemouth have a 43 percent", text)
+
+    def test_clubmate_attackers_keep_equal_goal_projections(self) -> None:
+        text = self.narrate("Kluivert", "Bournemouth", False) + " " + self.narrate("Semenyo", "Bournemouth", False)
+        self.assert_no_duplicate_sentences(text)
+        self.assertEqual(text.count("expected to score 1.7 goals"), 2)
+
+    def test_multiple_fixture_qualifiers_are_preserved(self) -> None:
+        self.assertIn("43 percent clean-sheet chance per fixture.", self.narrate("Senesi", "Bournemouth", multiple=True))
+        self.assertIn("1.7 goals across those fixtures.", self.narrate("Kluivert", "Bournemouth", False, True))
+
+    def test_changed_templates_fail_preflight(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Benching narration"):
+            runner._patch_benching_narration(self.source.replace("clean-sheet chance", "defensive outlook"))
+
+
 class NotebookPreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -329,6 +379,7 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_narration_tone",
             "_patch_pitch_card_entrance",
             "_patch_pitch_reveal_audit",
+            "_patch_benching_narration",
             "_patch_pitch_player_names",
             "_patch_shared_card_scene_checks",
             "_patch_defcon_gameweek_contract",

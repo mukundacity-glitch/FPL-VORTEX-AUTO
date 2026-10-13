@@ -26,6 +26,7 @@ VISUAL_ENRICHMENT_CELL_INDEX = 5
 PREVIEW_CELL_MARKER = "CELL 14C — ALL SELECTED SLIDES • LIVE HTML PREVIEW IN COLAB"
 PITCH_ANIMATION_CELL_INDEX = 30
 PITCH_RENDER_CELL_INDEX = 31
+SHARED_NARRATION_CELL_INDEX = 32
 PITCH_SOURCE_CELL_INDEX = 21
 INTRO_OUTRO_SOURCE_CELL_INDEX = 22
 SCENE_DESIGN_CELL_INDEX = 24
@@ -306,6 +307,24 @@ def _patch_pitch_reveal_audit(source: str) -> str:
         '            expected = _expected_pitch_player_count(player_segments, card_t, float(_vx17_timeline.get("entrance_duration") or .42))',
         1,
     )
+
+
+def _patch_benching_narration(source: str) -> str:
+    # Clubmates can share fixtures, rounded projections and team probabilities.
+    # Keep each spoken fact tied to its player instead of repeating team-only prose.
+    replacements = (
+        ('line = f"{lead} {matchup} is rated {fdr:.1f}, with a {xpts:.1f}-point projection."',
+         'line = f"{lead} {name} faces {matchup}, rated {fdr:.1f}, with a {xpts:.1f}-point projection."'),
+        ('line += f" {team} have a {cs:.0f} percent clean-sheet chance{per_fixture}."',
+         'line += f" For {name}, {team} have a {cs:.0f} percent clean-sheet chance{per_fixture}."'),
+        ('line += f" {team} are expected to score {goals:.1f} goals{horizon}."',
+         'line += f" For {name}, {team} are expected to score {goals:.1f} goals{horizon}."'),
+    )
+    for old, new in replacements:
+        if source.count(old) != 1:
+            raise RuntimeError("Benching narration: expected exactly one player-fact template")
+        source = source.replace(old, new, 1)
+    return source
 
 
 def _patch_outro_social_icon(source: str) -> str:
@@ -913,6 +932,8 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_pitch_card_entrance(source)
         if cell_index == PITCH_RENDER_CELL_INDEX:
             source = _patch_pitch_reveal_audit(source)
+        if cell_index == SHARED_NARRATION_CELL_INDEX:
+            source = _patch_benching_narration(source)
         if cell_index == SCENE_DESIGN_CELL_INDEX:
             source = _patch_defcon_gameweek_contract(source)
             source = _patch_shared_card_scene_checks(source)
