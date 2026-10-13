@@ -84,10 +84,11 @@ class TransferDeskSelectionTests(unittest.TestCase):
 
     def test_retained_recent_blanks_fill_a_thin_strict_pool(self):
         for player_id in range(11, 19):
+            gross_transfers = 20_000 if player_id in (15, 16, 17) else 200_000
             self.players.loc[self.players.id.eq(player_id),
-                             ["transfers_in_event", "transfers_out_event"]] = [200000, 200000]
-        self.players.loc[self.players.id.eq(18),
-                         ["transfers_in_event", "transfers_out_event"]] = [1_000_000, 1_000_000]
+                             ["transfers_in_event", "transfers_out_event"]] = [
+                                 gross_transfers, gross_transfers
+                             ]
 
         result = self.select()
         self.assertEqual(self.ids(result["HOLD"]), [20, 19, 17, 16, 15])
