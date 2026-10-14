@@ -98,7 +98,24 @@ class TransferDeskSelectionTests(unittest.TestCase):
 
     def test_thin_evidence_never_fills_with_unrelated_model_picks(self):
         self.evidence = {}
-        with self.assertRaisesRegex(RuntimeError, "HOLD=0.*no unrelated fallback"):
+        result = self.select()
+        self.assertEqual(result["HOLD"], [])
+        self.assertEqual(len(result["BUY"]), 5)
+        self.assertEqual(len(result["SELL"]), 5)
+
+    def test_short_hold_pool_preserves_gates_and_returns_only_real_candidates(self):
+        for qualified_count in range(6):
+            with self.subTest(qualified_count=qualified_count):
+                self.evidence = {pid: {"points": 18, "gameweeks": 3} for pid in range(1, 21)}
+                for pid in range(20 - qualified_count + 1, 21):
+                    self.evidence[pid] = {"points": 6, "gameweeks": 3}
+                result = self.select()
+                self.assertEqual(self.ids(result["HOLD"]), list(range(20, 20 - qualified_count, -1)))
+                self.assertTrue(all(row["recent_average_points"] <= 3 for row in result["HOLD"]))
+
+    def test_missing_transfer_activity_still_fails(self):
+        self.players["transfers_in_event"] = self.players["transfers_out_event"]
+        with self.assertRaisesRegex(RuntimeError, "BUY=0.*SELL=0"):
             self.select()
 
     def test_missing_or_invalid_official_counts_fail_clearly(self):

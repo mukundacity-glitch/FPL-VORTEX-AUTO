@@ -2,8 +2,6 @@
 
 import math
 
-import pandas as pd
-
 
 # A blank is at most three points per completed gameweek. Retention is an
 # estimate from official rounded ownership and event transfers, not a count
@@ -22,8 +20,12 @@ def select_transfer_desk(players, *, total_managers, recent_performance,
     SELL. This gives each player one direction even when both volumes are high.
     HOLD excludes those leaders and requires evidence of poor recent returns,
     substantial ownership, and low selling relative to the estimated owner base.
+    HOLD may contain fewer than count players (including none); count is a
+    presentation maximum, not evidence that five suitable holds always exist.
     Never fill a short list with unrelated model picks.
     """
+    import pandas as pd
+
     required = {"id", "selected_by_percent", "transfers_in_event", "transfers_out_event"}
     missing = sorted(required - set(players.columns))
     if missing:
@@ -92,9 +94,9 @@ def select_transfer_desk(players, *, total_managers, recent_performance,
         ascending=[False, False, False, True],
     ).head(count)
     groups = {"BUY": buy, "HOLD": hold, "SELL": sell}
-    if any(len(group) != count for group in groups.values()):
+    if any(len(groups[key]) != count for key in ("BUY", "SELL")):
         sizes = ", ".join(f"{key}={len(value)}" for key, value in groups.items())
-        raise RuntimeError(f"Transfer Desk needs {count} qualifying players per list ({sizes}); "
+        raise RuntimeError(f"Transfer Desk needs {count} qualifying BUY/SELL players ({sizes}); "
                            "refresh transfer/ownership/recent-points data; no unrelated fallback picks")
     return {key: group.to_dict("records") for key, group in groups.items()}
 
@@ -137,6 +139,28 @@ DAY3_TRANSFER_DESK_SEQUENCE = []
 
 '''
     source = source[:start] + replacement + source[end:]
+    source = _replace(source, '''if [len(DAY3_TRANSFER_DESK[x]) for x in ("BUY","HOLD","SELL")] != [5,5,5]:
+    raise RuntimeError("Transfer Desk must contain exactly five BUY, five HOLD and five SELL players")
+if len({r["player_id"] for g in DAY3_TRANSFER_DESK.values() for r in g}) != 15:''', '''DAY3_TRANSFER_DESK_COUNTS = {action: len(records) for action, records in DAY3_TRANSFER_DESK.items()}
+DAY3_TRANSFER_DESK_COUNT = sum(DAY3_TRANSFER_DESK_COUNTS.values())
+print(f"Transfer Desk qualified counts: {DAY3_TRANSFER_DESK_COUNTS}; HOLD slots are never padded")
+if DAY3_TRANSFER_DESK_COUNTS["BUY"] != 5 or DAY3_TRANSFER_DESK_COUNTS["SELL"] != 5 or not 0 <= DAY3_TRANSFER_DESK_COUNTS["HOLD"] <= 5:
+    raise RuntimeError("Transfer Desk requires five BUY/SELL and up to five qualified HOLD players")
+if len({r["player_id"] for g in DAY3_TRANSFER_DESK.values() for r in g}) != DAY3_TRANSFER_DESK_COUNT:''')
+    source = _replace(source, '''"market_source": "OFFICIAL_FPL_BOOTSTRAP_STATIC",''', '''"market_source": "OFFICIAL_FPL_BOOTSTRAP_STATIC",
+    "counts": DAY3_TRANSFER_DESK_COUNTS,
+    "hold_shortfall": 5 - DAY3_TRANSFER_DESK_COUNTS["HOLD"],''')
+    source = _replace(source, '''or not 0 <= index < 5:''', '''or not 0 <= index < len(DAY3_TRANSFER_DESK[role]):''')
+    source = patch_transfer_desk_narration_source(source)
+    source = _replace(source, ''''<div class="d3DeskOpen"><strong>FIFTEEN PLAYERS</strong>'\n''', '''f'<div class="d3DeskOpen"><strong>{DAY3_TRANSFER_DESK_COUNT} PLAYERS</strong>'\n''')
+    source = _replace(source, '''    _slots = "".join(_d3_desk_slot(r) for r in DAY3_TRANSFER_DESK[_action])''', '''    _slots = "".join(_d3_desk_slot(r) for r in DAY3_TRANSFER_DESK[_action])
+    if not DAY3_TRANSFER_DESK[_action]:
+        _slots = '<div style="padding:40px;font-size:38px;font-weight:700">NO QUALIFYING HOLDS THIS WEEK</div>' ''')
+    for kind in ("popup", "settled"):
+        cls = "d3DeskPop" if kind == "popup" else "d3DeskSlot"
+        source = _replace(source, f'''if _d3_desk_html.count('class="{cls} ') != 15:
+    print("Transfer Desk {kind}-card count is not fifteen")''', f'''if _d3_desk_html.count('class="{cls} ') != DAY3_TRANSFER_DESK_COUNT:
+    raise RuntimeError("Transfer Desk {kind}-card count does not match qualified selection")''')
     # Injured and blank-GW players must still appear among heavily sold assets.
     source = _replace(source, '''_d3_desk_model = _d3_desk_model.merge(
     _d3_market,
@@ -213,4 +237,65 @@ DAY3_TRANSFER_DESK_SEQUENCE = []
     source = _replace(source, '''{"icon":"boot","label":"NET TRANSFERS","value":_d3_desk_momentum_text(r)}''',
                       '''{"icon":"boot","label":"TRANSFERS IN" if r["action"] == "BUY" else "TRANSFERS OUT" if r["action"] == "SELL" else "RECENT AVG PTS",
                           "value":f'{r["transfers_in"]:,.0f}' if r["action"] == "BUY" else f'{r["transfers_out"]:,.0f}' if r["action"] == "SELL" else f'{r["recent_average_points"]:.1f}'}''')
+    return source
+
+
+def patch_transfer_desk_narration_source(source):
+    """Speak only available players and explain any missing HOLD candidates."""
+    source = _replace(source, '''        if len(records) != 5:
+            raise RuntimeError(f"Transfer Desk requires five {action} cards")''', '''        if not records:
+            intros[action] += " No players meet the retained-blank criteria this week."
+        elif action == "HOLD" and len(records) < 5:
+            intros[action] += f" Only {len(records)} players meet the retained-blank criteria this week."''')
+    source = _replace(source, '''for index in range(3)])''', '''for index in range(min(3, len(records)))])''')
+    source = _replace(source, "DESK_3_SPOKEN_2_SILENT_V1", "DESK_UP_TO_3_SPOKEN_V2")
+    # Keep the timing cue independent of the dynamic shortfall explanation.
+    source = _replace(source, '''else intros[action].rstrip(".")''', '''else ("Now the holds" if action == "HOLD" else "Now the sells")''')
+    return source
+
+
+def patch_transfer_desk_audio_source(source):
+    """Derive spoken/silent card counts from the qualified presentation list."""
+    replacements = [
+        ("DESK_3_SPOKEN_2_SILENT_V1", "DESK_UP_TO_3_SPOKEN_V2"),
+        ('for _desk_index in range(3):', 'for _desk_index in range(min(3, len(DAY3_TRANSFER_DESK[_desk_action]))):'),
+        ('if len(_desk_player_narrations) != 9 or len(set(_desk_player_narrations)) != 9:',
+         'if len(_desk_player_narrations) != sum(min(3, len(rows)) for rows in DAY3_TRANSFER_DESK.values()) or len(set(_desk_player_narrations)) != len(_desk_player_narrations):'),
+        ('Transfer Decision Desk must contain 9 unique spoken player narrations.',
+         'Transfer Decision Desk must narrate each selected leading player exactly once.'),
+        ('''                if len(players) != 3 or len(section["silent_cards"]) != 2:
+                    raise RuntimeError(f"Transfer Desk {action} must contain three narrated and two silent cards")''',
+         '''                expected = len(DAY3_TRANSFER_DESK[action])
+                if len(players) != min(3, expected) or len(section["silent_cards"]) != max(0, expected - 3):
+                    raise RuntimeError(f"Transfer Desk {action} audio cards differ from qualified selection")
+                if not players:
+                    continue'''),
+        ('len(set(starts)) != 3', 'len(set(starts)) != len(players)'),
+        ('len(windows) != 15 or len(silent_intervals) != 6',
+         'len(windows) != DAY3_TRANSFER_DESK_COUNT or len(silent_intervals) != sum(max(0, len(rows) - 3) for rows in DAY3_TRANSFER_DESK.values())'),
+    ]
+    for old, new in replacements:
+        source = _replace(source, old, new)
+    return source
+
+
+def patch_transfer_desk_animation_source(source):
+    """Validate card identity, order and timing against the same selection."""
+    source = _replace(source, "DESK_3_SPOKEN_2_SILENT_V1", "DESK_UP_TO_3_SPOKEN_V2")
+    source = _replace(source, '''            if len(windows) != 15 or [int(row["i"]) for row in windows] != list(range(15)):
+                raise RuntimeError("Transfer Desk timeline must contain fifteen cards in selection order")
+            if [bool(row["narrated"]) for row in windows] != [True, True, True, False, False] * 3:''', '''            expected = [record for action in ("BUY", "HOLD", "SELL") for record in DAY3_TRANSFER_DESK[action]]
+            if len(windows) != len(expected) or [(int(row["i"]), int(row["player_id"]), row["action"]) for row in windows] != [(int(row["index"]), int(row["player_id"]), row["action"]) for row in expected]:
+                raise RuntimeError("Transfer Desk timeline differs from qualified cards in selection order")
+            if [bool(row["narrated"]) for row in windows] != [index < 3 for action in ("BUY", "HOLD", "SELL") for index in range(len(DAY3_TRANSFER_DESK[action]))]:''')
+    source = _replace(source, '''                if index and abs(float(window["start"]) - float(windows[index-1]["settle"])) > .001:
+                    raise RuntimeError("Transfer Desk card timeline has a gap or overlap")''', '''                if index:
+                    gap = float(window["start"]) - float(windows[index-1]["settle"])
+                    empty_hold_intro = (not DAY3_TRANSFER_DESK["HOLD"] and windows[index-1]["action"] == "BUY" and window["action"] == "SELL")
+                    if gap < -.001 or (abs(gap) > .001 and not empty_hold_intro):
+                        raise RuntimeError("Transfer Desk card timeline has a gap or overlap")''')
+    source = _replace(source, '''if len(vx["transfer_desk_windows"]) != 15:''', '''if len(vx["transfer_desk_windows"]) != DAY3_TRANSFER_DESK_COUNT:''')
+    source = _replace(source, '''f"Transfer Desk animation requires 15 card-flight windows; "''', '''f"Transfer Desk animation requires {DAY3_TRANSFER_DESK_COUNT} card-flight windows; "''')
+    source = _replace(source, "Transfer Desk requires three narrated cards followed by two silent cards per action",
+                      "Transfer Desk spoken/silent card order differs from qualified selection")
     return source

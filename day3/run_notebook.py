@@ -16,7 +16,11 @@ if not __package__:
 
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.core.inputtransformer2 import TransformerManager
-from day3.transfer_desk import patch_transfer_desk_source
+from day3.transfer_desk import (
+    patch_transfer_desk_source,
+    patch_transfer_desk_audio_source,
+    patch_transfer_desk_animation_source,
+)
 from day3.remove_shortlists import purge_shortlist_artifacts, remove_shortlist_cell
 
 
@@ -935,12 +939,14 @@ def _prepare_code_cells(notebook_path: Path) -> list[tuple[int, str]]:
             source = _patch_pitch_reveal_audit(source)
         if cell_index == SHARED_NARRATION_CELL_INDEX:
             source = _patch_benching_narration(source)
+            source = patch_transfer_desk_audio_source(source)
         if cell_index == SCENE_DESIGN_CELL_INDEX:
             source = _patch_defcon_gameweek_contract(source)
             source = _patch_shared_card_scene_checks(source)
             source = patch_transfer_desk_source(source)
         if cell_index == SCENE_ANIMATION_CELL_INDEX:
             source = _patch_defcon_card_motion(source)
+            source = patch_transfer_desk_animation_source(source)
         if cell_index == ELITE_TOP10K_CELL_INDEX:
             source = _patch_elite_template_parser(source)
         source = remove_shortlist_cell(cell_index, source)

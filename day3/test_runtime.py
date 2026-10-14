@@ -386,6 +386,8 @@ class NotebookPreflightTests(unittest.TestCase):
             "_patch_defcon_card_motion",
             "_patch_elite_template_parser",
             "patch_transfer_desk_source",
+            "patch_transfer_desk_audio_source",
+            "patch_transfer_desk_animation_source",
             "remove_shortlist_cell",
         ):
             self.patch_stack.enter_context(patch.object(runner, function_name, side_effect=lambda *args: args[-1]))
