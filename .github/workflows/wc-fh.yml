@@ -3233,6 +3233,8 @@ jobs:
             ${{ env.WC_FH_OUTPUT_ROOT }}/source.json
             ${{ env.WC_FH_OUTPUT_ROOT }}/delivery_manifest.json
             ${{ env.WC_FH_OUTPUT_ROOT }}/analysis/*media_audit.json
+            ${{ env.WC_FH_OUTPUT_ROOT }}/analysis/*scene_manifest.json
+            ${{ env.WC_FH_OUTPUT_ROOT }}/analysis/*visual_qa.json
             ${{ env.WC_FH_OUTPUT_ROOT }}/runtime_error.txt
             ${{ env.WC_FH_OUTPUT_ROOT }}/execution.log
           if-no-files-found: warn
