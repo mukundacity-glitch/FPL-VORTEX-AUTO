@@ -10,11 +10,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from wc_fh.catalog import build_catalog, player_label
-from wc_fh.controls import AUTO, CHIPS, POSITIONS, SLOTS, request_controls, selected_squad
+from wc_fh.controls import (AUTO, CHIPS, CHIP_OPTIONS, POSITIONS, SLOTS, chip_slug, controls_for_chip,
+                            request_controls, requested_chips, selected_squad)
 from PIL import Image
 
-from wc_fh.publish_private import build_package, metadata, publish
-from wc_fh.run_notebook import install_colab_compatibility, patch_setup, select_chip
+from wc_fh.publish_private import build_package, build_packages, metadata, publish
+from wc_fh.run_notebook import install_colab_compatibility, patch_setup, select_chip, validate_delivery
 from wc_fh.manual_plans import choose_lineup
 
 
@@ -42,25 +43,72 @@ class IsolatedTestCase(unittest.TestCase):
 
 
 class SquadControlTests(IsolatedTestCase):
-    def test_all_four_chip_selection_combinations_and_current_cost(self):
+    def test_all_six_chip_selection_combinations_and_current_cost(self):
         catalog = fixture_catalog()
-        for chip in CHIPS:
+        for chip in CHIP_OPTIONS:
             for selection in ("Auto", "Manual"):
                 with self.subTest(chip=chip, selection=selection):
                     controls = request_controls(dict(WC_FH_CHIP=chip, WC_FH_SELECTION=selection))
-                    ids, total = selected_squad(catalog, controls)
-                    self.assertEqual(ids, list(range(1, 16)))
-                    self.assertEqual(total, sum(range(41, 56)))
+                    for selected_chip in requested_chips(controls):
+                        ids, total = selected_squad(catalog, controls_for_chip(controls, selected_chip))
+                        self.assertEqual(ids, list(range(1, 16)))
+                        self.assertEqual(total, sum(range(41, 56)))
                     with tempfile.TemporaryDirectory() as directory:
                         namespace = {}
                         select_chip(namespace, controls, catalog, Path(directory))
                         self.assertEqual(namespace["VX_GENERATE_CHIPS"], chip)
-                        self.assertEqual(namespace["USE_MANUAL_WILDCARD"], chip == "Wildcard" and selection == "Manual")
-                        self.assertEqual(namespace["USE_MANUAL_FREEHIT"], chip == "Free Hit" and selection == "Manual")
+                        self.assertEqual(namespace["VX_GENERATE_WILDCARD"], chip in ("Wildcard", "Both"))
+                        self.assertEqual(namespace["VX_GENERATE_FREEHIT"], chip in ("Free Hit", "Both"))
+                        self.assertEqual(namespace["USE_MANUAL_WILDCARD"], chip in ("Wildcard", "Both") and selection == "Manual")
+                        self.assertEqual(namespace["USE_MANUAL_FREEHIT"], chip in ("Free Hit", "Both") and selection == "Manual")
                         if selection == "Manual":
-                            prefix = "WC" if chip == "Wildcard" else "FH"
-                            self.assertIn(" — ID 1 — ", namespace["VX_MANUAL_SAVED_VALUES"][f"{prefix}_GK1"])
+                            for selected_chip in requested_chips(controls):
+                                prefix = "WC" if selected_chip == "Wildcard" else "FH"
+                                self.assertIn(" — ID 1 — ", namespace["VX_MANUAL_SAVED_VALUES"][f"{prefix}_GK1"])
                             self.assertTrue(namespace["VX_MANUAL_SELECTION_SAVED"])
+
+    def test_both_manual_teams_keep_separate_players_costs_and_native_plans(self):
+        catalog = fixture_catalog()
+        catalog["players"].append(dict(catalog["players"][-1], id=16, name="My Free Hit forward", price_tenths=70))
+        wildcard = list(range(1, 16))
+        free_hit = list(range(1, 15)) + [16]
+        controls = request_controls(dict(WC_FH_CHIP="Both", WC_FH_SELECTION="Manual", WC_FH_INPUTS=json.dumps(
+            dict(wildcard_squad=",".join(map(str, wildcard)), free_hit_squad=",".join(map(str, free_hit)),
+                 manual_squad="old import is overridden"))))
+        with tempfile.TemporaryDirectory() as directory, patch("wc_fh.manual_plans.build_manual_plan") as build:
+            root = Path(directory)
+            namespace = {"VX_WC_ENGINE": object()}
+            select_chip(namespace, controls, catalog, root)
+            self.assertEqual([call.args[1:] for call in build.call_args_list], [("Wildcard", wildcard), ("Free Hit", free_hit)])
+            snapshots = namespace["VX_MANUAL_SAVED_VALUES"]
+            self.assertIn("ID 15", snapshots["WC_FWD3"])
+            self.assertIn("ID 16", snapshots["FH_FWD3"])
+            wc = json.loads((root / "data" / "selection_wildcard.json").read_text())
+            fh = json.loads((root / "data" / "selection_free_hit.json").read_text())
+            self.assertEqual(wc["selected_ids"], wildcard)
+            self.assertEqual(fh["selected_ids"], free_hit)
+            self.assertAlmostEqual(fh["total_cost_millions"] - wc["total_cost_millions"], 1.5)
+            self.assertFalse((root / "data" / "selection.json").exists())
+
+    def test_both_manual_falls_back_per_chip_and_ignores_unselected_imports(self):
+        catalog = fixture_catalog()
+        catalog["players"].append(dict(catalog["players"][-1], id=16, name="Alternate forward"))
+        catalog["recommended"]["Free Hit"][-1] = 16
+        controls = request_controls(dict(WC_FH_CHIP="Both", WC_FH_SELECTION="Manual"))
+        for chip, expected in (("Wildcard", 15), ("Free Hit", 16)):
+            self.assertEqual(selected_squad(catalog, controls_for_chip(controls, chip))[0][-1], expected)
+        imported = ",".join(map(str, range(1, 16)))
+        controls = request_controls(dict(WC_FH_CHIP="Both", WC_FH_SELECTION="Manual", WC_FH_INPUTS=json.dumps(
+            dict(wildcard_squad=imported))))
+        self.assertEqual(selected_squad(catalog, controls_for_chip(controls, "Wildcard"))[0][-1], 15)
+        self.assertEqual(selected_squad(catalog, controls_for_chip(controls, "Free Hit"))[0][-1], 16)
+        request_controls(dict(WC_FH_CHIP="Wildcard", WC_FH_SELECTION="Manual", WC_FH_INPUTS=json.dumps(
+            dict(wildcard_squad=imported, free_hit_squad="unused old import"))))
+        request_controls(dict(WC_FH_CHIP="Both", WC_FH_SELECTION="Auto", WC_FH_INPUTS=json.dumps(
+            dict(wildcard_squad="unused old import", free_hit_squad="unused old import"))))
+        with self.assertRaisesRegex(ValueError, "free_hit_squad"):
+            request_controls(dict(WC_FH_CHIP="Both", WC_FH_SELECTION="Manual", WC_FH_INPUTS=json.dumps(
+                dict(wildcard_squad=imported, free_hit_squad="bad import"))))
 
     def test_imported_ids_are_ordered_by_position(self):
         controls = request_controls(dict(WC_FH_SELECTION="Manual", WC_FH_INPUTS=json.dumps(
@@ -109,6 +157,17 @@ class SquadControlTests(IsolatedTestCase):
 
 
 class NotebookTests(IsolatedTestCase):
+    def test_both_delivery_requires_two_matching_final_videos(self):
+        for selection in ("Auto", "Manual"):
+            controls = request_controls(dict(WC_FH_CHIP="Both", WC_FH_SELECTION=selection))
+            manifest = {f"{chip_slug(chip)}_{selection.lower()}": dict(mode="Final") for chip in CHIPS}
+            validate_delivery(manifest, controls)
+            with self.assertRaises(RuntimeError):
+                validate_delivery({next(iter(manifest)): dict(mode="Final")}, controls)
+            manifest[next(iter(manifest))]["mode"] = "Draft"
+            with self.assertRaises(RuntimeError):
+                validate_delivery(manifest, controls)
+
     def test_manual_xi_keeps_the_replacement_and_does_not_restore_an_auto_player(self):
         cards = [dict(player, weekly_points={7: float(player["id"])}) for player in fixture_catalog()["players"]]
         cards[-1] = dict(cards[-1], id=99, name="My manual replacement", weekly_points={7: 15.0})
@@ -201,8 +260,9 @@ class PublishingTests(IsolatedTestCase):
             root = Path(directory)
             (root / "youtube").mkdir()
             package = dict(video_file=str(root / "video.mp4"), thumbnail_file=str(root / "thumb.jpg"),
+                           output_directory=str(root / "youtube"),
                            metadata=dict(title="test"), privacy_status="private", notify_subscribers=False)
-            with patch("wc_fh.publish_private.build_package", return_value=package), \
+            with patch("wc_fh.publish_private.build_packages", return_value={"wildcard_manual": package}), \
                  patch("wc_fh.publish_private._youtube_service", return_value=object()), \
                  patch("wc_fh.publish_private._verify_channel", return_value={"id": "channel"}), \
                  patch("wc_fh.publish_private._upload_video", return_value="video-id") as upload, \
@@ -213,6 +273,53 @@ class PublishingTests(IsolatedTestCase):
                 result = publish(root)
                 self.assertEqual(upload.call_count, 1)
                 self.assertEqual(result["status"], "private_draft_ready")
+
+    def test_both_videos_keep_distinct_metadata_thumbnails_and_retry_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "analysis").mkdir()
+            (root / "data").mkdir()
+            manifest = {}
+            for index, chip in enumerate(CHIPS):
+                slug = chip_slug(chip)
+                key = slug + "_manual"
+                video = root / f"{slug}.mp4"
+                video.write_bytes(b"fixture-video")
+                png = root / f"{slug}.png"
+                Image.new("RGB", (3840, 2160), ("navy", "green")[index]).save(png)
+                selection = dict(chip=chip, selection="Manual", total_cost_millions=99.5-index,
+                                 players=fixture_catalog()["players"])
+                (root / "data" / f"selection_{slug}.json").write_text(json.dumps(selection))
+                manifest[key] = dict(mode="Final", gameweek=7, final_mp4=str(video), slide_pngs_4k=[str(png)]*4)
+                audit = dict(opening_duration=10, body_duration=200, media_effects_version="body-music-footer-v7",
+                             background_music_volume=0.08, popup_times=[180, 204], footer_popup={"audio": "muted"})
+                (root / "analysis" / f"{key}_media_audit.json").write_text(json.dumps(audit))
+                (root / "analysis" / f"{key}_scene_manifest.json").write_text(json.dumps([dict(title=chip, start_seconds=0)]))
+            (root / "delivery_manifest.json").write_text(json.dumps(manifest))
+            with patch("wc_fh.publish_private._probe_video", return_value=dict(width=3840,height=2160,duration=220)), \
+                 patch("wc_fh.publish_private._youtube_service", return_value=object()), \
+                 patch("wc_fh.publish_private._verify_channel", return_value={"id": "channel"}), \
+                 patch("wc_fh.publish_private._upload_video", side_effect=["fh-video", "wc-video"]) as upload, \
+                 patch("wc_fh.publish_private._verify_private"), \
+                 patch("wc_fh.publish_private._set_thumbnail", side_effect=[None, RuntimeError("retry"), None, None]):
+                packages = build_packages(root)
+                self.assertEqual(set(packages), set(manifest))
+                self.assertNotEqual(packages["wildcard_manual"]["thumbnail_file"], packages["free_hit_manual"]["thumbnail_file"])
+                for key, package in packages.items():
+                    details = package["metadata"]
+                    self.assertIn(package["chip"], details["title"])
+                    self.assertIn("£99.5m" if key.startswith("wildcard") else "£98.5m", details["description"])
+                    self.assertIn("#FPLWildcard" if key.startswith("wildcard") else "#FPLFreeHit", details["description"])
+                with self.assertRaisesRegex(RuntimeError, "retry"):
+                    publish(root)
+                reports = publish(root)
+                self.assertEqual(upload.call_count, 2)
+                self.assertEqual(set(reports), set(manifest))
+                self.assertEqual(reports["free_hit_manual"]["youtube"]["video_id"], "fh-video")
+                self.assertEqual(reports["wildcard_manual"]["youtube"]["video_id"], "wc-video")
+                self.assertTrue(all(report["status"] == "private_draft_ready" for report in reports.values()))
+                for key in manifest:
+                    self.assertTrue((root / "youtube" / key / "upload.json").is_file())
 
 
 if __name__ == "__main__":

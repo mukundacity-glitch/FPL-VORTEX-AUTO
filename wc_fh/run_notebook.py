@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from .catalog import build_catalog, save_catalog
-from .controls import CHIPS, POSITIONS, TASKS, request_controls, save_selection
+from .controls import (CHIPS, POSITIONS, TASKS, chip_slug, controls_for_chip,
+                       request_controls, requested_chips, save_selection, selected_squad)
 
 
 def replace_assignments(source: str, replacements: dict[str, Any]) -> str:
@@ -146,33 +147,44 @@ def catalog_from_namespace(namespace: dict[str, Any]) -> dict[str, Any]:
 
 
 def select_chip(namespace: dict[str, Any], controls: dict[str, Any], catalog: dict[str, Any], root: Path) -> None:
-    chip = controls["chip"]
+    chips = requested_chips(controls)
     manual = controls["selection"] == "Manual"
-    chosen = save_selection(catalog, controls, root) if manual else []
-    namespace.update(VX_CHIPS=chip, VX_GENERATE_CHIPS=chip,
-        VX_GENERATE_WILDCARD=chip == "Wildcard", VX_GENERATE_FREEHIT=chip == "Free Hit",
+    scoped = {chip: controls_for_chip(controls, chip) for chip in chips}
+    # Validate both squads before installing either manual plan.
+    chosen = {chip: selected_squad(catalog, scoped[chip])[0] for chip in chips} if manual else {}
+    namespace.update(VX_CHIPS=controls["chip"], VX_GENERATE_CHIPS=controls["chip"],
+        VX_GENERATE_WILDCARD="Wildcard" in chips, VX_GENERATE_FREEHIT="Free Hit" in chips,
         VX_SELECTION_MODE=controls["selection"],
         VX_WILDCARD_SELECTION_MODE=controls["selection"], VX_FREEHIT_SELECTION_MODE=controls["selection"],
-        USE_MANUAL_WILDCARD=manual and chip == "Wildcard", USE_MANUAL_FREEHIT=manual and chip == "Free Hit",
+        USE_MANUAL_WILDCARD=manual and "Wildcard" in chips, USE_MANUAL_FREEHIT=manual and "Free Hit" in chips,
         VX_MANUAL_SELECTION_SAVED=True, VX_CELL0C_COMPLETE=True)
     if manual:
-        prefix = "WC" if chip == "Wildcard" else "FH"
         players = {player["id"]: player for player in catalog["players"]}
         snapshot: dict[str, Any] = {}
-        for position, count in POSITIONS:
-            ids = [player_id for player_id in chosen if players[player_id]["position"] == position]
-            if len(ids) != count:
-                raise ValueError("Incorrect manual position count")
-            for index, player_id in enumerate(ids, 1):
-                player = players[player_id]
-                snapshot[f"{prefix}_{position}{index}"] = (
-                    f"{player['name']} — ID {player_id} — £{player['price_tenths']/10:.1f}m — "
-                    f"{player['scores'][chip]:.2f} xPts")
-        snapshot.update({f"{prefix}_CAPTAIN": "", f"{prefix}_VICE": ""})
+        for chip in chips:
+            save_selection(catalog, scoped[chip], root)
+            prefix = "WC" if chip == "Wildcard" else "FH"
+            for position, count in POSITIONS:
+                ids = [player_id for player_id in chosen[chip] if players[player_id]["position"] == position]
+                if len(ids) != count:
+                    raise ValueError("Incorrect manual position count")
+                for index, player_id in enumerate(ids, 1):
+                    player = players[player_id]
+                    snapshot[f"{prefix}_{position}{index}"] = (
+                        f"{player['name']} — ID {player_id} — £{player['price_tenths']/10:.1f}m — "
+                        f"{player['scores'][chip]:.2f} xPts")
+            snapshot.update({f"{prefix}_CAPTAIN": "", f"{prefix}_VICE": ""})
         namespace["VX_MANUAL_SAVED_VALUES"] = snapshot
         if "VX_WC_ENGINE" in namespace:
             from .manual_plans import build_manual_plan
-            build_manual_plan(namespace, chip, chosen)
+            for chip in chips:
+                build_manual_plan(namespace, chip, chosen[chip])
+
+
+def validate_delivery(manifest: dict[str, Any], controls: dict[str, Any]) -> None:
+    expected = {chip_slug(chip) + "_" + controls["selection"].lower() for chip in requested_chips(controls)}
+    if set(manifest) != expected or any(manifest[key].get("mode") != "Final" for key in expected):
+        raise RuntimeError("Rendered output does not match the selected chips and selection mode.")
 
 
 def execute(notebook_path: Path, *, validate_only: bool = False) -> None:
@@ -215,15 +227,14 @@ def execute(notebook_path: Path, *, validate_only: bool = False) -> None:
             select_chip(shell.user_ns, controls, catalog, root)
             run_cell(index, label, source)
             if controls["selection"] == "Auto":
-                chip = controls["chip"]
-                frame = shell.user_ns[f"VX_{'WILDCARD' if chip == 'Wildcard' else 'FREEHIT'}_AUTO_SQUAD"]
+                squads = {chip: shell.user_ns[f"VX_{'WILDCARD' if chip == 'Wildcard' else 'FREEHIT'}_AUTO_SQUAD"]
+                          .player_id.astype(int).tolist() for chip in requested_chips(controls)}
                 actual = build_catalog(shell.user_ns["_bootstrap"], shell.user_ns["_VX_GW_SCORES"].to_dict("records"),
-                                       {chip: frame.player_id.astype(int).tolist()}, budget=float(shell.user_ns["VX_BUDGET"]))
-                save_selection(actual, controls, root)
+                                       squads, budget=float(shell.user_ns["VX_BUDGET"]))
+                for chip in requested_chips(controls):
+                    save_selection(actual, controls_for_chip(controls, chip), root)
     manifest = json.loads((root / "delivery_manifest.json").read_text(encoding="utf-8"))
-    expected = ("wildcard" if controls["chip"] == "Wildcard" else "free_hit") + "_" + controls["selection"].lower()
-    if set(manifest) != {expected} or manifest[expected]["mode"] != "Final":
-        raise RuntimeError("Rendered output does not match the selected chip and selection mode.")
+    validate_delivery(manifest, controls)
     print(f"WC- FH: verified {controls['chip']} / {controls['selection']} / Final 4K", flush=True)
 
 

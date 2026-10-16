@@ -9,6 +9,8 @@ from typing import Any
 
 from PIL import Image, ImageOps
 
+from .controls import CHIPS, chip_slug
+
 from day3.publish_private import (
     _probe_video,
     _set_thumbnail,
@@ -65,14 +67,27 @@ def inside(root: Path, value: str) -> Path:
     return path
 
 
-def build_package(root: Path) -> dict[str, Any]:
+def build_package(root: Path, key: str | None = None) -> dict[str, Any]:
     root = root.resolve()
     manifest = json.loads((root / "delivery_manifest.json").read_text())
-    selection = json.loads((root / "data" / "selection.json").read_text())
+    valid_sets = [{chip_slug(chip) + "_" + mode for chip in chips}
+                  for mode in ("auto", "manual") for chips in (("Wildcard",), ("Free Hit",), CHIPS)]
+    if set(manifest) not in valid_sets:
+        raise ValueError("YouTube upload requires the selected Final chip video(s) in one selection mode.")
+    if key is None:
+        if len(manifest) != 1:
+            raise ValueError("Choose a delivery key when packaging both chip videos.")
+        key = next(iter(manifest))
+    if key not in manifest:
+        raise ValueError(f"Missing selected video: {key}")
+    multiple = len(manifest) == 2
+    slug = key.rsplit("_", 1)[0]
+    stem = f"selection_{slug}" if multiple else "selection"
+    selection = json.loads((root / "data" / f"{stem}.json").read_text())
     chip = selection["chip"]
-    key = ("wildcard" if chip == "Wildcard" else "free_hit") + "_" + selection["selection"].lower()
-    if set(manifest) != {key} or manifest[key].get("mode") != "Final":
-        raise ValueError("YouTube upload requires exactly the selected Final chip video.")
+    expected = chip_slug(chip) + "_" + selection["selection"].lower()
+    if expected != key or manifest[key].get("mode") != "Final":
+        raise ValueError("YouTube upload requires the matching squad and selected Final chip video.")
     delivery = manifest[key]
     video = inside(root, delivery["final_mp4"])
     probe = _probe_video(video)
@@ -88,7 +103,7 @@ def build_package(root: Path) -> dict[str, Any]:
     if len(pngs) != 4:
         raise ValueError("The Final video must have four matching 4K slide PNGs.")
     source = inside(root, pngs[0])
-    directory = root / "youtube"
+    directory = root / "youtube" / key if multiple else root / "youtube"
     directory.mkdir(parents=True, exist_ok=True)
     thumbnail = directory / "thumbnail.jpg"
     with Image.open(source) as image:
@@ -103,6 +118,7 @@ def build_package(root: Path) -> dict[str, Any]:
             raise ValueError("The custom thumbnail exceeds 2 MB.")
     details = metadata(chip, int(delivery["gameweek"]), selection, scenes, audit)
     package = dict(chip=chip, selection=selection["selection"], video_file=str(video),
+                   output_directory=str(directory),
                    thumbnail_file=str(thumbnail), video_probe=probe, metadata=details,
                    privacy_status="private", notify_subscribers=False, automatic_publish=False)
     (directory / "metadata.json").write_text(json.dumps(package, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -111,12 +127,16 @@ def build_package(root: Path) -> dict[str, Any]:
     return package
 
 
-def publish(root: Path) -> dict[str, Any]:
+def build_packages(root: Path) -> dict[str, dict[str, Any]]:
     root = root.resolve()
-    package = build_package(root)
-    report_path = root / "youtube" / "upload.json"
-    youtube = _youtube_service()
-    channel = _verify_channel(youtube)
+    manifest = json.loads((root / "delivery_manifest.json").read_text())
+    if not manifest:
+        raise ValueError("No Final WC/FH videos are available for upload.")
+    return {key: build_package(root, key) for key in sorted(manifest)}
+
+
+def publish_package(package: dict[str, Any], youtube: Any, channel: dict[str, Any]) -> dict[str, Any]:
+    report_path = Path(package["output_directory"]) / "upload.json"
     report = json.loads(report_path.read_text()) if report_path.is_file() else {}
     video_id = str(report.get("youtube", {}).get("video_id", ""))
     if report and report.get("video_file") != package["video_file"]:
@@ -142,7 +162,16 @@ def publish(root: Path) -> dict[str, Any]:
     return report
 
 
+def publish(root: Path) -> dict[str, Any]:
+    # Validate and prepare every selected video before starting any uploads.
+    packages = build_packages(root)
+    youtube = _youtube_service()
+    channel = _verify_channel(youtube)
+    reports = {key: publish_package(package, youtube, channel) for key, package in packages.items()}
+    return next(iter(reports.values())) if len(reports) == 1 else reports
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Save the selected Final WC/FH video privately to YouTube with SEO metadata.")
+    parser = argparse.ArgumentParser(description="Save the selected Final WC/FH videos privately to YouTube with SEO metadata.")
     parser.add_argument("--output-root", required=True, type=Path)
     publish(parser.parse_args().output_root)

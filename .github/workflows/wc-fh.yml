@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: Render the selected video, or get fresh player lists and the live-cost picker
+        description: Render the selected videos, or get fresh player lists and the live-cost picker
         type: choice
         required: true
         default: Render and upload
@@ -13,11 +13,12 @@ on:
           - Render and upload
           - Refresh player picker
       chip:
-        description: Choose the video to generate
+        description: Generate Wildcard, Free Hit, or both videos in one run
         type: choice
         required: true
-        default: Wildcard
+        default: Both
         options:
+          - Both
           - Wildcard
           - Free Hit
       selection:
@@ -29,7 +30,17 @@ on:
           - Auto
           - Manual
       manual_squad:
-        description: Optional 15 IDs copied from the live-cost picker; overrides individual dropdowns
+        description: Optional common 15 IDs; chip-specific squads below override this and the dropdowns
+        type: string
+        required: false
+        default: ""
+      wildcard_squad:
+        description: Optional Wildcard-only 15 IDs from the picker; supports a separate squad when chip is Both
+        type: string
+        required: false
+        default: ""
+      free_hit_squad:
+        description: Optional Free Hit-only 15 IDs from the picker; supports a separate squad when chip is Both
         type: string
         required: false
         default: ""
@@ -3176,14 +3187,14 @@ jobs:
       - name: Validate every production notebook cell
         run: python -m wc_fh.run_notebook "$WC_FH_NOTEBOOK_PATH" --validate-only
 
-      - name: Generate the selected Final video or refresh the player picker
+      - name: Generate the selected Final videos or refresh the player picker
         id: render
         shell: bash
         run: |
           set -o pipefail
           python -m wc_fh.run_notebook "$WC_FH_NOTEBOOK_PATH" 2>&1 | tee "$WC_FH_OUTPUT_ROOT/execution.log"
 
-      - name: Save private YouTube draft with description, SEO tags, hashtags and thumbnail
+      - name: Save private YouTube videos with descriptions, SEO tags, hashtags and thumbnails
         if: inputs.task == 'Render and upload'
         run: python -m wc_fh.publish_private --output-root "$WC_FH_OUTPUT_ROOT"
 
@@ -3200,7 +3211,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Downloadable Final video
+      - name: Downloadable Final videos
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -3216,7 +3227,8 @@ jobs:
         with:
           name: wc-fh-reports-${{ github.run_number }}
           path: |
-            ${{ env.WC_FH_OUTPUT_ROOT }}/data/selection.*
+            ${{ env.WC_FH_OUTPUT_ROOT }}/data/selection*.json
+            ${{ env.WC_FH_OUTPUT_ROOT }}/data/selection*.md
             ${{ env.WC_FH_OUTPUT_ROOT }}/youtube
             ${{ env.WC_FH_OUTPUT_ROOT }}/source.json
             ${{ env.WC_FH_OUTPUT_ROOT }}/delivery_manifest.json

@@ -10,6 +10,7 @@ from typing import Any, Mapping
 POSITIONS = (("GK", 2), ("DEF", 5), ("MID", 5), ("FWD", 3))
 SLOTS = tuple(f"{position.lower()}_{index}" for position, count in POSITIONS for index in range(1, count + 1))
 CHIPS = ("Wildcard", "Free Hit")
+CHIP_OPTIONS = (*CHIPS, "Both")
 TASKS = ("Render and upload", "Refresh player picker")
 AUTO = "AUTO - model recommendation"
 
@@ -19,21 +20,29 @@ def request_controls(environment: Mapping[str, str] | None = None) -> dict[str, 
     task = environment.get("WC_FH_TASK", TASKS[0]).strip()
     chip = environment.get("WC_FH_CHIP", "Wildcard").strip()
     selection = environment.get("WC_FH_SELECTION", "Auto").strip()
-    if task not in TASKS or chip not in CHIPS or selection not in {"Auto", "Manual"}:
+    if task not in TASKS or chip not in CHIP_OPTIONS or selection not in {"Auto", "Manual"}:
         raise ValueError("Select a valid WC- FH task, chip and Auto/Manual mode.")
     raw = environment.get("WC_FH_INPUTS", "{}")
     inputs = json.loads(raw)
     if not isinstance(inputs, dict):
         raise ValueError("WC_FH_INPUTS must be a JSON object.")
-    imported = str(inputs.get("manual_squad", "") or "").strip()
-    player_ids: list[int] = []
-    if imported and selection == "Manual" and task == TASKS[0]:
+    def imported_ids(field: str) -> list[int]:
+        imported = str(inputs.get(field, "") or "").strip()
+        if not imported or selection != "Manual" or task != TASKS[0]:
+            return []
         parts = re.split(r"[,\s]+", imported)
         if len(parts) != 15 or any(not re.fullmatch(r"[1-9]\d*", value) for value in parts):
-            raise ValueError("Paste exactly 15 positive FPL player IDs, separated by commas or spaces.")
+            raise ValueError(f"{field}: paste exactly 15 positive FPL player IDs, separated by commas or spaces.")
         player_ids = list(map(int, parts))
         if len(set(player_ids)) != 15:
-            raise ValueError("The imported manual squad contains duplicate players.")
+            raise ValueError(f"{field}: the imported manual squad contains duplicate players.")
+        return player_ids
+
+    chips = CHIPS if chip == "Both" else (chip,)
+    squads = {selected_chip: imported_ids("wildcard_squad" if selected_chip == "Wildcard" else "free_hit_squad")
+              for selected_chip in chips}
+    # A chip-specific import takes precedence over the common import and dropdowns.
+    player_ids = imported_ids("manual_squad") if any(not ids for ids in squads.values()) else []
     overrides: dict[str, int | None] = {}
     for slot in SLOTS:
         value = str(inputs.get(slot, AUTO) or AUTO)
@@ -44,12 +53,31 @@ def request_controls(environment: Mapping[str, str] | None = None) -> dict[str, 
         if match is None:
             raise ValueError(f"Invalid player dropdown value for {slot}: {value!r}")
         overrides[slot] = int(match.group(1))
-    return dict(task=task, chip=chip, selection=selection, player_ids=player_ids, overrides=overrides)
+    return dict(task=task, chip=chip, selection=selection, player_ids=player_ids, overrides=overrides,
+                squads=squads)
+
+
+def requested_chips(controls: dict[str, Any]) -> tuple[str, ...]:
+    return CHIPS if controls["chip"] == "Both" else (controls["chip"],)
+
+
+def controls_for_chip(controls: dict[str, Any], chip: str) -> dict[str, Any]:
+    if chip not in requested_chips(controls):
+        raise ValueError(f"{chip} was not requested.")
+    return dict(controls, chip=chip, multiple_chips=controls["chip"] == "Both" or controls.get("multiple_chips", False),
+                player_ids=controls.get("squads", {}).get(chip) or controls["player_ids"])
+
+
+def chip_slug(chip: str) -> str:
+    return {"Wildcard": "wildcard", "Free Hit": "free_hit"}[chip]
 
 
 def selected_squad(catalog: dict[str, Any], controls: dict[str, Any]) -> tuple[list[int], int]:
     players = {int(player["id"]): player for player in catalog["players"]}
     chip = controls["chip"]
+    if chip not in CHIPS:
+        raise ValueError("Select each chip separately when resolving a Both request.")
+    controls = controls_for_chip(controls, chip)
     recommended = catalog["recommended"][chip]
     if controls["selection"] == "Auto":
         chosen = list(recommended)
@@ -85,7 +113,8 @@ def save_selection(catalog: dict[str, Any], controls: dict[str, Any], root: Path
     report = dict(chip=controls["chip"], selection=controls["selection"],
                   selected_ids=chosen, total_cost_millions=total / 10,
                   price_source="current official FPL prices", players=[by_id[player_id] for player_id in chosen])
-    path = root / "data" / "selection.json"
+    stem = "selection_" + chip_slug(controls["chip"]) if controls.get("multiple_chips") else "selection"
+    path = root / "data" / f"{stem}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     lines = [f"### {controls['chip']} · {controls['selection']}",
@@ -95,7 +124,7 @@ def save_selection(catalog: dict[str, Any], controls: dict[str, Any], root: Path
                  f"{by_id[player_id]['club']} | £{by_id[player_id]['price_tenths'] / 10:.1f}m |"
                  for player_id in chosen)
     text = "\n".join(lines) + "\n"
-    (root / "data" / "selection.md").write_text(text, encoding="utf-8")
+    (root / "data" / f"{stem}.md").write_text(text, encoding="utf-8")
     print(text, flush=True)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:

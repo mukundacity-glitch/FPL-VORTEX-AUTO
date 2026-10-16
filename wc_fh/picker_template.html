@@ -14,7 +14,7 @@
   <div class="controls"><input id="search" type="search" placeholder="Find a player or club…" aria-label="Filter players"><button id="recommend">Use recommended 15</button><button id="clear">Clear squad</button></div>
   <div id="squad" aria-label="Squad selections"></div>
   <div class="status" id="status" role="status" aria-live="polite"></div>
-  <section class="bottom"><h2>Use this squad in GitHub</h2><p class="notice">Choose this chip and <b>Manual</b> in WC- FH, then paste these IDs into <b>manual_squad</b>. Leave the individual dropdowns on AUTO when importing IDs.</p><textarea id="export" readonly aria-label="Selected FPL player IDs"></textarea><div class="controls"><button class="primary" id="copy">Copy squad IDs</button><button id="download">Save selection</button></div><small id="copy-status" role="status"></small></section>
+  <section class="bottom"><h2>Use this squad in GitHub</h2><p class="notice">Choose <b>Manual</b> in WC- FH and paste this tab's IDs into <b id="import-field">wildcard_squad</b>. To generate both videos, choose <b>Both</b> and copy each tab's IDs into its matching squad field. Each tab keeps its own players and total.</p><textarea id="export" readonly aria-label="Selected FPL player IDs"></textarea><div class="controls"><button class="primary" id="copy">Copy Wildcard IDs</button><button id="download">Save selection</button></div><small id="copy-status" role="status"></small></section>
   <footer><div id="snapshot"></div><p>Prices and recommendations are a dated snapshot. The workflow rechecks live prices, eligibility and squad rules before rendering. To get an updated picker, run <b>WC- FH → Refresh player picker</b> and open its squad-picker artifact. <label class="file">Or load updated players.json<input id="load" type="file" accept="application/json,.json"></label>.</p></footer>
 </main>
 <script id="player-data" type="application/json">__PLAYER_DATA__</script>
@@ -27,6 +27,7 @@ const slots = positions.flatMap(([position,count])=>Array.from({length:count},(_
 let selections = {};
 let playersById = new Map();
 const money = tenths => `£${(tenths/10).toFixed(1)}m`;
+const importField = () => chip==='Wildcard'?'wildcard_squad':'free_hit_squad';
 function initialize(data) {
   if(!data || !Array.isArray(data.players) || !data.players.length || !data.recommended) throw new Error('Invalid player catalog');
   for(const selectedChip of ['Wildcard','Free Hit']) if(!Array.isArray(data.recommended[selectedChip]) || data.recommended[selectedChip].length!==15) throw new Error('Both recommended squads are required');
@@ -88,15 +89,17 @@ function render() {
   }
   const error=validity();const status=document.getElementById('status');status.className=`status ${error?'bad':'good'}`;status.textContent=error||`15 players ready · ${money(totals(chip).cost)} · 2 GK / 5 DEF / 5 MID / 3 FWD`;
   document.getElementById('export').value=selections[chip].filter(Boolean).join(',');
+  document.getElementById('import-field').textContent=importField();
+  document.getElementById('copy').textContent=`Copy ${chip} IDs`;
   document.getElementById('copy').disabled=Boolean(error);document.getElementById('download').disabled=Boolean(error);
 }
-document.getElementById('tab-wc').onclick=()=>{chip='Wildcard';document.getElementById('search').value='';render();};
-document.getElementById('tab-fh').onclick=()=>{chip='Free Hit';document.getElementById('search').value='';render();};
+document.getElementById('tab-wc').onclick=()=>{chip='Wildcard';document.getElementById('search').value='';document.getElementById('copy-status').textContent='';render();};
+document.getElementById('tab-fh').onclick=()=>{chip='Free Hit';document.getElementById('search').value='';document.getElementById('copy-status').textContent='';render();};
 document.getElementById('search').addEventListener('input',render);
 document.getElementById('recommend').onclick=()=>{selections[chip]=[...catalog.recommended[chip]];render();};
 document.getElementById('clear').onclick=()=>{selections[chip]=Array(15).fill(null);render();};
-document.getElementById('copy').onclick=async()=>{const field=document.getElementById('export');try{await navigator.clipboard.writeText(field.value);}catch{field.focus();field.select();document.execCommand('copy');}document.getElementById('copy-status').textContent=`Copied ${chip} squad. Choose ${chip} / Manual in GitHub and paste into manual_squad.`;};
-document.getElementById('download').onclick=()=>{const data=JSON.stringify({chip,selection:'Manual',manual_squad:selections[chip].join(','),total_cost_millions:totals(chip).cost/10},null,2);const url=URL.createObjectURL(new Blob([data],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=`${chip.replace(' ','-').toLowerCase()}-manual-squad.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+document.getElementById('copy').onclick=async()=>{const field=document.getElementById('export');try{await navigator.clipboard.writeText(field.value);}catch{field.focus();field.select();document.execCommand('copy');}document.getElementById('copy-status').textContent=`Copied ${chip} squad. Choose Both (or ${chip}) / Manual in GitHub and paste into ${importField()}.`;};
+document.getElementById('download').onclick=()=>{const data=JSON.stringify({chip,selection:'Manual',[importField()]:selections[chip].join(','),total_cost_millions:totals(chip).cost/10},null,2);const url=URL.createObjectURL(new Blob([data],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=`${chip.replace(' ','-').toLowerCase()}-manual-squad.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 document.getElementById('load').onchange=async event=>{try{const file=event.target.files[0];if(file)initialize(JSON.parse(await file.text()));}catch(error){document.getElementById('status').textContent=error.message;}};
 try{initialize(catalog);}catch(error){document.getElementById('status').textContent=error.message;}
 </script>
