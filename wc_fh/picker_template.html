@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WC–FH · FPL VORTEX Squad Picker</title>
+<style>
+:root{color-scheme:dark;font:16px/1.5 system-ui,sans-serif;background:#09111e;color:#eaf2ff}*{box-sizing:border-box}body{margin:0}main{max-width:1080px;margin:auto;padding:28px 20px 80px}header{display:flex;align-items:center;justify-content:space-between;gap:20px}h1{font-size:clamp(26px,4vw,42px);margin:0}.eyebrow{color:#54e8b5;font-weight:750;letter-spacing:.14em;font-size:12px}p{color:#a7b7cd}.tabs{display:flex;gap:8px;margin:24px 0 18px}button,a.button{font:inherit;font-weight:650;background:#17263d;border:1px solid #2d4260;border-radius:9px;color:#f3f7ff;padding:11px 17px;cursor:pointer;text-decoration:none}button[aria-selected=true],.primary{background:#54e8b5!important;color:#07151b!important;border-color:#54e8b5!important}button:disabled{opacity:.4;cursor:not-allowed}.totals{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:1fr 1fr;gap:12px;background:#09111ef5;padding:12px 0}.total{border:1px solid #2b405c;background:#101d30;border-radius:12px;padding:16px 20px}.total.active{border-color:#54e8b5}.total strong{display:block;font-size:32px}.muted,small{color:#a7b7cd}.controls{display:flex;gap:10px;flex-wrap:wrap;margin:15px 0 22px}input[type=search],select,textarea{background:#111f33;border:1px solid #304866;border-radius:8px;color:#edf5ff;font:inherit;padding:11px;width:100%}input[type=search]{max-width:330px}section{border:1px solid #21334b;border-radius:12px;padding:18px;margin:15px 0;background:#0d1929}h2{font-size:18px;margin:0 0 12px}.rows{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.slot{min-width:0}.slot label{display:block;margin-bottom:5px;font-size:13px;color:#b6c6dc}.slot small{display:block;min-height:22px}.bottom{margin-top:26px}.status{padding:12px 15px;border-radius:8px;background:#17283e;margin:15px 0}.status.good{background:#11372d;color:#8bffcf}.status.bad{background:#422520;color:#ffc6b8}textarea{height:85px;resize:vertical}.notice{font-size:13px}footer{margin-top:25px;color:#8296b0;font-size:13px}label.file{cursor:pointer;border-bottom:1px dotted #8296b0}input[type=file]{display:none}@media(max-width:640px){main{padding:18px 12px 60px}.rows{grid-template-columns:1fr}.total{padding:12px}.total strong{font-size:26px}header{align-items:flex-start;flex-direction:column}.controls button{padding:10px 12px}select{font-size:14px}}
+</style>
+<main>
+  <header><div><div class="eyebrow">FPL VORTEX · FINAL 4K</div><h1>WC–FH squad picker</h1></div><a class="button" href="https://github.com/mukundacity-glitch/FPL-VORTEX-YOUTUBE-POST/actions/workflows/wc-fh.yml" target="_blank" rel="noopener">Open workflow ↗</a></header>
+  <p>All players. Model recommendations first. Your total updates with every selection.</p>
+  <div class="totals"><div class="total" id="total-wc"><span>Wildcard · six gameweeks</span><strong id="cost-wc">£0.0m</strong><small id="count-wc">0 / 15 selected</small></div><div class="total" id="total-fh"><span>Free Hit · one gameweek</span><strong id="cost-fh">£0.0m</strong><small id="count-fh">0 / 15 selected</small></div></div>
+  <div class="tabs" role="tablist" aria-label="Choose chip"><button id="tab-wc" role="tab" aria-selected="true">Wildcard</button><button id="tab-fh" role="tab" aria-selected="false">Free Hit</button></div>
+  <div class="controls"><input id="search" type="search" placeholder="Find a player or club…" aria-label="Filter players"><button id="recommend">Use recommended 15</button><button id="clear">Clear squad</button></div>
+  <div id="squad" aria-label="Squad selections"></div>
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+  <section class="bottom"><h2>Use this squad in GitHub</h2><p class="notice">Choose this chip and <b>Manual</b> in WC- FH, then paste these IDs into <b>manual_squad</b>. Leave the individual dropdowns on AUTO when importing IDs.</p><textarea id="export" readonly aria-label="Selected FPL player IDs"></textarea><div class="controls"><button class="primary" id="copy">Copy squad IDs</button><button id="download">Save selection</button></div><small id="copy-status" role="status"></small></section>
+  <footer><div id="snapshot"></div><p>Prices and recommendations are a dated snapshot. The workflow rechecks live prices, eligibility and squad rules before rendering. To get an updated picker, run <b>WC- FH → Refresh player picker</b> and open its squad-picker artifact. <label class="file">Or load updated players.json<input id="load" type="file" accept="application/json,.json"></label>.</p></footer>
+</main>
+<script id="player-data" type="application/json">__PLAYER_DATA__</script>
+<script>
+'use strict';
+let catalog = JSON.parse(document.getElementById('player-data').textContent);
+let chip = 'Wildcard';
+const positions = [['GK',2],['DEF',5],['MID',5],['FWD',3]];
+const slots = positions.flatMap(([position,count])=>Array.from({length:count},(_,index)=>`${position.toLowerCase()}_${index+1}`));
+let selections = {};
+let playersById = new Map();
+const money = tenths => `£${(tenths/10).toFixed(1)}m`;
+function initialize(data) {
+  if(!data || !Array.isArray(data.players) || !data.players.length || !data.recommended) throw new Error('Invalid player catalog');
+  for(const selectedChip of ['Wildcard','Free Hit']) if(!Array.isArray(data.recommended[selectedChip]) || data.recommended[selectedChip].length!==15) throw new Error('Both recommended squads are required');
+  catalog = data;
+  playersById = new Map(catalog.players.map(player=>[Number(player.id),player]));
+  selections = Object.fromEntries(['Wildcard','Free Hit'].map(selectedChip=>[selectedChip,[...catalog.recommended[selectedChip]]]));
+  document.getElementById('snapshot').textContent = `GW${catalog.gameweek} · ${catalog.players.length} players · Updated ${new Date(catalog.generated_at).toLocaleString()} · ${catalog.source}`;
+  render();
+}
+function totals(selectedChip) {
+  const ids = selections[selectedChip].filter(id=>id && playersById.has(id));
+  return {count:ids.length,cost:ids.reduce((sum,id)=>sum+playersById.get(id).price_tenths,0)};
+}
+function validity() {
+  const ids = selections[chip].filter(Boolean);
+  if(ids.length!==15) return `Choose ${15-ids.length} more player${ids.length===14?'':'s'}.`;
+  if(new Set(ids).size!==15) return 'Each player can appear once. Replace duplicate selections.';
+  const clubs = new Map();
+  for(const id of ids) {const player=playersById.get(id);if(!player)return 'A selected player is absent from this catalog.';clubs.set(player.club_id,(clubs.get(player.club_id)||0)+1);}
+  if([...clubs.values()].some(count=>count>3))return 'Choose at most three players from each club.';
+  if(chip==='Wildcard' && totals(chip).cost>Math.round(catalog.budget_millions*10))return `Squad exceeds the current model budget of £${catalog.budget_millions.toFixed(1)}m. Reduce the cost before exporting.`;
+  return '';
+}
+function render() {
+  for(const [selectedChip,key] of [['Wildcard','wc'],['Free Hit','fh']]) {
+    const total=totals(selectedChip);
+    document.getElementById(`cost-${key}`).textContent=money(total.cost);
+    document.getElementById(`count-${key}`).textContent=`${total.count} / 15 selected`;
+    document.getElementById(`total-${key}`).classList.toggle('active',selectedChip===chip);
+    document.getElementById(`tab-${key}`).setAttribute('aria-selected',String(selectedChip===chip));
+  }
+  const container=document.getElementById('squad');container.replaceChildren();
+  const search=document.getElementById('search').value.toLocaleLowerCase().trim();
+  const recommended=new Set(catalog.recommended[chip]);
+  let offset=0;
+  for(const [position,count] of positions) {
+    const section=document.createElement('section');const heading=document.createElement('h2');heading.textContent={GK:'Goalkeepers',DEF:'Defenders',MID:'Midfielders',FWD:'Forwards'}[position];section.append(heading);
+    const rows=document.createElement('div');rows.className='rows';
+    const options=catalog.players.filter(player=>player.position===position).sort((first,second)=>Number(recommended.has(second.id))-Number(recommended.has(first.id)) || second.scores[chip]-first.scores[chip] || first.name.localeCompare(second.name));
+    for(let index=0;index<count;index++) {
+      const slotIndex=offset+index;const selected=selections[chip][slotIndex];
+      const wrapper=document.createElement('div');wrapper.className='slot';
+      const label=document.createElement('label');label.htmlFor=slots[slotIndex];label.textContent=`${position} ${index+1}`;
+      const select=document.createElement('select');select.id=slots[slotIndex];select.add(new Option('Choose player…',''));
+      for(const player of options) {
+        if(search && player.id!==selected && !`${player.name} ${player.club} ${player.id}`.toLocaleLowerCase().includes(search))continue;
+        const star=recommended.has(player.id)?'★ ':'';
+        const unavailable=player.status==='a'?'':` · status ${player.status}`;
+        const option=new Option(`${star}${player.name} · ${player.club} · ${money(player.price_tenths)} · ${player.projected===false?'not projected':player.scores[chip].toFixed(2)+' xPts'}${unavailable}`,String(player.id));
+        option.disabled=selections[chip].some((id,other)=>other!==slotIndex && id===player.id);
+        select.add(option);
+      }
+      select.value=selected?String(selected):'';
+      select.addEventListener('change',()=>{selections[chip][slotIndex]=Number(select.value)||null;document.getElementById('copy-status').textContent='';render();document.getElementById(slots[slotIndex]).focus();});
+      const detail=document.createElement('small');detail.textContent=selected?`FPL ID ${selected}${recommended.has(selected)?' · Model recommended':''}`:'';
+      wrapper.append(label,select,detail);rows.append(wrapper);
+    }
+    section.append(rows);container.append(section);offset+=count;
+  }
+  const error=validity();const status=document.getElementById('status');status.className=`status ${error?'bad':'good'}`;status.textContent=error||`15 players ready · ${money(totals(chip).cost)} · 2 GK / 5 DEF / 5 MID / 3 FWD`;
+  document.getElementById('export').value=selections[chip].filter(Boolean).join(',');
+  document.getElementById('copy').disabled=Boolean(error);document.getElementById('download').disabled=Boolean(error);
+}
+document.getElementById('tab-wc').onclick=()=>{chip='Wildcard';document.getElementById('search').value='';render();};
+document.getElementById('tab-fh').onclick=()=>{chip='Free Hit';document.getElementById('search').value='';render();};
+document.getElementById('search').addEventListener('input',render);
+document.getElementById('recommend').onclick=()=>{selections[chip]=[...catalog.recommended[chip]];render();};
+document.getElementById('clear').onclick=()=>{selections[chip]=Array(15).fill(null);render();};
+document.getElementById('copy').onclick=async()=>{const field=document.getElementById('export');try{await navigator.clipboard.writeText(field.value);}catch{field.focus();field.select();document.execCommand('copy');}document.getElementById('copy-status').textContent=`Copied ${chip} squad. Choose ${chip} / Manual in GitHub and paste into manual_squad.`;};
+document.getElementById('download').onclick=()=>{const data=JSON.stringify({chip,selection:'Manual',manual_squad:selections[chip].join(','),total_cost_millions:totals(chip).cost/10},null,2);const url=URL.createObjectURL(new Blob([data],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=`${chip.replace(' ','-').toLowerCase()}-manual-squad.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+document.getElementById('load').onchange=async event=>{try{const file=event.target.files[0];if(file)initialize(JSON.parse(await file.text()));}catch(error){document.getElementById('status').textContent=error.message;}};
+try{initialize(catalog);}catch(error){document.getElementById('status').textContent=error.message;}
+</script>
+</html>
