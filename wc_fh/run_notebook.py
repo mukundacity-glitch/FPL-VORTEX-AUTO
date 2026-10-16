@@ -15,6 +15,7 @@ from typing import Any
 from .catalog import build_catalog, save_catalog
 from .controls import (CHIPS, POSITIONS, TASKS, chip_slug, controls_for_chip,
                        request_controls, requested_chips, save_selection, selected_squad)
+from .render_qa import close_renderer, verify_exported_visuals
 
 
 def replace_assignments(source: str, replacements: dict[str, Any]) -> str:
@@ -59,6 +60,58 @@ def patch_setup(source: str, controls: dict[str, Any]) -> str:
     return "".join(lines)
 
 
+def patch_render(source: str) -> str:
+    tree = ast.parse(source)
+    lines = source.splitlines(keepends=True)
+    previews = [node for node in tree.body if isinstance(node, ast.If)
+                and any(isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
+                        and isinstance(child.func.value, ast.Name) and child.func.value.id == "VXWV"
+                        and child.func.attr == "verify_visuals" for child in ast.walk(node))]
+    if len(previews) != 1:
+        raise ValueError("Notebook visual preflight contract changed; expected one early Wildcard preview block.")
+    node = previews[0]
+    replacement = '''if VX_GENERATE_WILDCARD:
+    for key in (key for key in VX_DATA_CONTRACTS if key.startswith('wildcard')):
+        scenes = VX_SCENE_MANIFESTS[key]
+        VXWC.validate_scene_json(VX_WILDCARD_SCENE_JSONS[key])
+        VX_WILDCARD_PREVIEW = None
+        script_path = VX_NARRATION_PATHS.get(key)
+        if script_path is None or not Path(script_path).is_file() or key not in VX_NARRATION_OBJECTS:
+            raise RuntimeError(f"{key}: validated Scene-JSON narration is missing; rerun Cells 12 and 13")
+        narration = decode_script(Path(script_path).read_text(encoding='utf-8'))
+        VXWC.validate_render_script(VX_NARRATION_OBJECTS[key], narration)
+        VX_NARRATION[key] = narration
+        for scene, segment in zip(scenes, narration):
+            scene['narration_text'] = segment['text']
+        (VX_ANALYSIS_ROOT / (key + '_scene_manifest.json')).write_text(json.dumps(scenes, indent=2, ensure_ascii=False))
+        print(f"{key}: scene data and narration validated; visual QA follows measured audio", flush=True)
+'''
+    changes = [(node.lineno - 1, node.end_lineno, replacement)]
+    for name in ("_vx_render_verified_wildcard", "_vx_render_verified_freehit"):
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name]
+        if len(functions) != 1:
+            raise ValueError(f"Notebook measured-render contract changed: {name}")
+        calls = [node for node in ast.walk(functions[0]) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "vx_visual_from_manifest"]
+        if len(calls) != 1 or len(calls[0].args) != 4 or calls[0].keywords:
+            raise ValueError(f"Notebook visual factory contract changed: {name}")
+        call = calls[0]
+        argument_sources = [ast.get_source_segment(source, argument) for argument in call.args]
+        if any(argument is None for argument in argument_sources):
+            raise ValueError(f"Notebook visual factory arguments changed: {name}")
+        arguments = ", ".join(argument for argument in argument_sources if argument is not None)
+        # The existing factory call is downstream of PCM measurement in both native render functions.
+        line = lines[call.lineno - 1]
+        expression = ast.get_source_segment(source, call)
+        if call.lineno != call.end_lineno or expression is None:
+            raise ValueError(f"Notebook visual factory call shape changed: {name}")
+        changes.append((call.lineno - 1, call.end_lineno,
+                        line.replace(expression, f"_wc_fh_verified_visual(vx_visual_from_manifest, {arguments})", 1)))
+    for start, stop, replacement in sorted(changes, reverse=True):
+        lines[start:stop] = [replacement]
+    return "from wc_fh.render_qa import verified_visual as _wc_fh_verified_visual\n" + "".join(lines)
+
+
 def prepare_cells(notebook: dict[str, Any], controls: dict[str, Any]) -> list[tuple[int, str, str]]:
     from IPython.core.inputtransformer2 import TransformerManager
 
@@ -95,6 +148,7 @@ def prepare_cells(notebook: dict[str, Any], controls: dict[str, Any]) -> list[tu
                 raise ValueError("The scene-preparation reload contract changed.")
             source = source.replace(marker, "\nfrom wc_fh.manual_plans import install_manual_narration\ninstall_manual_narration()\n" + marker, 1)
         if label == "14":
+            source = patch_render(source)
             # Colab's extra viewer calls .draw() on a Remotion renderer; delivery QA already verifies the 4K exports.
             lines = source.splitlines(keepends=True)
             for node in reversed(ast.parse(source).body):
@@ -213,29 +267,39 @@ def execute(notebook_path: Path, *, validate_only: bool = False) -> None:
         if error is not None:
             (root / "runtime_error.txt").write_text("".join(traceback.format_exception(error)), encoding="utf-8")
             raise RuntimeError(f"WC- FH cell {label} failed") from error
-    for index, label, source in cells:
-        run_cell(index, label, source)
-        if label == "0":
-            if shell.user_ns["VX_VIDEO_MODE"] != "Final" or shell.user_ns["VX_VIDEO_PROFILE"]["height"] != 2160:
-                raise RuntimeError("WC- FH only permits Final 4K rendering.")
-        if label == "11":
-            catalog = catalog_from_namespace(shell.user_ns)
-            save_catalog(catalog, root / "picker")
-            if controls["task"] == TASKS[1]:
-                print("WC- FH: refreshed both player lists and live-cost picker; no video upload requested.")
-                return
-            select_chip(shell.user_ns, controls, catalog, root)
+    try:
+        for index, label, source in cells:
             run_cell(index, label, source)
-            if controls["selection"] == "Auto":
-                squads = {chip: shell.user_ns[f"VX_{'WILDCARD' if chip == 'Wildcard' else 'FREEHIT'}_AUTO_SQUAD"]
-                          .player_id.astype(int).tolist() for chip in requested_chips(controls)}
-                actual = build_catalog(shell.user_ns["_bootstrap"], shell.user_ns["_VX_GW_SCORES"].to_dict("records"),
-                                       squads, budget=float(shell.user_ns["VX_BUDGET"]))
-                for chip in requested_chips(controls):
-                    save_selection(actual, controls_for_chip(controls, chip), root)
-    manifest = json.loads((root / "delivery_manifest.json").read_text(encoding="utf-8"))
-    validate_delivery(manifest, controls)
-    print(f"WC- FH: verified {controls['chip']} / {controls['selection']} / Final 4K", flush=True)
+            if label == "0":
+                if shell.user_ns["VX_VIDEO_MODE"] != "Final" or shell.user_ns["VX_VIDEO_PROFILE"]["height"] != 2160:
+                    raise RuntimeError("WC- FH only permits Final 4K rendering.")
+            if label == "11":
+                catalog = catalog_from_namespace(shell.user_ns)
+                save_catalog(catalog, root / "picker")
+                if controls["task"] == TASKS[1]:
+                    print("WC- FH: refreshed both player lists and live-cost picker; no video upload requested.")
+                    return
+                select_chip(shell.user_ns, controls, catalog, root)
+                run_cell(index, label, source)
+                if controls["selection"] == "Auto":
+                    squads = {chip: shell.user_ns[f"VX_{'WILDCARD' if chip == 'Wildcard' else 'FREEHIT'}_AUTO_SQUAD"]
+                              .player_id.astype(int).tolist() for chip in requested_chips(controls)}
+                    actual = build_catalog(shell.user_ns["_bootstrap"], shell.user_ns["_VX_GW_SCORES"].to_dict("records"),
+                                           squads, budget=float(shell.user_ns["VX_BUDGET"]))
+                    for chip in requested_chips(controls):
+                        save_selection(actual, controls_for_chip(controls, chip), root)
+        manifest = json.loads((root / "delivery_manifest.json").read_text(encoding="utf-8"))
+        validate_delivery(manifest, controls)
+        verify_exported_visuals(root, manifest)
+        print(f"WC- FH: verified {controls['chip']} / {controls['selection']} / Final 4K", flush=True)
+    finally:
+        active_error = sys.exc_info()[1]
+        try:
+            close_renderer(shell.user_ns)
+        except Exception:
+            if active_error is None:
+                raise
+            traceback.print_exc()
 
 
 def main() -> None:
